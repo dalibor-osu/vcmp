@@ -197,6 +197,38 @@ fn transitions_animate_by_default() {
 }
 
 #[test]
+fn the_queue_panel_slides_in_unless_motion_is_reduced() {
+    let window = open_window();
+    // Tall enough for the whole Settings page, where motion is reduced below.
+    window.window().set_size(LogicalSize::new(1100.0, 1600.0));
+    let panel_x = |window: &AppWindow| {
+        ElementHandle::find_by_element_type_name(window, "QueuePanel")
+            .next()
+            .expect("the queue panel is open")
+            .absolute_position()
+            .x
+    };
+    window.set_queue_open(true);
+    let start = panel_x(&window);
+    assert!(
+        start >= 1100.0 - 1.0,
+        "starts at the window's edge, not {start}"
+    );
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert_eq!(panel_x(&window), 1100.0 - 320.0, "then sits at the edge");
+
+    window.set_queue_open(false);
+    open_page(&window, "Settings");
+    motion_option(&window, "On").invoke_accessible_default_action();
+    window.set_queue_open(true);
+    assert_eq!(
+        panel_x(&window),
+        1100.0 - 320.0,
+        "at once with reduced motion"
+    );
+}
+
+#[test]
 fn reduced_motion_makes_transitions_instant() {
     let window = open_window();
     let albums_marker = marker_y(&window);
@@ -285,6 +317,9 @@ fn smallest_window_keeps_everything_inside() {
         window
             .global::<vcmp_app::PlayerState>()
             .set_now_playing_open(now_playing);
+        // The queue panel slides in once made; check it where it comes to rest.
+        let _ = ElementHandle::find_by_element_type_name(&window, "QueuePanel").count();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
         let roles = [
             AccessibleRole::Combobox,
             AccessibleRole::Tab,

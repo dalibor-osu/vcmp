@@ -375,7 +375,11 @@ fn a_whole_album_goes_into_a_playlist_named_after_it() {
     let album = app.library.tracks().unwrap()[0].album_id.unwrap();
     app.view.open_album_by_id(album);
     mock_elapsed_time(Duration::ZERO);
-    find(&app.window, AccessibleRole::Button, "Add Album to a playlist");
+    find(
+        &app.window,
+        AccessibleRole::Button,
+        "Add Album to a playlist",
+    );
 
     let playlists = app.window.global::<Playlists>();
     playlists.invoke_add_album(-1);
@@ -402,10 +406,11 @@ fn queued_and_playing_tracks_can_be_added_to_a_playlist() {
     assert_eq!(upcoming.path, app.path("3.flac"));
 
     // The now playing view has the same menu for the track playing.
-    app.service.handle_event(Event::TrackChanged(Some(NowPlaying {
-        entry: entry("1.flac"),
-        duration: None,
-    })));
+    app.service
+        .handle_event(Event::TrackChanged(Some(NowPlaying {
+            entry: entry("1.flac"),
+            duration: None,
+        })));
     state.set_now_playing_open(true);
     mock_elapsed_time(Duration::ZERO);
     find(&app.window, AccessibleRole::Button, "More for One");

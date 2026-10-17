@@ -1131,6 +1131,9 @@ fn the_queue_panel_scrolls_and_queues_album_tracks() {
         .window()
         .set_size(slint::LogicalSize::new(1100.0, 600.0));
     app.window.set_queue_open(true);
+    // The panel slides in once made; the pointer below finds it in its place.
+    let _ = ElementHandle::find_by_element_type_name(&app.window, "QueuePanel").count();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
     let upcoming: Vec<QueueEntry> = (0..60)
         .map(|i| app.entry(if i % 2 == 0 { "1.flac" } else { "2.flac" }))
         .collect();

@@ -451,7 +451,8 @@ The Albums page tells apart why it is empty:
   rings go away and Space works again after clicking anywhere. A click on a text
   field gives it the focus straight back, as fields take the focus when pressed;
   the app's other controls never take focus on a click.
-- **The queue panel** opens from the queue button in the player bar, and stays open
+- **The queue panel** slides in from the window's edge (at once with reduced
+  motion). It opens from the queue button in the player bar, and stays open
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
   the page narrows to make room for it; in a narrower one the panel lies over the
   page's right edge, so the page keeps the width its controls need. It lies over
@@ -653,7 +654,8 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   time.
 - Going back is one step: an album opened from an artist found by search returns
   to the artist, and the artist to Search, but there is no general history.
-- The queue panel appears without an animation; one is planned.
+- The queue panel slides in when it opens but closes at once: the panel is made when
+  it opens and dropped when it closes, so there is nothing left to slide out.
 - An artist's photo is keyed by their name: two different artists with the same
   name in one library share it.
 - Photos found online were tried only against scripted answers; a real search needs
