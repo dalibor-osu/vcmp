@@ -91,9 +91,9 @@ fn everything_works_from_the_keyboard() {
     let window = open_window();
     let theme = window.global::<Theme>();
 
-    // Tab order follows the visual order: Search, Albums, Artists, Songs, Folders,
-    // Settings, About, then the page.
-    for _ in 0..7 {
+    // Tab order follows the visual order: Search, Albums, Artists, Playlists, Songs,
+    // Folders, Settings, About, then the page.
+    for _ in 0..8 {
         press(&window, Key::Tab);
     }
     press(&window, Key::Return);
@@ -214,7 +214,7 @@ fn smallest_window_keeps_everything_inside() {
     lastfm.set_status(vcmp_app::LastfmStatus::Waiting);
 
     // Every page, with the queue panel closed and open, and the now playing view.
-    for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6]
+    for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6, 7]
         .into_iter()
         .flat_map(|page| [(page, false, false), (page, true, false)])
         .chain([(1, false, true)])
@@ -275,6 +275,37 @@ fn a_library_that_failed_to_open_says_so() {
     )
     .next()
     .expect("error message instead of the empty state");
+}
+
+#[test]
+fn a_short_window_scrolls_the_sidebar_to_the_focused_section() {
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(720.0, 480.0));
+    let sidebar = ElementHandle::find_by_element_id(&window, "AppWindow::sidebar")
+        .next()
+        .expect("sidebar");
+    let sections = ElementHandle::find_by_element_id(&window, "AppWindow::sidebar-scroll")
+        .next()
+        .expect("the sidebar's scrolling part");
+    let bottom = |element: &ElementHandle| element.absolute_position().y + element.size().height;
+    assert!(
+        bottom(&sections) <= bottom(&sidebar) + 0.5,
+        "the sections stay inside the sidebar, above the player bar"
+    );
+    let about = find(&window, AccessibleRole::Tab, "About");
+    assert!(
+        bottom(&about) > bottom(&sections),
+        "the last section starts out of view in the smallest window"
+    );
+    // From the start: Search, Albums, Artists, Playlists, Songs, Folders, Settings,
+    // About.
+    for _ in 0..8 {
+        press(&window, Key::Tab);
+    }
+    assert!(
+        bottom(&about) <= bottom(&sections) + 0.5,
+        "focusing About scrolls it into view"
+    );
 }
 
 #[test]

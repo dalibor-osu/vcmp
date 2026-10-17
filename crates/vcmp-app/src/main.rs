@@ -5,12 +5,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::ComponentHandle;
+use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
+use vcmp_app::updates;
 use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_integrations::lastfm::Credentials;
-use vcmp_integrations::musicbrainz::CoverFinder;
+use vcmp_integrations::musicbrainz::{CoverFinder, CoverPicker};
 use vcmp_library::Library;
 use vcmp_playback::{Player, PlayerOptions};
 
@@ -41,6 +43,15 @@ fn main() -> Result<(), slint::PlatformError> {
                         paths,
                         view.clone(),
                         Delivery::EventLoop,
+                    );
+                    // The picker's worker asks nothing until the user searches.
+                    let cover_fetch = CoverFetch::connect(
+                        &window,
+                        library.clone(),
+                        view.clone(),
+                        Box::new(CoverPicker::start(|search, event| {
+                            CoverFetch::post(move |fetch| fetch.handle(search, event));
+                        })),
                     );
                     let options = PlayerOptions {
                         output_device: library
@@ -79,6 +90,12 @@ fn main() -> Result<(), slint::PlatformError> {
                             if let Some(lastfm) = &lastfm {
                                 service.set_scrobbler(Box::new(lastfm.clone()));
                             }
+                            let player = Rc::downgrade(&service);
+                            cover_fetch.on_cover_changed(move |album| {
+                                if let Some(player) = player.upgrade() {
+                                    player.artwork_changed(album);
+                                }
+                            });
                             Some(service)
                         }
                         Err(error) => {
@@ -86,13 +103,14 @@ fn main() -> Result<(), slint::PlatformError> {
                             None
                         }
                     };
-                    services = Some((library_service, player_service, lastfm));
+                    services = Some((library_service, player_service, cover_fetch, lastfm));
                 }
                 Err(error) => {
                     log::error!("could not read albums: {error}");
                     window.set_library_failed(true);
                 }
             }
+            updates::connect(&window, Some(library.clone()), updates::check_online);
             if let Err(error) = vcmp_app::preferences::connect(&window, library) {
                 log::warn!("could not load preferences: {error}");
             }
@@ -100,10 +118,11 @@ fn main() -> Result<(), slint::PlatformError> {
         Err(error) => {
             log::error!("could not open the library database: {error}");
             window.set_library_failed(true);
+            updates::connect(&window, None, updates::check_online);
         }
     }
     let result = window.run();
-    if let Some((_, Some(player_service), _)) = &services {
+    if let Some((_, Some(player_service), _, _)) = &services {
         player_service.save_queue();
     }
     result

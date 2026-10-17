@@ -47,6 +47,7 @@ pub struct Album {
     pub artist_id: Option<ArtistId>,
     pub year: Option<i32>,
     pub track_count: u32,
+    /// The files' own art, or else a cover the user fetched online.
     pub artwork: Option<Artwork>,
     /// MusicBrainz release ID, when the files are tagged with one.
     pub musicbrainz_id: Option<String>,
@@ -74,11 +75,11 @@ pub(crate) enum TrackFilter {
     AppearsOn(ArtistId),
 }
 
-const TRACK_COLUMNS: &str =
+pub(crate) const TRACK_COLUMNS: &str =
     "t.id, t.path, t.available, t.format, t.title, t.artist, t.artist_id, t.album,
     t.album_id, t.album_artist, t.track_number, t.disc_number, t.year, t.genre, t.duration_ms";
 
-fn track_from(row: &Row) -> rusqlite::Result<Track> {
+pub(crate) fn track_from(row: &Row) -> rusqlite::Result<Track> {
     Ok(Track {
         id: TrackId(row.get(0)?),
         path: path_codec::decode(&row.get::<_, Vec<u8>>(1)?),
@@ -132,11 +133,12 @@ pub(crate) fn track(conn: &Connection, TrackId(id): TrackId) -> Result<Option<Tr
     Ok(conn.query_row(&sql, [id], track_from).optional()?)
 }
 
-const ALBUM_QUERY: &str =
-    "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id), a.artwork_hash, a.mbid
+const ALBUM_QUERY: &str = "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id),
+        a.artwork_hash, a.mbid, fc.artwork_hash
     FROM albums a
     JOIN tracks t ON t.album_id = a.id AND t.available = 1
-    LEFT JOIN artists ar ON ar.id = a.artist_id";
+    LEFT JOIN artists ar ON ar.id = a.artist_id
+    LEFT JOIN fetched_covers fc ON fc.group_key = a.group_key";
 
 fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
     Ok(Album {
@@ -146,9 +148,10 @@ fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
         artist_id: row.get::<_, Option<i64>>(3)?.map(ArtistId),
         year: row.get(4)?,
         track_count: row.get(5)?,
-        artwork: row
-            .get::<_, Option<String>>(6)?
-            .and_then(|key| store.get(&key)),
+        artwork: [row.get::<_, Option<String>>(6)?, row.get(8)?]
+            .into_iter()
+            .flatten()
+            .find_map(|key| store.get(&key)),
         musicbrainz_id: row.get(7)?,
     })
 }

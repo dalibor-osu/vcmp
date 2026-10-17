@@ -24,7 +24,7 @@ Read it before changing anything structural.
 | OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
-| CI | GitHub Actions: Ubuntu, Windows and macOS for pull requests into `main` and pushes to it; Ubuntu only for pull requests between feature branches. A newer push to a pull request cancels its running checks |
+| CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
 | Packaging | cargo-packager: MSI and NSIS setup exe, dmg, AppImage and .deb (`[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml`, icons in `packaging/icons/`) |
 | License | MIT OR Apache-2.0 |
 
@@ -33,9 +33,9 @@ Workspace layout:
 | Crate | Role |
 |---|---|
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
-| `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, watcher |
+| `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, playlists, watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
-| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup, Last.fm scrobbling; planned: artist photos, update check |
+| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online", the update check, Last.fm scrobbling; planned: artist photos |
 
 The core crates must never depend on `vcmp-app` or Slint.
 
@@ -77,6 +77,7 @@ cargo test --workspace
 
 CI also runs `cargo fmt --all --check` and
 `cargo clippy --workspace --all-targets -- -D warnings`; run both before pushing.
+While CI is turned off, run all three and the tests locally before every merge.
 
 UI tests run headless through Slint's testing backend (`i-slint-backend-testing`,
 pinned with `=` to the Slint version; bump both together). To look at the real

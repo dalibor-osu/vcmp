@@ -1,13 +1,15 @@
 import { ScrollView } from "std-widgets.slint";
 import "../../../assets/fonts/sora/Sora[wght].ttf";
 import { Theme, ThemeMode, ThemePalette } from "theme.slint";
-import { NavItem } from "components.slint";
-import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
+import { NavItem, PlaylistLink } from "components.slint";
+import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
 import { FolderRow } from "folders-page.slint";
 import { SongColumn, SongRow } from "songs-page.slint";
 import { ArtistDetail } from "artist-page.slint";
 import { AlbumTile, ArtworkState } from "album-grid.slint";
 import { AlbumDetail, TrackRow } from "album-page.slint";
+import { PlaylistDetail } from "playlist-page.slint";
+import { Playlists } from "playlist-state.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
 import { ProgressBar } from "components.slint";
 import { PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
@@ -16,13 +18,17 @@ import { QueuePanel } from "queue-panel.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { Glyph, IconArt } from "icons.slint";
 import { LastfmProblem, LastfmState, LastfmStatus } from "lastfm-state.slint";
+import { SidebarUpdateNote, UpdateState } from "updates.slint";
+import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint";
 
 export { LastfmProblem, LastfmState, LastfmStatus }
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
-export { FolderRow, SongColumn, SongRow }
+export { CoverSearch, CoverSearchStatus }
+export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow }
+export { UpdateState }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
-export enum Page { search, albums, artists, songs, folders, settings, about }
+export enum Page { search, albums, artists, playlists, songs, folders, settings, about }
 
 struct NavEntry {
     page: Page,
@@ -61,6 +67,27 @@ export component AppWindow inherits Window {
     callback play-artist(bool);
     callback play-artist-appearance(int);
     callback queue-artist-appearance(int, bool);
+    // The Playlists page: its grid, and the playlist open instead of it.
+    in property <[AlbumTile]> playlists;
+    in-out property <bool> playlist-open;
+    in property <PlaylistDetail> playlist-detail;
+    in property <[TrackRow]> playlist-tracks;
+    // Position of the open playlist in `playlists` and the sidebar; -1 for none.
+    in property <int> open-playlist-index: -1;
+    callback playlist-activated(int);
+    callback playlist-range-changed(int, int);
+    // Makes a playlist with this name and opens it.
+    callback create-playlist(string);
+    // Edits the open playlist.
+    callback rename-playlist(string);
+    callback delete-playlist();
+    callback choose-playlist-picture();
+    callback clear-playlist-picture();
+    callback remove-playlist-track(int);
+    callback move-playlist-track(int, int);
+    // Plays the open playlist from an entry (-1: from its start), shuffled or not.
+    callback play-playlist(int, bool);
+    callback queue-playlist-track(int, bool);
     // The queue panel is shown beside the page.
     in-out property <bool> queue-open;
     // The library database could not be opened or read.
@@ -78,12 +105,14 @@ export component AppWindow inherits Window {
     in-out property <string> search-text;
     in property <[AlbumTile]> search-artists;
     in property <[AlbumTile]> search-albums;
+    in property <[AlbumTile]> search-playlists;
     in property <[TrackRow]> search-tracks;
     // An album or artist page was opened from search; its back button returns there.
     in-out property <bool> opened-from-search;
     callback search-edited(string);
     callback search-artist-activated(int);
     callback search-album-activated(int);
+    callback search-playlist-activated(int);
     // Plays the found tracks from one of them, or puts one into Up next.
     callback play-search-track(int);
     callback queue-search-track(int, bool);
@@ -114,6 +143,7 @@ export component AppWindow inherits Window {
         { page: Page.search, label: @tr("Search") },
         { page: Page.albums, label: @tr("Albums") },
         { page: Page.artists, label: @tr("Artists") },
+        { page: Page.playlists, label: @tr("Playlists") },
         { page: Page.songs, label: @tr("Songs") },
         { page: Page.folders, label: @tr("Folders") },
         { page: Page.settings, label: @tr("Settings") },
@@ -144,6 +174,13 @@ export component AppWindow inherits Window {
         Theme.keyboard-navigation = false;
     }
 
+    // Opens playlist `index` on the Playlists page, from the sidebar.
+    function show-playlist(index: int) {
+        root.playlist-activated(index);
+        root.opened-from-search = false;
+        root.selected-index = 3;
+    }
+
     // Shows the Search page with its field focused.
     function show-search() {
         root.opened-from-search = false;
@@ -159,6 +196,21 @@ export component AppWindow inherits Window {
     private property <length> queue-width: 320px;
     private property <length> page-width: pages.width - (root.queue-open && root.width >= 1000px ? root.queue-width : 0px);
     private property <length> marker-height: 20px;
+    // The marker's place below the first section; it slides when the page changes.
+    private property <length> marker-offset: root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+    animate marker-offset { duration: Theme.duration-medium; easing: ease-in-out; }
+
+    // Scrolls the sidebar so the entry at window y `top` with `height` is in view,
+    // when the keyboard moves to it.
+    function show-in-sidebar(top: length, height: length) {
+        let view-top = sidebar-scroll.absolute-position.y;
+        let view-bottom = view-top + sidebar-scroll.visible-height;
+        if top < view-top {
+            sidebar-scroll.content-y = min(0px, sidebar-scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            sidebar-scroll.content-y = sidebar-scroll.content-y - (top + height - view-bottom);
+        }
+    }
 
     title: "VCMP";
     min-width: 720px;
@@ -211,79 +263,135 @@ export component AppWindow inherits Window {
                         width: 220px;
                         background: Theme.colors.mantle;
 
-                        sidebar-layout := VerticalLayout {
-                            padding: Theme.space-l;
-                            spacing: Theme.space-xl;
-                            alignment: start;
+                        // The wordmark, the sections and the playlists scroll together
+                        // when the window is too short for them; the scan status and the
+                        // update note stay below.
+                        sidebar-scroll := ScrollView {
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height - sidebar-foot.height;
 
-                            // Wordmark, inset to line up with the navigation labels.
-                            HorizontalLayout {
-                                padding-left: Theme.space-l;
+                            sidebar-content := VerticalLayout {
+                                padding: Theme.space-l;
+                                spacing: Theme.space-xl;
+                                alignment: start;
 
-                                Text {
-                                    text: "VCMP";
-                                    color: Theme.colors.text;
-                                    font-size: Theme.font-wordmark;
-                                    font-weight: Theme.weight-strong;
+                                // Wordmark, inset to line up with the navigation labels.
+                                HorizontalLayout {
+                                    padding-left: Theme.space-l;
+
+                                    Text {
+                                        text: "VCMP";
+                                        color: Theme.colors.text;
+                                        font-size: Theme.font-wordmark;
+                                        font-weight: Theme.weight-strong;
+                                    }
                                 }
-                            }
 
-                            nav-list := VerticalLayout {
-                                spacing: root.nav-spacing;
-                                accessible-role: tab-list;
-                                accessible-label: @tr("Sections");
+                                nav-list := VerticalLayout {
+                                    spacing: root.nav-spacing;
+                                    accessible-role: tab-list;
+                                    accessible-label: @tr("Sections");
 
-                                for entry[index] in root.nav: NavItem {
-                                    label: entry.label;
-                                    selected: index == root.selected-index;
-                                    activated => {
-                                        // Choosing Albums or Artists again goes back to the grid.
-                                        if index == root.selected-index && entry.page == Page.albums {
-                                            albums-page.close-album();
+                                    for entry[index] in root.nav: NavItem {
+                                        label: entry.label;
+                                        selected: index == root.selected-index;
+                                        activated => {
+                                            // Choosing Albums or Artists again goes back to the grid.
+                                            if index == root.selected-index && entry.page == Page.albums {
+                                                albums-page.close-album();
+                                            }
+                                            if index == root.selected-index && entry.page == Page.artists {
+                                                artists-page.show-grid();
+                                            }
+                                            if index == root.selected-index && entry.page == Page.playlists {
+                                                playlists-page.close-playlist();
+                                            }
+                                            root.selected-index = index;
                                         }
-                                        if index == root.selected-index && entry.page == Page.artists {
-                                            artists-page.show-grid();
+                                        shown-focused(top, height) => {
+                                            root.show-in-sidebar(top, height);
                                         }
-                                        root.selected-index = index;
+                                    }
+                                }
+
+                                // The playlists, below the sections.
+                                if Playlists.names.length > 0: VerticalLayout {
+                                    spacing: Theme.space-s;
+
+                                    HorizontalLayout {
+                                        padding-left: Theme.space-l;
+
+                                        Text {
+                                            text: @tr("Playlists");
+                                            color: Theme.colors.text-muted;
+                                            font-size: Theme.font-small;
+                                            accessible-role: none;
+                                        }
+                                    }
+
+                                    VerticalLayout {
+                                        spacing: root.nav-spacing;
+                                        accessible-role: list;
+                                        accessible-label: @tr("Playlists");
+
+                                        for name[index] in Playlists.names: PlaylistLink {
+                                            label: name;
+                                            selected: root.current-page == Page.playlists && root.playlist-open && index == root.open-playlist-index;
+                                            activated => {
+                                                root.show-playlist(index);
+                                            }
+                                            shown-focused(top, height) => {
+                                                root.show-in-sidebar(top, height);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        // Current-page marker: the one place the neon glow is used.
+                        // Its own height, at the bottom: left to the default, the layout
+                        // would fill the sidebar from `y` down.
+                        sidebar-foot := VerticalLayout {
+                            y: parent.height - self.height;
+                            width: parent.width;
+                            height: self.preferred-height;
+
+                            // Scan status, visible from every page while albums appear.
+                            if LibraryState.scanning: VerticalLayout {
+                                padding: Theme.space-l;
+                                padding-left: Theme.space-xl;
+                                spacing: Theme.space-s;
+
+                                Text {
+                                    text: @tr("Scanning your music");
+                                    color: Theme.colors.text-muted;
+                                    font-size: Theme.font-small;
+                                }
+
+                                ProgressBar {
+                                    progress: LibraryState.progress;
+                                    label: @tr("Scan progress");
+                                }
+                            }
+
+                            // A newer VCMP is out: shown where the scan status goes,
+                            // which has the place while a scan runs. About shows it too.
+                            if UpdateState.available && !LibraryState.scanning: SidebarUpdateNote { }
+                        }
+
+                        // Current-page marker: the one place the neon glow is used. It
+                        // scrolls with the sections and hides outside their view.
                         marker := Rectangle {
                             x: Theme.space-l - 6px;
-                            y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+                            y: sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y + root.marker-offset;
+                            visible: self.y >= sidebar-scroll.y && self.y + self.height <= sidebar-scroll.y + sidebar-scroll.visible-height;
                             width: 3px;
                             height: root.marker-height;
                             border-radius: Theme.radius-s;
                             background: Theme.colors.accent;
                             drop-shadow-blur: 8px;
                             drop-shadow-color: Theme.colors.glow;
-                            animate y { duration: Theme.duration-medium; easing: ease-in-out; }
-                        }
-
-                        // Scan status, visible from every page while albums appear.
-                        // Its own height: left to the default, the layout would fill the
-                        // sidebar from `y` down and push the bar out of sight.
-                        if LibraryState.scanning: VerticalLayout {
-                            y: parent.height - self.height;
-                            width: parent.width;
-                            height: self.preferred-height;
-                            padding: Theme.space-l;
-                            padding-left: Theme.space-xl;
-                            spacing: Theme.space-s;
-
-                            Text {
-                                text: @tr("Scanning your music");
-                                color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
-                            }
-
-                            ProgressBar {
-                                progress: LibraryState.progress;
-                                label: @tr("Scan progress");
-                            }
                         }
                     }
 
@@ -297,6 +405,7 @@ export component AppWindow inherits Window {
                             text <=> root.search-text;
                             artists: root.search-artists;
                             albums: root.search-albums;
+                            playlists: root.search-playlists;
                             tracks: root.search-tracks;
                             edited(text) => {
                                 root.search-edited(text);
@@ -310,6 +419,11 @@ export component AppWindow inherits Window {
                                 root.search-album-activated(index);
                                 root.opened-from-search = true;
                                 root.selected-index = 1;
+                            }
+                            playlist-activated(index) => {
+                                root.search-playlist-activated(index);
+                                root.opened-from-search = true;
+                                root.selected-index = 3;
                             }
                             play-track(index) => {
                                 root.play-search-track(index);
@@ -405,6 +519,56 @@ export component AppWindow inherits Window {
                                 root.queue-album-track(index, next);
                             }
                         }
+                        playlists-page := PlaylistsPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.playlists;
+                            from-search: root.opened-from-search;
+                            back-to-search => {
+                                root.playlist-open = false;
+                                root.show-search();
+                            }
+                            playlists: root.playlists;
+                            library-failed: root.library-failed;
+                            playlist-open <=> root.playlist-open;
+                            playlist: root.playlist-detail;
+                            tracks: root.playlist-tracks;
+                            range-changed(first, count) => {
+                                root.playlist-range-changed(first, count);
+                            }
+                            activated(index) => {
+                                root.opened-from-search = false;
+                                root.playlist-activated(index);
+                            }
+                            create(name) => {
+                                root.opened-from-search = false;
+                                root.create-playlist(name);
+                            }
+                            play(start, shuffle) => {
+                                root.play-playlist(start, shuffle);
+                            }
+                            queue-track(index, next) => {
+                                root.queue-playlist-track(index, next);
+                            }
+                            remove-track(index) => {
+                                root.remove-playlist-track(index);
+                            }
+                            move-track(from, to) => {
+                                root.move-playlist-track(from, to);
+                            }
+                            rename(name) => {
+                                root.rename-playlist(name);
+                            }
+                            choose-picture => {
+                                root.choose-playlist-picture();
+                            }
+                            clear-picture => {
+                                root.clear-playlist-picture();
+                            }
+                            delete => {
+                                root.delete-playlist();
+                            }
+                        }
                         SongsPage {
                             x: 0;
                             width: root.page-width;
@@ -493,6 +657,12 @@ export component AppWindow inherits Window {
                 if root.queue-open: QueuePanel {
                     x: parent.width - self.width;
                     width: root.queue-width;
+                    height: parent.height;
+                }
+
+                // "Find cover online" from an album page, over everything but the bar.
+                if CoverSearch.open: CoverPicker {
+                    width: parent.width;
                     height: parent.height;
                 }
             }

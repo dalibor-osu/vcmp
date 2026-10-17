@@ -11,6 +11,7 @@ mod edit;
 mod error;
 mod lookups;
 mod path_codec;
+mod playlists;
 mod query;
 mod scan;
 mod schema;
@@ -27,6 +28,7 @@ pub use artwork::{Artwork, THUMBNAIL_SIZE};
 pub use edit::{FieldEdit, InvalidTagEdit, TagEdit, TagField, TagWriteError};
 pub use error::{Error, Result};
 pub use lookups::{CoverArtId, CoverLookup};
+pub use playlists::{Playlist, PlaylistEntry, PlaylistId};
 pub use query::{Album, AlbumId, Artist, ArtistId, SearchResults, Track, TrackId};
 pub use scan::{ScanPhase, ScanProgress, ScanReport, SkippedFile};
 pub use scrobbles::{QueuedScrobble, Scrobble};
@@ -72,11 +74,15 @@ pub struct SourceDir {
 pub struct Library {
     conn: Connection,
     artwork: ArtworkStore,
+    /// Pictures the owner chose, which unlike the cache cannot be rebuilt: next to
+    /// the database.
+    images: PathBuf,
 }
 
 impl Library {
     /// Opens (creating if needed) the database at `db_path`, upgrading its schema.
-    /// Artwork is cached under `cache_dir`.
+    /// Artwork is cached under `cache_dir`; pictures the owner chose go to `images/`
+    /// next to the database.
     pub fn open(db_path: &Path, cache_dir: &Path) -> Result<Self> {
         if let Some(dir) = db_path.parent() {
             std::fs::create_dir_all(dir).map_err(io_error(dir))?;
@@ -90,6 +96,7 @@ impl Library {
         Ok(Self {
             conn,
             artwork: ArtworkStore::new(cache_dir),
+            images: db_path.with_file_name("images"),
         })
     }
 

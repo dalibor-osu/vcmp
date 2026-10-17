@@ -1,9 +1,13 @@
 name: CI
 
+# Turned off for now: it runs only when started by hand from the Actions tab
+# (Run workflow), and then on all three systems. To turn it back on, restore the
+# push and pull_request triggers.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
 
 # A newer push to the same pull request (or branch) cancels the run it replaces.
 # Pushes to main always finish.
@@ -27,8 +31,9 @@ jobs:
       matrix:
         # Windows and macOS minutes cost two and ten times Linux ones on a private
         # repository, so they run where code reaches main: pull requests into main
-        # and pushes to it. Pull requests between feature branches run on Linux.
-        os: ${{ fromJSON((github.event_name == 'push' || github.base_ref == 'main') && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        # and pushes to it (and runs started by hand). Pull requests between feature
+        # branches run on Linux.
+        os: ${{ fromJSON((github.event_name != 'pull_request' || github.base_ref == 'main') && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

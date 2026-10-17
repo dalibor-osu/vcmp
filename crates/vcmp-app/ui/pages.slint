@@ -11,6 +11,8 @@ import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
 import { ArtistDetail, ArtistView } from "artist-page.slint";
 import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 import { FolderBrowser, FolderRow } from "folders-page.slint";
+import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
+import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -162,6 +164,10 @@ export component SettingsPage inherits Page {
             }
         }
     }
+
+    UpdatesSection {
+        max-width: Theme.content-max-width;
+    }
 }
 
 export component AboutPage inherits Page {
@@ -181,6 +187,11 @@ export component AboutPage inherits Page {
             text: @tr("Version {}", root.version);
             color: Theme.colors.text-muted;
             font-size: Theme.font-small;
+        }
+
+        // Strong, so it doesn't read as one more line of the description below.
+        if UpdateState.available: UpdateLink {
+            font-weight: Theme.weight-strong;
         }
 
         Text {
@@ -613,18 +624,165 @@ export component ArtistsPage inherits Rectangle {
     if root.shown: FadeCurtain { }
 }
 
+// The playlists as a grid, and one playlist instead of it while open.
+export component PlaylistsPage inherits Rectangle {
+    in property <[AlbumTile]> playlists;
+    in property <bool> shown;
+    in property <bool> library-failed;
+    in-out property <bool> playlist-open;
+    // The open playlist came from search, so going back returns there.
+    in property <bool> from-search;
+    callback back-to-search();
+    in property <PlaylistDetail> playlist;
+    in property <[TrackRow]> tracks;
+    callback range-changed(int, int);
+    callback activated(int);
+    // Makes a playlist with this name and opens it.
+    callback create(string);
+    callback play(int, bool);
+    callback queue-track(int, bool);
+    callback remove-track(int);
+    callback move-track(int, int);
+    callback rename(string);
+    callback choose-picture();
+    callback clear-picture();
+    callback delete();
+
+    // Shows the grid again, with the playlist that was open as its current card.
+    public function close-playlist() {
+        root.playlist-open = false;
+        grid.focus-album(grid.current);
+    }
+
+    changed playlist-open => {
+        // A playlist just made opens with its name field focused instead.
+        if self.playlist-open && !view.renaming {
+            view.focus-back();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        visible: !root.playlist-open;
+
+        // Space below the title, so the grid scrolls under it with room to spare.
+        HorizontalLayout {
+            padding-left: Theme.space-xxl;
+            padding-right: Theme.space-xxl;
+            padding-top: Theme.space-xxl;
+            padding-bottom: Theme.space-l;
+            spacing: Theme.space-xl;
+
+            Text {
+                text: @tr("Playlists");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            if !root.library-failed: Button {
+                text: @tr("New playlist");
+                clicked => {
+                    root.create(@tr("Playlist {}", root.playlists.length + 1));
+                    view.start-rename();
+                }
+            }
+        }
+
+        if root.playlists.length == 0: VerticalLayout {
+            padding: Theme.space-xxl;
+            alignment: start;
+
+            Text {
+                text: root.library-failed ? @tr("The music library could not be opened, so no playlists can be shown.")
+                    : @tr("No playlists yet. Make one with New playlist, or from any track's menu: right-click a track, or press the Menu key, and choose Add to playlist.");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                max-width: Theme.content-max-width;
+            }
+        }
+
+        // Kept while a playlist is open, so its scroll position survives.
+        grid := AlbumGrid {
+            visible: root.playlists.length > 0;
+            vertical-stretch: 1;
+            playlists: true;
+            albums: root.playlists;
+            visible-range-changed(first, count) => {
+                root.range-changed(first, count);
+            }
+            activated(index) => {
+                root.activated(index);
+            }
+        }
+    }
+
+    view := PlaylistView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.playlist-open;
+        playlist: root.playlist;
+        tracks: root.tracks;
+        playing-path: PlayerState.track-path;
+        back-label: root.from-search ? @tr("Search") : @tr("Playlists");
+        back => {
+            if root.from-search {
+                root.back-to-search();
+            } else {
+                root.close-playlist();
+            }
+        }
+        play(start, shuffle) => {
+            root.play(start, shuffle);
+        }
+        queue-track(index, next) => {
+            root.queue-track(index, next);
+        }
+        remove-track(index) => {
+            root.remove-track(index);
+        }
+        move-track(from, to) => {
+            root.move-track(from, to);
+        }
+        rename(name) => {
+            root.rename(name);
+        }
+        choose-picture => {
+            root.choose-picture();
+        }
+        clear-picture => {
+            root.clear-picture();
+        }
+        delete => {
+            root.delete();
+            root.close-playlist();
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
 // Search over the whole library: artists, albums and tracks whose names contain the
-// typed words (any part of a name, in any script). The page stays alive while
-// hidden, so the search and its results are still there when the user comes back.
+// typed words (any part of a name, in any script), and playlists by their names.
+// The page stays alive while hidden, so the search and its results are still there
+// when the user comes back.
 export component SearchPage inherits Rectangle {
     in property <bool> shown;
     in-out property <string> text;
     in property <[AlbumTile]> artists;
     in property <[AlbumTile]> albums;
+    in property <[AlbumTile]> playlists;
     in property <[TrackRow]> tracks;
     callback edited(string);
     callback artist-activated(int);
     callback album-activated(int);
+    callback playlist-activated(int);
     callback play-track(int);
     callback queue-track(int, bool);
 
@@ -632,7 +790,7 @@ export component SearchPage inherits Rectangle {
         field.focus-text();
     }
 
-    private property <bool> found: root.artists.length + root.albums.length + root.tracks.length > 0;
+    private property <bool> found: root.artists.length + root.albums.length + root.playlists.length + root.tracks.length > 0;
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
     function ensure-visible(top: length, height: length) {
@@ -662,7 +820,7 @@ export component SearchPage inherits Rectangle {
         field := SearchField {
             max-width: Theme.content-max-width;
             label: @tr("Search");
-            placeholder: @tr("Artists, albums and tracks");
+            placeholder: @tr("Artists, albums, playlists and tracks");
             text <=> root.text;
             edited(text) => {
                 root.edited(text);
@@ -678,7 +836,7 @@ export component SearchPage inherits Rectangle {
                 alignment: start;
 
                 if root.text == "": Text {
-                    text: @tr("Finds artists, albums and tracks by any part of their names, in any language.");
+                    text: @tr("Finds artists, albums, playlists and tracks by any part of their names, in any language.");
                     color: Theme.colors.text-muted;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
@@ -715,6 +873,19 @@ export component SearchPage inherits Rectangle {
                     available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
                     activated(index) => {
                         root.album-activated(index);
+                    }
+                }
+
+                if root.playlists.length > 0: SectionHeading {
+                    text: @tr("Playlists");
+                }
+                if root.playlists.length > 0: CardGrid {
+                    tiles: root.playlists;
+                    playlists: true;
+                    label: @tr("Playlists");
+                    available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
+                    activated(index) => {
+                        root.playlist-activated(index);
                     }
                 }
 

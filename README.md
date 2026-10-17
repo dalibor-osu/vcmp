@@ -14,12 +14,16 @@ Early development. In place so far:
 - tag writing in the library core (single and batch, with embedded covers, through a
   verified copy of each file); the tag editor UI is still to come;
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
-  pages with tracks by disc;
+  pages with tracks by disc; an album without a cover can fetch one from the Cover
+  Art Archive, picked from what MusicBrainz finds;
 - the Artists page: album artists (or everyone credited) with their albums and the
   tracks they appear on elsewhere;
-- search over artists, albums and tracks, by any part of a name (Ctrl+F);
+- search over artists, albums, playlists and tracks, by any part of a name (Ctrl+F);
 - the Songs page: every track in a sortable table;
 - the Folders page: the music folders as a file tree;
+- playlists: made from any track's menu or the Playlists page, renamed, reordered
+  and deleted, with a picture made from their first four album covers or one of
+  your own; entries whose file is gone stay, dimmed, and are skipped;
 - a now playing view with the large cover, opened from the player bar;
 - music folders in Settings: add and remove folders, scans in the background with
   progress, and automatic updates when the folders change;
@@ -36,9 +40,12 @@ Early development. In place so far:
 - Last.fm scrobbling, in builds made with VCMP's Last.fm API key: connect an account
   in Settings, and plays that count by Last.fm's rules are queued and sent in
   batches, also after time offline; the track playing shows as "now playing".
+- an update check: when VCMP starts, it asks GitHub Releases for a newer version and
+  links to its release page from the sidebar and the About page (it can be switched
+  off in Settings).
 
-Playlists, the tag editor's window (writing tags is in the library already), artist
-photos and the rest of the
+The tag editor's window (writing tags is in the library already), artist photos and
+the rest of the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
 
 ## Build and run
@@ -95,6 +102,11 @@ and choose Open, or run `xattr -dr com.apple.quarantine /Applications/VCMP.app`.
 3. The workflow checks that the tag is on `main` and matches the version, builds the
    installers on Windows, macOS and Linux, and creates a **draft** GitHub Release with
    them, a `SHA256SUMS.txt` and generated notes. Review the notes and publish it.
+
+Once a release is published, copies of VCMP with the update check on link to it at
+their next start. The check takes the highest `vX.Y.Z` tag among the published
+releases and skips drafts and pre-releases. It asks GitHub without signing in, so it
+finds nothing while the repository is private.
 
 To try the packaging without a release, run the workflow by hand (Actions → Release
 → Run workflow, or `gh workflow run release.yml --ref <branch>`). The installers are

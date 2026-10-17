@@ -6126,6 +6126,7 @@ dependencies = [
  "log",
  "md5",
  "playwire",
+ "semver",
  "serde",
  "serde_json",
  "unicode-normalization",

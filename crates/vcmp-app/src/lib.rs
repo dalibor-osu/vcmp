@@ -2,6 +2,7 @@
 //! crates.
 
 pub mod albums;
+pub mod cover_fetch;
 pub mod folders;
 pub mod icons;
 pub mod lastfm_service;
@@ -9,10 +10,12 @@ pub mod library_service;
 pub mod library_view;
 pub mod media_keys;
 pub mod player_service;
+pub mod playlists;
 pub mod preferences;
 pub mod saved_queue;
 pub mod shortcuts;
 pub mod theme;
+pub mod updates;
 
 slint::include_modules!();
 

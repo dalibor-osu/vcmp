@@ -17,23 +17,32 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
-use slint::{ComponentHandle, SharedString, Timer, TimerMode};
+use slint::{
+    ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer, TimerMode,
+    VecModel,
+};
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
-use vcmp_app::{AppWindow, LastfmState, LastfmStatus, PlayerState, Theme, ThemeMode};
+use vcmp_app::updates;
+use vcmp_app::{
+    AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
+    LastfmStatus, PlayerState, Theme, ThemeMode, UpdateState,
+};
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
+use vcmp_integrations::updates::Release;
 use vcmp_library::Library;
 use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, QueueView, TrackRef};
 
 struct Shot {
     name: &'static str,
     mode: ThemeMode,
-    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Songs, 4 Folders, 5 Settings,
-    // 6 About.
+    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Playlists, 4 Songs, 5 Folders,
+    // 6 Settings, 7 About.
     page: i32,
-    // Grid position of the album (or, on the Artists page, the artist) to open.
+    // Grid position of the album (or, on the Artists and Playlists pages, the artist
+    // or playlist) to open.
     album: Option<i32>,
     // Tab presses before the frame, to show the keyboard focus ring. Focus carries
     // over between shots, so the count continues from the previous shot.
@@ -42,6 +51,10 @@ struct Shot {
     now_playing: bool,
     // The Last.fm row in Settings, as in a build with an API key, in this state.
     lastfm: Option<LastfmStatus>,
+    // A newer VCMP is reported, so its note shows.
+    update: bool,
+    // The cover picker is open, with stand-in covers.
+    cover_picker: bool,
 }
 
 const fn shot(
@@ -59,6 +72,8 @@ const fn shot(
         tabs,
         now_playing: false,
         lastfm: None,
+        update: false,
+        cover_picker: false,
     }
 }
 
@@ -72,14 +87,29 @@ const fn now_playing(name: &'static str, mode: ThemeMode) -> Shot {
 const fn lastfm(name: &'static str, mode: ThemeMode, status: LastfmStatus) -> Shot {
     Shot {
         lastfm: Some(status),
-        ..shot(name, mode, 5, None, 0)
+        ..shot(name, mode, 6, None, 0)
+    }
+}
+
+/// The About page, with the note that a newer VCMP is out there and in the sidebar.
+const fn update(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        update: true,
+        ..shot(name, mode, 7, None, 0)
+    }
+}
+
+const fn cover_picker(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        cover_picker: true,
+        ..shot(name, mode, 1, None, 0)
     }
 }
 
 const SHOTS: &[Shot] = &[
-    // First, from the start: Search, Albums, Artists, Songs, Folders, Settings,
-    // About, then the grid.
-    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 8),
+    // First, from the start: Search, Albums, Artists, Playlists, Songs, Folders,
+    // Settings, About, then the grid.
+    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 9),
     shot("albums-light", ThemeMode::Light, 1, None, 0),
     shot("albums-dark", ThemeMode::Dark, 1, None, 0),
     shot("album-light", ThemeMode::Light, 1, Some(ALBUM), 0),
@@ -90,14 +120,20 @@ const SHOTS: &[Shot] = &[
     shot("artist-dark", ThemeMode::Dark, 2, Some(ARTIST), 0),
     shot("search-light", ThemeMode::Light, 0, None, 0),
     shot("search-dark", ThemeMode::Dark, 0, None, 0),
-    shot("songs-light", ThemeMode::Light, 3, None, 0),
-    shot("songs-dark", ThemeMode::Dark, 3, None, 0),
-    shot("folders-light", ThemeMode::Light, 4, None, 0),
-    shot("folders-dark", ThemeMode::Dark, 4, None, 0),
+    shot("playlists-light", ThemeMode::Light, 3, None, 0),
+    shot("playlists-dark", ThemeMode::Dark, 3, None, 0),
+    shot("playlist-light", ThemeMode::Light, 3, Some(0), 0),
+    shot("playlist-dark", ThemeMode::Dark, 3, Some(0), 0),
+    shot("songs-light", ThemeMode::Light, 4, None, 0),
+    shot("songs-dark", ThemeMode::Dark, 4, None, 0),
+    shot("folders-light", ThemeMode::Light, 5, None, 0),
+    shot("folders-dark", ThemeMode::Dark, 5, None, 0),
     now_playing("now-playing-light", ThemeMode::Light),
     now_playing("now-playing-dark", ThemeMode::Dark),
-    shot("settings-light", ThemeMode::Light, 5, None, 0),
-    shot("settings-dark", ThemeMode::Dark, 5, None, 0),
+    cover_picker("cover-picker-light", ThemeMode::Light),
+    cover_picker("cover-picker-dark", ThemeMode::Dark),
+    shot("settings-light", ThemeMode::Light, 6, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 6, None, 0),
     lastfm("lastfm-light", ThemeMode::Light, LastfmStatus::Connected),
     lastfm("lastfm-dark", ThemeMode::Dark, LastfmStatus::Connected),
     lastfm(
@@ -110,11 +146,13 @@ const SHOTS: &[Shot] = &[
         ThemeMode::Dark,
         LastfmStatus::Waiting,
     ),
-    shot("about-light", ThemeMode::Light, 6, None, 0),
-    shot("about-dark", ThemeMode::Dark, 6, None, 0),
-    shot("focus-nav-light", ThemeMode::Light, 5, None, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 5, None, 3),
-    shot("focus-switch-light", ThemeMode::Light, 5, None, 1),
+    shot("about-light", ThemeMode::Light, 7, None, 0),
+    shot("about-dark", ThemeMode::Dark, 7, None, 0),
+    update("update-light", ThemeMode::Light),
+    update("update-dark", ThemeMode::Dark),
+    shot("focus-nav-light", ThemeMode::Light, 6, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 6, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 6, None, 1),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -168,7 +206,22 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     if shot.now_playing {
         player.invoke_load_large_cover();
     }
-    if shot.page == 4 {
+    if shot.update {
+        updates::show(
+            window,
+            &Release {
+                version: "1.2.0".into(),
+                url: "https://github.com/dalibor-osu/vcmp/releases".into(),
+            },
+        );
+    } else {
+        window.global::<UpdateState>().set_version("".into());
+    }
+    if shot.cover_picker {
+        show_cover_picker(window);
+    }
+    window.global::<CoverPicker>().set_open(shot.cover_picker);
+    if shot.page == 5 {
         // Inside the first music folder, where there is more than one row.
         window.invoke_folders_needed();
         window.invoke_folder_go_to(-1);
@@ -188,6 +241,7 @@ fn prepare(window: &AppWindow, shot: &Shot) {
                 .unwrap_or(index);
             window.invoke_artist_activated(index);
         }
+        (3, Some(index)) => window.invoke_playlist_activated(index),
         (_, Some(index)) => {
             let index = std::env::var("VCMP_SHOT_ALBUM")
                 .ok()
@@ -198,6 +252,7 @@ fn prepare(window: &AppWindow, shot: &Shot) {
         (_, None) => {
             window.set_album_open(false);
             window.set_artist_open(false);
+            window.set_playlist_open(false);
         }
     }
     // The album shots show the queue panel too.
@@ -205,6 +260,33 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
+}
+
+/// Fills the cover picker with plain squares for covers, so the shots download
+/// nothing.
+fn show_cover_picker(window: &AppWindow) {
+    let tile = |details: &str, [r, g, b]: [u8; 3]| {
+        let mut pixels = SharedPixelBuffer::<Rgba8Pixel>::new(240, 240);
+        pixels.make_mut_slice().fill(Rgba8Pixel { r, g, b, a: 255 });
+        AlbumTile {
+            title: "Album title".into(),
+            artist: details.into(),
+            initial: "A".into(),
+            artwork: ArtworkState::Loaded,
+            cover: Image::from_rgba8(pixels),
+            ..AlbumTile::default()
+        }
+    };
+    let picker = window.global::<CoverPicker>();
+    picker.set_album_title("Album title".into());
+    picker.set_album_artist("Artist".into());
+    picker.set_status(CoverSearchStatus::Found);
+    picker.set_covers(ModelRc::new(VecModel::from(vec![
+        tile("2019 · JP", [137, 180, 250]),
+        tile("2020", [166, 227, 161]),
+        tile("2019 · GB", [250, 179, 135]),
+        tile("", [203, 166, 247]),
+    ])));
 }
 
 fn save(window: &AppWindow, path: &Path) {

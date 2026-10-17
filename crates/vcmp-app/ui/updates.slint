@@ -1,0 +1,68 @@
+// The update check: its switch in Settings, and the note that a newer VCMP is out,
+// in the sidebar and on the About page. Rust keeps `UpdateState` current and
+// implements its callback (src/updates.rs).
+
+import { Theme } from "theme.slint";
+import { SectionHeading, SettingRow, TextLink, Toggle } from "components.slint";
+
+export global UpdateState {
+    // Ask GitHub for the newest release when VCMP starts.
+    in property <bool> check-enabled: true;
+    callback set-check-enabled(bool);
+
+    // The newer release's version ("1.2.0") and its page on GitHub; empty while none
+    // is known.
+    in property <string> version;
+    in property <string> release-url;
+
+    // A newer release is known and the user still wants to hear about it.
+    out property <bool> available: root.check-enabled && root.version != "";
+
+    public function open-release() {
+        Platform.open-url(root.release-url);
+    }
+}
+
+// "VCMP 1.2.0 is available", opening the release page in the browser. VCMP doesn't
+// download it; the page has the installers.
+export component UpdateLink inherits TextLink {
+    text: @tr("VCMP {} is available", UpdateState.version);
+    label: @tr("VCMP {} is available, opens its page on GitHub", UpdateState.version);
+    clicked => {
+        UpdateState.open-release();
+    }
+}
+
+// The note at the foot of the sidebar, lined up with the navigation labels.
+export component SidebarUpdateNote inherits VerticalLayout {
+    padding: Theme.space-l;
+    padding-left: 2 * Theme.space-l;
+
+    UpdateLink {
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: true;
+    }
+}
+
+// The Updates section of Settings.
+export component UpdatesSection inherits VerticalLayout {
+    spacing: Theme.space-xs;
+
+    SectionHeading {
+        text: @tr("Updates");
+    }
+
+    SettingRow {
+        title: @tr("Check for updates");
+        description: @tr("When VCMP starts, it asks github.com whether a newer version is out and links to it in the sidebar. GitHub learns your IP address, nothing about your music.");
+
+        Toggle {
+            label: @tr("Check for updates");
+            checked: UpdateState.check-enabled;
+            toggled(on) => {
+                UpdateState.set-check-enabled(on);
+            }
+        }
+    }
+}
