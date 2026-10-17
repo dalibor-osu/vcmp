@@ -26,6 +26,7 @@ export component LastfmRow {
                 font-size: Theme.font-body;
                 font-weight: Theme.weight-strong;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
 
             Text {
@@ -44,6 +45,7 @@ export component LastfmRow {
                 color: Theme.colors.text-muted;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
 
             if root.connected && LastfmState.unsent > 0: Text {
@@ -51,6 +53,7 @@ export component LastfmRow {
                 color: Theme.colors.text-muted;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
 
             if root.waiting: TextLink {

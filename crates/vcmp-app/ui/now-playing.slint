@@ -132,6 +132,7 @@ component TrackDetails inherits VerticalLayout {
         font-size: Theme.font-display;
         font-weight: Theme.weight-strong;
         wrap: word-wrap;
+        min-height: self.preferred-height;
         horizontal-alignment: root.align;
     }
     if PlayerState.has-track: TextLink {

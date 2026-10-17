@@ -102,12 +102,14 @@ export component CoverPicker inherits Rectangle {
                         font-size: Theme.font-title;
                         font-weight: Theme.weight-strong;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     Text {
                         text: CoverSearch.album-artist == "" ? CoverSearch.album-title : @tr("{0} by {1}", CoverSearch.album-title, CoverSearch.album-artist);
                         color: Theme.colors.text;
                         font-size: Theme.font-heading;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     Text {
                         text: CoverSearch.status == CoverSearchStatus.searching ? @tr("Looking on MusicBrainz and the Cover Art Archive. Covers appear here as they are found.")
@@ -120,6 +122,7 @@ export component CoverPicker inherits Rectangle {
                         color: Theme.colors.text-muted;
                         font-size: Theme.font-body;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                 }
 

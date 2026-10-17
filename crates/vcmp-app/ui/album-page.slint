@@ -677,6 +677,7 @@ export component AlbumView {
                             font-size: Theme.font-title;
                             font-weight: Theme.weight-strong;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
 
                         if root.album.artist != "": Text {
@@ -684,6 +685,7 @@ export component AlbumView {
                             color: Theme.colors.text;
                             font-size: Theme.font-heading;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
 
                         if !root.album.missing: HorizontalLayout {
@@ -737,6 +739,7 @@ export component AlbumView {
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
 
                 if root.album.failed: Text {
@@ -744,6 +747,7 @@ export component AlbumView {
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
 
                 TrackList {

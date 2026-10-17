@@ -112,12 +112,14 @@ export component PhotoPicker inherits Rectangle {
                         font-size: Theme.font-title;
                         font-weight: Theme.weight-strong;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     Text {
                         text: PhotoSearch.artist-name;
                         color: Theme.colors.text;
                         font-size: Theme.font-heading;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     Text {
                         text: PhotoSearch.status == PhotoSearchStatus.searching ? @tr("Looking on MusicBrainz and fanart.tv. Photos appear here as they are found.")
@@ -129,6 +131,7 @@ export component PhotoPicker inherits Rectangle {
                         color: Theme.colors.text-muted;
                         font-size: Theme.font-body;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                 }
 
