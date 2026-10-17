@@ -15,11 +15,12 @@ dials come from DESIGN.md).
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
 | `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `AlbumsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
-| `ui/album-grid.slint` | `AlbumGrid` and its cards, created only for the rows in view |
+| `ui/pages.slint` | `AlbumsPage`, `ArtistsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
+| `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc |
-| `src/albums.rs` | `AlbumBrowser`: the grid's model and background cover loading |
-| `src/library_view.rs` | Connects the library to the grid and opens album pages |
+| `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist grid and an artist's albums |
+| `src/library_view.rs` | Connects the library to the album and artist grids and opens album and artist pages |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
@@ -76,7 +77,10 @@ subtext1 and overlay2 instead.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Albums, Settings, About) |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Albums, Artists, Settings, About) |
+| Artists in round frames, albums in rounded squares | The shape tells the two grids apart at a glance, as people know it from other players |
+| An artist's picture is their newest album's cover until there are artist photos | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists keep the initial |
+| Album artists by default, everyone behind a switch | The owner's choice: 391 of 532 artists in their library are only credited on others' albums, and would crowd the grid |
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
@@ -138,11 +142,32 @@ its scroll position and current card survive.
   more than one.
 - **Track artist:** shown only where it differs from the album artist, as on a
   compilation.
-- **No play controls yet.** Playback isn't merged into this branch, and a control
-  without behaviour would be a dead control.
 
 The Albums page fades in through a `FadeCurtain`, created each time the page is
 shown, because the page itself stays alive while hidden.
+
+## Artists page
+
+- **The grid** lists album artists by default (138 in the owner's library). The
+  "All artists" choice adds everyone credited on a track (532), saved as
+  `ui.artists_all`. A card says how many albums an artist has, or how many tracks
+  for an artist with no albums of their own. Pictures load in the background like
+  album covers (`CoverGrid`).
+- **An artist's page** (`ArtistView`) shows their picture, name and counts, Play
+  and Shuffle, their albums as a small grid (`CardGrid`, one tab stop with arrow
+  keys), and "Appears on": tracks credited to them on other artists' albums or on
+  no album, each with its album name.
+  - Play and Shuffle play their albums' tracks, then the appearances, as one
+    context (`artist:<id>`, named in the queue panel). A click or Enter on an
+    appearance plays that list from there; its menu offers Play now, Play next and
+    Add to queue.
+  - An album chosen there opens on the Artists page, and its back button names the
+    artist. Only one album page is open at a time: opening one closes the other
+    page's.
+  - An artist who leaves the library while their page is open stays on screen,
+    marked as gone, until the user leaves.
+- **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
+  returns to the grid from anywhere on the page.
 
 ## Music folders and scanning
 
@@ -196,8 +221,10 @@ The Albums page tells apart why it is empty:
   - a track's menu (right click, or the Menu key on the current track) offers Play
     now, Play next (front of Up next) and Add to queue (end of Up next);
   - the playing track gets a play mark and an accent title.
-- **The queue panel** opens beside the page from the queue button in the player bar,
-  and stays open or closed across restarts (`ui.queue_open`). It shows the track
+- **The queue panel** opens from the queue button in the player bar, and stays open
+  or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
+  the page narrows to make room for it; in a narrower one the panel lies over the
+  page's right edge, so the page keeps the width its controls need. It shows the track
   playing, Up next (with Clear, and a remove button per track), then "Next from" the
   album being played, at most 100 tracks ahead, as the engine reports them.
   - Clicking a track, or Enter or Space on it, plays it; the tracks before it are
@@ -276,8 +303,11 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 
 ## Known limits
 
-- Up next can be filled from album pages only, and reordered by keyboard or menu,
-  not by dragging.
+- Up next can be filled from album and artist pages only, and reordered by keyboard
+  or menu, not by dragging.
+- The queue panel appears without an animation; one is planned.
+- Artists have no photos of their own yet: choosing a photo, and the web search for
+  one (fanart.tv), come with the integrations.
 - The track menus are Slint's own, styled by the operating system's colour scheme
   like `AboutSlint` below, so they can look out of place when VCMP's theme differs
   from the OS.

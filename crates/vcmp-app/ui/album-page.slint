@@ -34,8 +34,8 @@ export struct TrackRow {
     path: string,
 }
 
-// Returns to the album grid. The chevron points the way back.
-component BackButton {
+// Returns to the page before. The chevron points the way back.
+export component BackButton {
     in property <string> label;
     callback clicked;
 
@@ -111,7 +111,7 @@ component BackButton {
 
 // One track of the list. Clicking it plays the album from here; the playing track
 // is marked in the accent.
-component TrackLine {
+export component TrackLine {
     in property <TrackRow> track;
     in property <bool> show-disc;
     in property <bool> playing;
@@ -236,6 +236,8 @@ component TrackLine {
 // One album: its cover and details, then its tracks grouped by disc.
 export component AlbumView {
     in property <AlbumDetail> album;
+    // Names the page the back button returns to.
+    in property <string> back-label: @tr("Albums");
     in property <[TrackRow]> tracks;
     in property <bool> multi-disc;
     // Path of the track now playing, to mark it in the list.
@@ -299,7 +301,7 @@ export component AlbumView {
                     alignment: start;
 
                     back-button := BackButton {
-                        label: @tr("Albums");
+                        label: root.back-label;
                         clicked => {
                             root.back();
                         }

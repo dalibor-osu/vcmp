@@ -14,7 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
-use vcmp_library::{Album, AlbumId, CoverArtId, CoverLookup, Library, Track};
+use vcmp_library::{Album, AlbumId, ArtistId, CoverArtId, CoverLookup, Library, Track};
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackSnapshot, PlaybackState, Player, QueueEntry,
     QueueView, RepeatMode, ShuffleMode, TrackRef,
@@ -312,6 +312,30 @@ impl PlayerService {
             }
         });
         state.on_refresh_output_devices(with(|service| service.refresh_output_devices()));
+        window.on_play_artist({
+            let weak = weak.clone();
+            move |shuffle| {
+                if let Some(service) = weak.upgrade() {
+                    service.play_artist(None, shuffle);
+                }
+            }
+        });
+        window.on_play_artist_appearance({
+            let weak = weak.clone();
+            move |index| {
+                if let (Some(service), Ok(index)) = (weak.upgrade(), usize::try_from(index)) {
+                    service.play_artist(Some(index), false);
+                }
+            }
+        });
+        window.on_queue_artist_appearance({
+            let weak = weak.clone();
+            move |index, next| {
+                if let Some(service) = weak.upgrade() {
+                    service.queue_artist_appearance(index, next);
+                }
+            }
+        });
         window.on_queue_album_track({
             let weak = weak.clone();
             move |index, next| {
@@ -358,6 +382,41 @@ impl PlayerService {
             }
             Ok(_) => {}
             Err(error) => log::warn!("the saved queue could not be read: {error}"),
+        }
+    }
+
+    /// Plays everything by the open artist: their albums, then their appearances
+    /// elsewhere; from appearance `from` when given.
+    pub fn play_artist(&self, from: Option<usize>, shuffle: bool) {
+        let Some(artist) = self.view.shown_artist() else {
+            return;
+        };
+        let start = from.map(|index| artist.appearances_from + index);
+        let entries: Vec<QueueEntry> = artist.tracks.iter().filter_map(entry).collect();
+        if shuffle {
+            self.set_shuffle(Shuffle::On);
+        }
+        self.player.send(Command::PlayContext {
+            entries,
+            origin: Some(format!("artist:{}", artist.artist.id.0)),
+            start: if shuffle { None } else { start },
+        });
+    }
+
+    /// Puts appearance `index` of the open artist into Up next.
+    pub fn queue_artist_appearance(&self, index: i32, next: bool) {
+        let Some(artist) = self.view.shown_artist() else {
+            return;
+        };
+        let track = usize::try_from(index)
+            .ok()
+            .and_then(|index| artist.tracks.get(artist.appearances_from + index));
+        if let Some(entry) = track.and_then(entry) {
+            self.player.send(if next {
+                Command::PlayNext(vec![entry])
+            } else {
+                Command::AddToQueue(vec![entry])
+            });
         }
     }
 
@@ -460,10 +519,23 @@ impl PlayerService {
         let origin = view
             .origin
             .as_deref()
-            .and_then(|origin| origin.strip_prefix("album:"))
-            .and_then(|id| id.parse().ok())
-            .and_then(|id| self.library.album(AlbumId(id)).ok().flatten())
-            .map(|album| album.title)
+            .and_then(|origin| origin.split_once(':'))
+            .and_then(|(kind, id)| Some((kind, id.parse::<i64>().ok()?)))
+            .and_then(|(kind, id)| match kind {
+                "album" => self
+                    .library
+                    .album(AlbumId(id))
+                    .ok()
+                    .flatten()
+                    .map(|album| album.title),
+                "artist" => self
+                    .library
+                    .artist(ArtistId(id))
+                    .ok()
+                    .flatten()
+                    .map(|artist| artist.name),
+                _ => None,
+            })
             .unwrap_or_default();
         state.set_queue_origin(origin.into());
     }
