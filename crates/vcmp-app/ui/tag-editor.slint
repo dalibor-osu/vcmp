@@ -1,0 +1,429 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Button, ProgressBar, TextField } from "components.slint";
+
+// The tags the editor shows and saves, as text. Numbers are checked when saved.
+export struct TagValues {
+    title: string,
+    artist: string,
+    album: string,
+    album-artist: string,
+    track: string,
+    disc: string,
+    year: string,
+    genre: string,
+}
+
+// The fields whose value differs between the tracks edited together. Such a field
+// starts empty and keeps each track's own value unless something is typed in it.
+export struct TagMixed {
+    artist: bool,
+    album: bool,
+    album-artist: bool,
+    disc: bool,
+    year: bool,
+    genre: bool,
+    cover: bool,
+}
+
+export enum TagEditorStatus { editing, writing, failed }
+
+// What is wrong with the values; the field they belong to says so.
+export enum TagProblem { none, track, disc, year, line-break, cover }
+
+// Why a file kept its old tags.
+export enum TagFailureReason { unavailable, read-only, unreadable, write, verify, changed, replace }
+
+export struct TagFailure {
+    file: string,
+    reason: TagFailureReason,
+}
+
+// The tag editor: one track's tags, or an album's at once. src/tag_editor.rs fills it
+// in and implements the callbacks.
+export global TagEditorState {
+    in-out property <bool> open;
+    // How many tracks are edited; one shows the title and track number too.
+    in property <int> track-count;
+    // What is edited: the track's or album's title, and its artist.
+    in property <string> subject;
+    in property <string> subject-artist;
+    // The values as the files have them; empty where they differ (`mixed`).
+    in property <TagValues> values;
+    in property <TagMixed> mixed;
+    // The cover the files will have: as they are, or as chosen here.
+    in property <bool> has-cover;
+    in property <image> cover;
+    in property <TagEditorStatus> status;
+    // Files written so far, while writing.
+    in property <int> done;
+    in property <TagProblem> problem;
+    in property <[TagFailure]> failures;
+    // Opens the editor for the track with this file path, or for the album page's album.
+    callback edit-track(string);
+    callback edit-album();
+    // Chooses an image file as the cover, or takes the cover away.
+    callback choose-cover();
+    callback remove-cover();
+    // Writes the values that changed to every file.
+    callback save(TagValues);
+    callback cancel();
+}
+
+component TagInput inherits VerticalLayout {
+    in property <string> label;
+    in property <bool> mixed;
+    in property <bool> wrong;
+    in-out property <string> text;
+    callback accepted();
+
+    public function focus-text() {
+        field.focus-text();
+    }
+
+    spacing: Theme.space-xs;
+
+    Text {
+        text: root.label;
+        color: root.wrong ? Theme.colors.accent : Theme.colors.text;
+        font-size: Theme.font-small;
+        font-weight: root.wrong ? Theme.weight-strong : Theme.weight-regular;
+        accessible-role: none;
+    }
+
+    field := TextField {
+        label: root.label;
+        placeholder: root.mixed ? @tr("Several values") : "";
+        text <=> root.text;
+        accepted => {
+            root.accepted();
+        }
+        cancelled => {
+            TagEditorState.cancel();
+        }
+    }
+}
+
+// Over the sidebar and pages, like the cover picker. Enter in a field saves; Escape
+// or Cancel closes without writing.
+export component TagEditorView inherits Rectangle {
+    private property <bool> single: TagEditorState.track-count == 1;
+    private property <bool> writing: TagEditorState.status == TagEditorStatus.writing;
+    private property <TagMixed> mixed: TagEditorState.mixed;
+    private property <TagProblem> problem: TagEditorState.problem;
+    private property <string> title-text: TagEditorState.values.title;
+    private property <string> artist-text: TagEditorState.values.artist;
+    private property <string> album-text: TagEditorState.values.album;
+    private property <string> album-artist-text: TagEditorState.values.album-artist;
+    private property <string> track-text: TagEditorState.values.track;
+    private property <string> disc-text: TagEditorState.values.disc;
+    private property <string> year-text: TagEditorState.values.year;
+    private property <string> genre-text: TagEditorState.values.genre;
+
+    function save() {
+        if !root.writing {
+            TagEditorState.save({
+                title: root.title-text,
+                artist: root.artist-text,
+                album: root.album-text,
+                album-artist: root.album-artist-text,
+                track: root.track-text,
+                disc: root.disc-text,
+                year: root.year-text,
+                genre: root.genre-text,
+            });
+        }
+    }
+
+    background: Theme.colors.base;
+    accessible-role: groupbox;
+    accessible-label: @tr("Edit tags");
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    // Escape closes, wherever the focus is in the editor.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                TagEditorState.cancel();
+                return accept;
+            }
+            reject
+        }
+
+        ScrollView {
+            width: parent.width;
+            height: parent.height;
+
+            VerticalLayout {
+                padding: Theme.space-xxl;
+                padding-top: Theme.space-xl;
+                spacing: Theme.space-xl;
+                alignment: start;
+
+                VerticalLayout {
+                    spacing: Theme.space-s;
+                    max-width: Theme.content-max-width;
+
+                    Text {
+                        text: @tr("Edit tags");
+                        color: Theme.colors.text;
+                        font-size: Theme.font-title;
+                        font-weight: Theme.weight-strong;
+                    }
+                    Text {
+                        text: root.single ? (TagEditorState.subject-artist == "" ? TagEditorState.subject : @tr("{0} by {1}", TagEditorState.subject, TagEditorState.subject-artist))
+                            : @tr("All {0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-heading;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.single ? @tr("The tags are written into the file, then read back to check them. An empty field removes its tag.")
+                            : @tr("What you change is written into every track. A field showing “Several values” keeps each track's own unless you type one.");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-xl;
+                    alignment: start;
+
+                    // The cover, and the ways to change it.
+                    VerticalLayout {
+                        spacing: Theme.space-m;
+                        alignment: start;
+
+                        Rectangle {
+                            width: 160px;
+                            height: 160px;
+                            border-radius: Theme.radius-l;
+                            clip: true;
+                            background: Theme.colors.surface;
+
+                            if TagEditorState.has-cover: Image {
+                                width: parent.width;
+                                height: parent.height;
+                                source: TagEditorState.cover;
+                                image-fit: ImageFit.cover;
+                                accessible-role: none;
+                            }
+                            if !TagEditorState.has-cover: Text {
+                                width: parent.width - 2 * Theme.space-m;
+                                text: root.mixed.cover ? @tr("Several covers") : @tr("No cover");
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-body;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        Button {
+                            text: @tr("Choose image…");
+                            label: @tr("Choose a cover image");
+                            enabled: !root.writing;
+                            clicked => {
+                                TagEditorState.choose-cover();
+                            }
+                        }
+                        if TagEditorState.has-cover || root.mixed.cover: Button {
+                            text: @tr("Remove cover");
+                            enabled: !root.writing;
+                            clicked => {
+                                TagEditorState.remove-cover();
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: Theme.space-m;
+                        horizontal-stretch: 1;
+                        max-width: 480px;
+
+                        // The focus starts in the first field.
+                        if root.single: TagInput {
+                            init => {
+                                self.focus-text();
+                            }
+                            label: @tr("Title");
+                            text <=> root.title-text;
+                            accepted => {
+                                root.save();
+                            }
+                        }
+                        TagInput {
+                            init => {
+                                if !root.single {
+                                    self.focus-text();
+                                }
+                            }
+                            label: @tr("Artist");
+                            mixed: root.mixed.artist;
+                            text <=> root.artist-text;
+                            accepted => {
+                                root.save();
+                            }
+                        }
+                        TagInput {
+                            label: @tr("Album");
+                            mixed: root.mixed.album;
+                            text <=> root.album-text;
+                            accepted => {
+                                root.save();
+                            }
+                        }
+                        TagInput {
+                            label: @tr("Album artist");
+                            mixed: root.mixed.album-artist;
+                            text <=> root.album-artist-text;
+                            accepted => {
+                                root.save();
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: Theme.space-m;
+
+                            if root.single: TagInput {
+                                // Equal widths, whatever they hold.
+                                horizontal-stretch: 1;
+                                preferred-width: 0;
+                                label: @tr("Track");
+                                wrong: root.problem == TagProblem.track;
+                                text <=> root.track-text;
+                                accepted => {
+                                    root.save();
+                                }
+                            }
+                            TagInput {
+                                // Equal widths, whatever they hold.
+                                horizontal-stretch: 1;
+                                preferred-width: 0;
+                                label: @tr("Disc");
+                                mixed: root.mixed.disc;
+                                wrong: root.problem == TagProblem.disc;
+                                text <=> root.disc-text;
+                                accepted => {
+                                    root.save();
+                                }
+                            }
+                            TagInput {
+                                // Equal widths, whatever they hold.
+                                horizontal-stretch: 1;
+                                preferred-width: 0;
+                                label: @tr("Year");
+                                mixed: root.mixed.year;
+                                wrong: root.problem == TagProblem.year;
+                                text <=> root.year-text;
+                                accepted => {
+                                    root.save();
+                                }
+                            }
+                        }
+
+                        TagInput {
+                            label: @tr("Genre");
+                            mixed: root.mixed.genre;
+                            text <=> root.genre-text;
+                            accepted => {
+                                root.save();
+                            }
+                        }
+                    }
+                }
+
+                // Why nothing was written yet: one sentence for the wrong value.
+                if root.problem != TagProblem.none: Text {
+                    max-width: Theme.content-max-width;
+                    text: root.problem == TagProblem.track ? @tr("The track number must be a whole number, like 3.")
+                        : root.problem == TagProblem.disc ? @tr("The disc number must be a whole number, like 1.")
+                        : root.problem == TagProblem.year ? @tr("The year must be a number from 1 to 9999.")
+                        : root.problem == TagProblem.line-break ? @tr("Tags are one line each, so they can't hold line breaks or other control characters.")
+                        : @tr("That file isn't a JPEG or PNG image VCMP can read, so the cover stays as it was.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                }
+
+                if root.writing: VerticalLayout {
+                    spacing: Theme.space-s;
+                    max-width: Theme.content-max-width;
+
+                    Text {
+                        text: @tr("Writing tags: {0} of {1} files", TagEditorState.done, TagEditorState.track-count);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                    }
+                    ProgressBar {
+                        progress: TagEditorState.track-count > 0 ? TagEditorState.done / TagEditorState.track-count : 0;
+                        label: @tr("Writing tags");
+                    }
+                }
+
+                // The files that kept their old tags, each with the reason.
+                if TagEditorState.status == TagEditorStatus.failed: VerticalLayout {
+                    spacing: Theme.space-s;
+                    max-width: Theme.content-max-width;
+
+                    Text {
+                        text: @tr("These files kept their old tags. The others were written.");
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        font-weight: Theme.weight-strong;
+                        wrap: word-wrap;
+                    }
+                    for failure in TagEditorState.failures: VerticalLayout {
+                        Text {
+                            text: failure.file;
+                            color: Theme.colors.text;
+                            font-size: Theme.font-body;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: failure.reason == TagFailureReason.unavailable ? @tr("The file isn't there now.")
+                                : failure.reason == TagFailureReason.read-only ? @tr("The file is read-only.")
+                                : failure.reason == TagFailureReason.unreadable ? @tr("Its tags could not be read.")
+                                : failure.reason == TagFailureReason.write ? @tr("The tags could not be written.")
+                                : failure.reason == TagFailureReason.verify ? @tr("The written tags didn't read back right, so the file was left as it was.")
+                                : failure.reason == TagFailureReason.changed ? @tr("The file changed while it was written, so it was left as it was.")
+                                : @tr("The file could not be replaced. Another program, or VCMP playing it, may be using it.");
+                            color: Theme.colors.text-muted;
+                            font-size: Theme.font-small;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-m;
+                    alignment: start;
+
+                    Button {
+                        text: TagEditorState.status == TagEditorStatus.failed ? @tr("Try again") : @tr("Save");
+                        label: TagEditorState.status == TagEditorStatus.failed ? @tr("Write the tags again") : @tr("Save the tags");
+                        primary: true;
+                        enabled: !root.writing;
+                        clicked => {
+                            root.save();
+                        }
+                    }
+                    Button {
+                        text: TagEditorState.status == TagEditorStatus.failed ? @tr("Close") : @tr("Cancel");
+                        enabled: !root.writing;
+                        clicked => {
+                            TagEditorState.cancel();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

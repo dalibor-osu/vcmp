@@ -858,6 +858,8 @@ export component SearchField {
 export component TextField {
     in property <string> label;
     in-out property <string> text;
+    // Shown while the field is empty.
+    in property <string> placeholder;
     in property <length> font-size: Theme.font-body;
     callback accepted(string);
     callback cancelled();
@@ -894,17 +896,33 @@ export component TextField {
             padding-left: Theme.space-m;
             padding-right: Theme.space-m;
 
-            input := TextInput {
-                text <=> root.text;
-                single-line: true;
-                color: Theme.colors.text;
-                font-size: root.font-size;
-                vertical-alignment: center;
-                selection-background-color: Theme.colors.surface;
-                selection-foreground-color: Theme.colors.text;
-                accessible-label: root.label;
-                accepted => {
-                    root.accepted(self.text);
+            Rectangle {
+                if root.text == "": Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.placeholder;
+                    color: Theme.colors.text-muted;
+                    font-size: root.font-size;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: none;
+                }
+
+                input := TextInput {
+                    width: parent.width;
+                    height: parent.height;
+                    text <=> root.text;
+                    single-line: true;
+                    color: Theme.colors.text;
+                    font-size: root.font-size;
+                    vertical-alignment: center;
+                    selection-background-color: Theme.colors.surface;
+                    selection-foreground-color: Theme.colors.text;
+                    accessible-label: root.label;
+                    accessible-placeholder-text: root.placeholder;
+                    accepted => {
+                        root.accepted(self.text);
+                    }
                 }
             }
         }

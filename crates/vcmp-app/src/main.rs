@@ -9,6 +9,7 @@ use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
+use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_integrations::lastfm::Credentials;
@@ -36,6 +37,13 @@ fn main() -> Result<(), slint::PlatformError> {
                         library.clone(),
                         &paths,
                         Credentials::built_in(),
+                    );
+                    let tag_editor = TagEditor::connect(
+                        &window,
+                        library.clone(),
+                        paths.clone(),
+                        view.clone(),
+                        Delivery::EventLoop,
                     );
                     let library_service = LibraryService::connect(
                         &window,
@@ -96,6 +104,12 @@ fn main() -> Result<(), slint::PlatformError> {
                                     player.artwork_changed(album);
                                 }
                             });
+                            let player = Rc::downgrade(&service);
+                            tag_editor.on_written(move || {
+                                if let Some(player) = player.upgrade() {
+                                    player.tags_changed();
+                                }
+                            });
                             Some(service)
                         }
                         Err(error) => {
@@ -103,7 +117,13 @@ fn main() -> Result<(), slint::PlatformError> {
                             None
                         }
                     };
-                    services = Some((library_service, player_service, cover_fetch, lastfm));
+                    services = Some((
+                        library_service,
+                        player_service,
+                        cover_fetch,
+                        lastfm,
+                        tag_editor,
+                    ));
                 }
                 Err(error) => {
                     log::error!("could not read albums: {error}");
@@ -122,7 +142,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     let result = window.run();
-    if let Some((_, Some(player_service), _, _)) = &services {
+    if let Some((_, Some(player_service), _, _, _)) = &services {
         player_service.save_queue();
     }
     result

@@ -1429,6 +1429,64 @@ impl PlayerService {
         show_position(state, Duration::ZERO);
     }
 
+    /// Shows tags the editor just wrote: the playing track's names, links and cover,
+    /// and the queue. The play goes on as it was, and Last.fm gets the tags it started
+    /// with.
+    pub fn tags_changed(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        // Albums may have been regrouped under new ids.
+        self.queue_covers.borrow_mut().clear();
+        let view = self.queue_view.borrow().clone();
+        self.show_queue(&state, &view);
+        if !state.get_has_track() {
+            return;
+        }
+        let path = state.get_track_path();
+        let Some(track) = self
+            .library
+            .track_id_for_path(Path::new(path.as_str()))
+            .ok()
+            .flatten()
+            .and_then(|id| self.library.track(id).ok().flatten())
+        else {
+            return;
+        };
+        let album = track
+            .album_id
+            .and_then(|album| self.library.album(album).ok().flatten());
+        let cover = album
+            .as_ref()
+            .and_then(|album| album.artwork.as_ref())
+            .and_then(|artwork| Image::load_from_path(&artwork.thumbnail).ok());
+        self.album.set(album.as_ref().map(|album| album.id));
+        self.artist.set(track.artist_id);
+        state.set_has_album_link(album.is_some());
+        state.set_has_artist_link(track.artist_id.is_some());
+        state.set_initial(initial(&track.title).into());
+        state.set_title(track.title.as_str().into());
+        state.set_artist(track.artist.clone().unwrap_or_default().into());
+        state.set_album(
+            album
+                .as_ref()
+                .map(|album| album.title.as_str())
+                .unwrap_or_default()
+                .into(),
+        );
+        state.set_has_cover(cover.is_some());
+        state.set_cover(cover.unwrap_or_default());
+        self.forget_large_cover(&state);
+        *self.large_cover.borrow_mut() = album
+            .as_ref()
+            .and_then(|album| album.artwork.as_ref())
+            .map(|artwork| artwork.original.clone());
+        if state.get_now_playing_open() {
+            self.load_large_cover();
+        }
+    }
+
     /// A new play for Last.fm: of `track`, which is `duration` long, or of nothing.
     /// Tracks without an artist can't be scrobbled.
     fn start_play(&self, track: Option<&Track>, duration: Duration) {
