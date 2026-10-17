@@ -1295,3 +1295,43 @@ fn an_artist_photo_is_kept_by_name_and_replaced_or_removed() {
         Err(Error::UnreadableImage(_))
     ));
 }
+
+#[test]
+fn a_fetched_cover_follows_its_album_through_a_renaming_edit() {
+    let mut setup = Setup::new();
+    let path = add_file(
+        &setup.music(),
+        "a.flac",
+        "silence.flac",
+        song("A", "X", "Bare"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let album = setup.library.albums().unwrap()[0].id;
+    let fetched = setup
+        .library
+        .set_fetched_cover(
+            album,
+            &png_of(64, [30, 102, 245]),
+            &CoverArtId::Release("r-1".into()),
+        )
+        .unwrap()
+        .unwrap();
+
+    let track = setup.library.track_id_for_path(&path).unwrap().unwrap();
+    let edit = TagEdit {
+        album: FieldEdit::Set("Bare (Remastered)".into()),
+        album_artist: FieldEdit::Set("The X".into()),
+        ..TagEdit::default()
+    };
+    let report = setup
+        .library
+        .write_tags(&[(track, &edit)], &AtomicBool::new(false), |_, _| {})
+        .unwrap();
+    assert!(report.failed.is_empty());
+    let albums = setup.library.albums().unwrap();
+    assert_eq!(albums.len(), 1);
+    assert_eq!(albums[0].title, "Bare (Remastered)");
+    assert_eq!(albums[0].artwork, Some(fetched));
+    assert!(albums[0].fetched_cover);
+}

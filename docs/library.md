@@ -302,8 +302,9 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
 - A folder image is noticed by its name, size and modification time. An image
   replaced by another of the same size with its old modification time restored
   goes unnoticed until a track of the album changes.
-- A fetched cover belongs to the album's group key. When the album's title or
-  album artist changes, the album gets a new key and offers the search again.
+- A fetched cover belongs to the album's group key. VCMP's tag editor carries it to
+  the album a renamed title or album artist leads to, but when another program
+  changes those tags, the album gets a new key and offers the search again.
 - SQLite's case-insensitive comparison only folds ASCII. Artist names that differ
   only in the case of a non-ASCII letter ("Dvořák" and "DVOŘÁK") become two artists,
   and sorting is not locale-aware. Album grouping lowercases with full Unicode rules.
