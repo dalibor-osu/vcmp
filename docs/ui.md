@@ -270,8 +270,10 @@ shown, because the page itself stays alive while hidden.
   entries that are there, as one context (`playlist:<id>`, named in the queue
   panel); a click on a missing entry plays from the next one that is there.
 - **Editing:** a playlist's `TrackList` adds Move up, Move down and Remove from
-  playlist to its track menu, and Alt+Up, Alt+Down and Delete to its keys. The
-  keyboard's current track follows a moved one.
+  playlist to its track menu, and Alt+Up, Alt+Down and Delete to its keys. A row
+  can also be dragged: past 6 px of movement the press becomes a drag, an accent
+  line shows where the row would land, and letting go moves it without playing it.
+  The keyboard's current track follows a moved one.
 - **Adding:** every track menu (album, artist, search, folder and playlist lists,
   the songs table and the queue panel) has Add to playlist, with New playlist and
   every playlist by name. New playlist there makes "Playlist n" with the track,
@@ -462,6 +464,8 @@ The Albums page tells apart why it is empty:
   the now playing view too.
   - Each track shows its album's cover, decoded off the UI thread at 96 px and
     kept per album (up to 500), and filled into the rows when it arrives.
+  - Tracks added to Up next can also be dragged to another place, like a
+    playlist's rows.
   - The track menu offers what applies: Play, then Remove, Move up and Move down
     for tracks added to Up next, or Play next and Add to queue for the album's (or
     list's) own tracks, which stay in their place too. The engine can't take a
@@ -655,9 +659,8 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - A play that started before its tags were edited is scrobbled to Last.fm with the
   tags it started with.
 
-- Up next can be filled from album and artist pages and search, and reordered by
-  keyboard or menu, not by dragging. Playlist entries likewise move one step at a
-  time.
+- Dragging a row in a playlist or in Up next doesn't scroll the list: to move a row
+  further than the view shows, drag it in steps, or use Alt+Up/Down.
 - Going back is one step: an album opened from an artist found by search returns
   to the artist, and the artist to Search, but there is no general history.
 - The queue panel slides in when it opens but closes at once: the panel is made when

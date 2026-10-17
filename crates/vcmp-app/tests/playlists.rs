@@ -420,3 +420,74 @@ fn queued_and_playing_tracks_can_be_added_to_a_playlist() {
     let id = app.library.playlists().unwrap()[0].id;
     assert_eq!(app.entry_titles(id), ["One"]);
 }
+
+#[test]
+fn entries_can_be_dragged_to_a_new_place() {
+    let app = start();
+    let id = app.library.create_playlist("Mix").unwrap();
+    let ids: Vec<_> = app
+        .library
+        .tracks()
+        .unwrap()
+        .iter()
+        .map(|track| track.id)
+        .collect();
+    app.library.add_to_playlist(id, &ids).unwrap();
+    app.view.reload();
+    app.open_page("Playlists");
+    app.window.invoke_playlist_activated(0);
+    mock_elapsed_time(Duration::ZERO);
+
+    let centre = |title: &str| {
+        let row = find(
+            &app.window,
+            AccessibleRole::ListItem,
+            &format!("{title}, Band · Album"),
+        );
+        let (position, size) = (row.absolute_position(), row.size());
+        slint::LogicalPosition::new(
+            position.x + size.width / 3.0,
+            position.y + size.height / 2.0,
+        )
+    };
+    let drag = |from: slint::LogicalPosition, to: slint::LogicalPosition| {
+        let window = app.window.window();
+        let button = slint::platform::PointerEventButton::Left;
+        window.dispatch_event(WindowEvent::PointerMoved { position: from });
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position: from,
+            button,
+        });
+        for step in 1..=4 {
+            let y = from.y + (to.y - from.y) * step as f32 / 4.0;
+            let position = slint::LogicalPosition::new(from.x, y);
+            window.dispatch_event(WindowEvent::PointerMoved { position });
+        }
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position: to,
+            button,
+        });
+    };
+
+    // One down past Three: it lands last, and nothing plays.
+    drag(centre("One"), centre("Three"));
+    assert_eq!(app.entry_titles(id), ["Two", "Three", "One"]);
+    // And back up to the top.
+    drag(centre("One"), centre("Two"));
+    assert_eq!(app.entry_titles(id), ["One", "Two", "Three"]);
+    assert!(
+        !app.sent
+            .0
+            .borrow()
+            .iter()
+            .any(|command| matches!(command, Command::PlayContext { .. })),
+        "a drag is not a click"
+    );
+    // A plain click still plays.
+    let position = centre("Two");
+    let window = app.window.window();
+    let button = slint::platform::PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed { position, button });
+    window.dispatch_event(WindowEvent::PointerReleased { position, button });
+    assert_eq!(app.played().2, Some(1));
+}
