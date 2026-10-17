@@ -84,7 +84,9 @@ and choose Open, or run `xattr -dr com.apple.quarantine /Applications/VCMP.app`.
 
 To try the packaging without a release, run the workflow by hand (Actions → Release
 → Run workflow, or `gh workflow run release.yml --ref <branch>`). The installers are
-then attached to the run as artifacts.
+then attached to the run as artifacts. GitHub only offers manual runs for workflows
+that are on `main`; before that, a branch can try it by adding itself under
+`on: push: branches:` for a commit or two.
 
 To package locally, install cargo-packager (`cargo install cargo-packager --locked`),
 then:
