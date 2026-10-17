@@ -2,8 +2,9 @@
 //! artwork caching. Must not depend on the UI crate.
 //!
 //! The database is a cache of the files' tags (the files are the source of truth) plus
-//! what only VCMP knows: source directories and settings. Music files are written
-//! only by [`Library::write_tags`], through a verified copy.
+//! what only VCMP knows: source directories, settings and the plays waiting for
+//! Last.fm. Music files are written only by [`Library::write_tags`], through a
+//! verified copy.
 
 mod artwork;
 mod edit;
@@ -14,6 +15,7 @@ mod playlists;
 mod query;
 mod scan;
 mod schema;
+mod scrobbles;
 mod tags;
 mod watch;
 
@@ -29,6 +31,7 @@ pub use lookups::{CoverArtId, CoverLookup};
 pub use playlists::{Playlist, PlaylistEntry, PlaylistId};
 pub use query::{Album, AlbumId, Artist, ArtistId, SearchResults, Track, TrackId};
 pub use scan::{ScanPhase, ScanProgress, ScanReport, SkippedFile};
+pub use scrobbles::{QueuedScrobble, Scrobble};
 pub use tags::Format;
 pub use watch::LibraryWatcher;
 

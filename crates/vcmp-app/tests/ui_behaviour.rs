@@ -207,6 +207,11 @@ fn smallest_window_keeps_everything_inside() {
     let window = open_window();
     let width = 720.0;
     window.window().set_size(LogicalSize::new(width, 480.0));
+    // Settings with the Last.fm row, as in a build with an API key, in its longest
+    // state: waiting, with the link back to the browser page.
+    let lastfm = window.global::<vcmp_app::LastfmState>();
+    lastfm.set_available(true);
+    lastfm.set_status(vcmp_app::LastfmStatus::Waiting);
 
     // Every page, with the queue panel closed and open, and the now playing view.
     for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6, 7]

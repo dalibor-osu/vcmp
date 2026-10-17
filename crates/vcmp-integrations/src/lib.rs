@@ -3,6 +3,7 @@
 //! on the UI crate.
 
 pub mod discord;
+pub mod lastfm;
 pub mod media_controls;
 pub mod musicbrainz;
 pub mod updates;
