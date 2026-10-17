@@ -119,9 +119,12 @@ export component AppWindow inherits Window {
                     }
 
                     // Scan status, visible from every page while albums appear.
+                    // Its own height: left to the default, the layout would fill the
+                    // sidebar from `y` down and push the bar out of sight.
                     if LibraryState.scanning: VerticalLayout {
-                        y: parent.height - self.preferred-height;
+                        y: parent.height - self.height;
                         width: parent.width;
+                        height: self.preferred-height;
                         padding: Theme.space-l;
                         padding-left: Theme.space-xl;
                         spacing: Theme.space-s;

@@ -115,6 +115,15 @@ of the RGB frame. Rounded clipping of the covers made no measurable difference.
 cargo run --release -p vcmp-app --example grid_benchmark -- 5000 120
 ```
 
+Release builds are what these numbers describe. A debug build with unoptimised
+dependencies rendered a grid frame in 46 ms and decoded a cover in 58 ms, which made
+scrolling stutter; with the dependencies optimised in debug builds too (see
+`Cargo.toml`) it is 6.8 ms and 3.7 ms. Today's release run: 0.8 ms p50, 7.9 ms p95.
+
+The album page, measured with `examples/album_page_benchmark.rs` on a real library's
+longest album (116 tracks): it opens in 33 ms and renders in 0.7 ms p50 (release),
+1.4 ms (debug).
+
 ## Album page
 
 Choosing an album shows `AlbumView` in place of the grid. The grid stays alive, so

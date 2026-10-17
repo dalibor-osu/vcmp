@@ -258,3 +258,30 @@ fn a_library_that_failed_to_open_says_so() {
     .next()
     .expect("error message instead of the empty state");
 }
+
+#[test]
+fn the_sidebar_shows_scan_progress_under_its_label() {
+    use vcmp_app::{LibraryState, ScanPhase};
+    let window = open_window();
+    let state = window.global::<LibraryState>();
+    state.set_phase(ScanPhase::Reading);
+    state.set_done(50);
+    state.set_total(100);
+
+    let label = ElementHandle::find_by_accessible_label(&window, "Scanning your music")
+        .next()
+        .expect("the scan label");
+    let bar = find(&window, AccessibleRole::ProgressIndicator, "Scan progress");
+    assert_eq!(bar.accessible_value().as_deref(), Some("50"));
+    assert!(
+        label.size().height < 40.0,
+        "the label is one line, not stretched over the sidebar: {:?}",
+        label.size()
+    );
+    let label_bottom = label.absolute_position().y + label.size().height;
+    let gap = bar.absolute_position().y - label_bottom;
+    assert!(
+        (0.0..=16.0).contains(&gap),
+        "the bar sits right under its label, not {gap} px below it"
+    );
+}

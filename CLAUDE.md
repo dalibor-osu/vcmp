@@ -46,6 +46,11 @@ instead of the platform data and cache directories. For example,
 `VCMP_HOME=target/scan-example cargo run -p vcmp-app` opens the library that
 `cargo run --example scan` built.
 
+Debug builds optimise the dependencies (`[profile.dev.package."*"]` in
+`Cargo.toml`): unoptimised Slint, its renderer and image decoding made the album grid
+take 46 ms a frame. The first debug build is slower for it; later ones only rebuild
+VCMP's crates. Measure performance with `--release`.
+
 On Linux, building needs the fontconfig, xkbcommon and ALSA development packages
 (`libfontconfig1-dev libxkbcommon-dev libasound2-dev` on Debian/Ubuntu;
 `fontconfig libxkbcommon alsa-lib` on Arch).
@@ -70,7 +75,8 @@ cargo run -p vcmp-app --example screenshots
 The PNGs land in `target/screenshots/`. Set `VCMP_HOME` to show a real library in
 the album shots. `--example grid_benchmark` scrolls the album grid through thousands
 of synthetic albums and reports render times and memory (see
-[docs/ui.md](docs/ui.md#album-grid)).
+[docs/ui.md](docs/ui.md#album-grid)). `--example album_page_benchmark` (with
+`VCMP_HOME`) opens the library's longest album and scrolls its page.
 
 Library tests use the tiny silent files in `crates/vcmp-library/tests/fixtures/`
 (see the README there for how they were made) and write tags into temporary copies.
