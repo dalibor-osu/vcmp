@@ -19,7 +19,7 @@ Read it before changing anything structural.
 | Language | Rust, edition 2024, minimum Rust 1.92 |
 | UI | Slint 1.18, royalty-free license (the `AboutSlint` widget must stay on the About page) |
 | Audio (planned) | symphonia (decoding) + cpal (output), own engine |
-| Storage (planned) | SQLite, bundled |
+| Storage | SQLite (bundled via rusqlite), FTS5 search; tags read with lofty |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions on Ubuntu, Windows and macOS |
 | License | MIT OR Apache-2.0 |
@@ -29,7 +29,7 @@ Workspace layout:
 | Crate | Role |
 |---|---|
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
-| `crates/vcmp-library` | Library scanning, tags, database, artwork (placeholder) |
+| `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, watcher |
 | `crates/vcmp-playback` | Decoding, output, queue, shuffle (placeholder) |
 | `crates/vcmp-integrations` | OS media controls, Last.fm, web artwork, update check (placeholder) |
 
@@ -64,6 +64,19 @@ cargo run -p vcmp-app --example screenshots
 
 The PNGs land in `target/screenshots/`.
 
+Library tests use the tiny silent files in `crates/vcmp-library/tests/fixtures/`
+(see the README there for how they were made) and write tags into temporary copies.
+To check the scanner against a real collection (files are only read; the database
+goes to `target/scan-example/`):
+
+```bash
+cargo run --release -p vcmp-library --example scan -- /path/to/music
+```
+
+`--example scan_profile` breaks a scan down by step (tag reads per format, cover
+read, decode, resize, encode) on Linux. [docs/library.md](docs/library.md#measured)
+has the reference numbers.
+
 ## UI work
 
 - Visual direction is the owner's [docs/DESIGN.md](docs/DESIGN.md). Don't change it
@@ -83,6 +96,7 @@ The PNGs land in `target/screenshots/`.
 | `docs/specs/` | Agreed specifications, one file per planned change |
 | `docs/DESIGN.md` | The owner's design direction |
 | `docs/ui.md` | UI structure, tokens, design reasons, known limits |
+| `docs/library.md` | Library storage, schema, scan and re-link rules, search, known limits |
 | `ideas.md` | The owner's original idea list |
 
 Keep the technical documentation up to date: when a change alters behaviour,

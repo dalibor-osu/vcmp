@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [[bin]]
@@ -12,7 +13,11 @@ name = "vcmp"
 path = "src/main.rs"
 
 [dependencies]
+directories = "6.0.0"
+env_logger = "0.11.11"
+log = "0.4.34"
 slint.workspace = true
+vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
 
 [build-dependencies]
 slint-build.workspace = true
@@ -20,3 +25,4 @@ slint-build.workspace = true
 [dev-dependencies]
 i-slint-backend-testing = "=1.18.1"
 png = "0.18.1"
+tempfile = "3.27.0"

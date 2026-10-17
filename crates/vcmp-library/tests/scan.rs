@@ -1,0 +1,732 @@
+//! Scanning behaviour against real (tiny) audio files. Each test copies fixtures into
+//! a temporary directory and writes the tags it needs there.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use lofty::config::WriteOptions;
+use lofty::file::{FileType, TaggedFileExt};
+use lofty::picture::{MimeType, Picture, PictureType};
+use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
+use tempfile::TempDir;
+use vcmp_library::{Artwork, Error, Format, Library, LibraryWatcher, ScanReport};
+
+const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
+
+struct Setup {
+    // Fields drop in order: the database closes before the directory is deleted,
+    // which Windows requires.
+    library: Library,
+    // The temporary directory with symlinks resolved (macOS keeps temporary files
+    // under a symlink, Windows may hand out short 8.3 names), matching how sources
+    // are stored.
+    base: PathBuf,
+    _root: TempDir,
+}
+
+impl Setup {
+    fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        let base = dunce::canonicalize(root.path()).unwrap();
+        fs::create_dir(base.join("music")).unwrap();
+        let library =
+            Library::open(&base.join("data/library.sqlite3"), &base.join("cache")).unwrap();
+        Self {
+            _root: root,
+            base,
+            library,
+        }
+    }
+
+    fn music(&self) -> PathBuf {
+        self.base.as_path().join("music")
+    }
+
+    fn cache(&self) -> PathBuf {
+        self.base.as_path().join("cache")
+    }
+
+    fn add_music_source(&self) {
+        self.library.add_source(&self.music(), true).unwrap();
+    }
+
+    fn scan(&mut self) -> ScanReport {
+        let report = self.library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+        assert!(!report.cancelled);
+        report
+    }
+}
+
+#[derive(Default)]
+struct Tags<'a> {
+    title: Option<&'a str>,
+    artist: Option<&'a str>,
+    album: Option<&'a str>,
+    album_artist: Option<&'a str>,
+    track: Option<u32>,
+    year: Option<&'a str>,
+    picture: Option<Vec<u8>>,
+}
+
+/// Copies a fixture to `dir/name` and writes `tags` into the copy.
+fn add_file(dir: &Path, name: &str, fixture: &str, tags: Tags) -> PathBuf {
+    fs::create_dir_all(dir).unwrap();
+    let path = dir.join(name);
+    fs::copy(Path::new(FIXTURES).join(fixture), &path).unwrap();
+    write_tags(&path, tags);
+    path
+}
+
+fn write_tags(path: &Path, tags: Tags) {
+    let file = lofty::read_from_path(path).unwrap();
+    let tag_type = match file.file_type() {
+        FileType::Wav => TagType::Id3v2,
+        _ => file.primary_tag_type(),
+    };
+    let mut tag = Tag::new(tag_type);
+    if let Some(value) = tags.title {
+        tag.set_title(value.into());
+    }
+    if let Some(value) = tags.artist {
+        tag.set_artist(value.into());
+    }
+    if let Some(value) = tags.album {
+        tag.set_album(value.into());
+    }
+    if let Some(value) = tags.album_artist {
+        tag.insert_text(ItemKey::AlbumArtist, value.into());
+    }
+    if let Some(value) = tags.track {
+        tag.set_track(value);
+    }
+    if let Some(value) = tags.year {
+        tag.insert_text(ItemKey::Year, value.into());
+    }
+    if let Some(data) = tags.picture {
+        tag.push_picture(
+            Picture::unchecked(data)
+                .pic_type(PictureType::CoverFront)
+                .mime_type(MimeType::Png)
+                .build(),
+        );
+    }
+    tag.save_to_path(path, WriteOptions::default()).unwrap();
+}
+
+fn song<'a>(title: &'a str, artist: &'a str, album: &'a str) -> Tags<'a> {
+    Tags {
+        title: Some(title),
+        artist: Some(artist),
+        album: Some(album),
+        ..Tags::default()
+    }
+}
+
+fn png() -> Vec<u8> {
+    let image = image::RgbImage::from_pixel(64, 64, image::Rgb([245, 194, 231]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+#[test]
+fn reads_every_supported_format_and_skips_opus() {
+    let mut setup = Setup::new();
+    let album = setup.music().join("Album");
+    for (index, (fixture, name)) in [
+        ("silence.mp3", "1.mp3"),
+        ("silence.flac", "2.flac"),
+        ("silence.ogg", "3.ogg"),
+        ("silence.wav", "4.wav"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let title = format!("Song {}", index + 1);
+        add_file(
+            &album,
+            name,
+            fixture,
+            Tags {
+                track: Some(index as u32 + 1),
+                ..song(&title, "Artist", "Album")
+            },
+        );
+    }
+    fs::copy(
+        Path::new(FIXTURES).join("opus-in-ogg.ogg"),
+        album.join("opus.ogg"),
+    )
+    .unwrap();
+    fs::write(album.join("notes.txt"), "not music").unwrap();
+    setup.add_music_source();
+
+    let report = setup.scan();
+    assert_eq!(report.added, 4);
+    assert_eq!(report.skipped.len(), 1);
+    assert!(report.skipped[0].path.ends_with("opus.ogg"));
+    assert!(
+        report.skipped[0].reason.contains("unsupported"),
+        "{}",
+        report.skipped[0].reason
+    );
+
+    let tracks = setup.library.tracks().unwrap();
+    let formats: Vec<_> = tracks.iter().map(|track| track.format).collect();
+    assert_eq!(
+        formats,
+        [
+            Some(Format::Mp3),
+            Some(Format::Flac),
+            Some(Format::OggVorbis),
+            Some(Format::Wav)
+        ]
+    );
+    for track in &tracks {
+        // MP3 durations count whole frames including encoder padding (1.152 s here).
+        assert!(
+            (900..=1200).contains(&track.duration.as_millis()),
+            "{}: {:?}",
+            track.title,
+            track.duration
+        );
+        assert_eq!(track.artist.as_deref(), Some("Artist"));
+    }
+    let albums = setup.library.albums().unwrap();
+    assert_eq!(albums.len(), 1);
+    assert_eq!(albums[0].track_count, 4);
+    assert_eq!(setup.library.artists().unwrap().len(), 1);
+}
+
+#[test]
+fn untagged_file_is_titled_by_its_name() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music(),
+        "Intro Jam.flac",
+        "silence.flac",
+        Tags::default(),
+    );
+    setup.add_music_source();
+    setup.scan();
+
+    let tracks = setup.library.tracks().unwrap();
+    assert_eq!(tracks[0].title, "Intro Jam");
+    assert_eq!(
+        (tracks[0].artist.as_deref(), tracks[0].album.as_deref()),
+        (None, None)
+    );
+    assert!(setup.library.albums().unwrap().is_empty());
+}
+
+#[test]
+fn rescanning_an_unchanged_library_changes_nothing() {
+    let mut setup = Setup::new();
+    add_file(&setup.music(), "a.mp3", "silence.mp3", song("A", "X", "Y"));
+    add_file(
+        &setup.music(),
+        "b.flac",
+        "silence.flac",
+        song("B", "X", "Y"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let before = setup.library.tracks().unwrap();
+
+    let report = setup.scan();
+    assert_eq!(
+        (
+            report.unchanged,
+            report.added,
+            report.updated,
+            report.relinked
+        ),
+        (2, 0, 0, 0)
+    );
+    assert_eq!(setup.library.tracks().unwrap(), before);
+}
+
+#[test]
+fn changed_tags_update_the_track_and_drop_the_empty_album() {
+    let mut setup = Setup::new();
+    let path = add_file(
+        &setup.music(),
+        "a.mp3",
+        "silence.mp3",
+        song("Old title", "X", "Old album"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let id = setup.library.track_id_for_path(&path).unwrap().unwrap();
+
+    // Make sure the modification time moves even on coarse file systems.
+    std::thread::sleep(Duration::from_millis(1100));
+    write_tags(&path, song("New title", "X", "New album"));
+    let report = setup.scan();
+
+    assert_eq!(report.updated, 1);
+    let track = setup.library.track(id).unwrap().unwrap();
+    assert_eq!(track.title, "New title");
+    let albums: Vec<String> = setup
+        .library
+        .albums()
+        .unwrap()
+        .into_iter()
+        .map(|album| album.title)
+        .collect();
+    assert_eq!(albums, ["New album"]);
+}
+
+#[test]
+fn moved_file_keeps_its_track_id() {
+    let mut setup = Setup::new();
+    let old = add_file(
+        &setup.music(),
+        "a.flac",
+        "silence.flac",
+        song("Largo", "Dvořák", "New World"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let id = setup.library.track_id_for_path(&old).unwrap().unwrap();
+
+    let new = setup.music().join("Dvořák/New World/02 Largo.flac");
+    fs::create_dir_all(new.parent().unwrap()).unwrap();
+    fs::rename(&old, &new).unwrap();
+    let report = setup.scan();
+
+    assert_eq!(
+        (report.relinked, report.added, report.became_unavailable),
+        (1, 0, 1)
+    );
+    let track = setup.library.track(id).unwrap().unwrap();
+    assert_eq!(track.path, new);
+    assert!(track.available);
+    assert_eq!(setup.library.tracks().unwrap().len(), 1);
+}
+
+#[test]
+fn ambiguous_move_creates_a_new_track() {
+    let mut setup = Setup::new();
+    let first = add_file(
+        &setup.music().join("one"),
+        "a.flac",
+        "silence.flac",
+        song("Same", "X", "Y"),
+    );
+    let second = add_file(
+        &setup.music().join("two"),
+        "a.flac",
+        "silence.flac",
+        song("Same", "X", "Y"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let ids = [first.clone(), second.clone()]
+        .map(|path| setup.library.track_id_for_path(&path).unwrap().unwrap());
+
+    let moved = setup.music().join("three/a.flac");
+    fs::create_dir_all(moved.parent().unwrap()).unwrap();
+    fs::rename(&first, &moved).unwrap();
+    fs::remove_file(&second).unwrap();
+    let report = setup.scan();
+
+    assert_eq!((report.relinked, report.added), (0, 1));
+    let new_id = setup.library.track_id_for_path(&moved).unwrap().unwrap();
+    assert!(!ids.contains(&new_id));
+}
+
+#[test]
+fn deleted_file_becomes_unavailable_and_returns() {
+    let mut setup = Setup::new();
+    let path = add_file(&setup.music(), "a.ogg", "silence.ogg", song("A", "X", "Y"));
+    setup.add_music_source();
+    setup.scan();
+    let id = setup.library.track_id_for_path(&path).unwrap().unwrap();
+
+    let parked = setup.base.as_path().join("parked.ogg");
+    fs::rename(&path, &parked).unwrap();
+    assert_eq!(setup.scan().became_unavailable, 1);
+    assert!(setup.library.tracks().unwrap().is_empty());
+    assert!(setup.library.albums().unwrap().is_empty());
+    assert!(!setup.library.track(id).unwrap().unwrap().available);
+
+    fs::rename(&parked, &path).unwrap();
+    assert_eq!(setup.scan().became_available, 1);
+    assert!(setup.library.track(id).unwrap().unwrap().available);
+}
+
+#[test]
+fn removing_a_source_keeps_its_tracks_as_unavailable() {
+    let mut setup = Setup::new();
+    let path = add_file(&setup.music(), "a.wav", "silence.wav", song("A", "X", "Y"));
+    let source = setup.library.add_source(&setup.music(), true).unwrap();
+    setup.scan();
+    let id = setup.library.track_id_for_path(&path).unwrap().unwrap();
+
+    setup.library.remove_source(source.id).unwrap();
+    assert!(setup.library.sources().unwrap().is_empty());
+    assert!(setup.library.tracks().unwrap().is_empty());
+    assert!(!setup.library.track(id).unwrap().unwrap().available);
+
+    setup.add_music_source();
+    let report = setup.scan();
+    assert_eq!(report.became_available, 1);
+    assert_eq!(setup.library.track_id_for_path(&path).unwrap(), Some(id));
+}
+
+#[test]
+fn unreachable_source_is_reported_and_its_tracks_go_unavailable() {
+    let mut setup = Setup::new();
+    let drive = setup.base.as_path().join("drive");
+    add_file(&drive, "a.mp3", "silence.mp3", song("A", "X", "Y"));
+    setup.library.add_source(&drive, true).unwrap();
+    setup.scan();
+
+    let unplugged = setup.base.as_path().join("unplugged");
+    fs::rename(&drive, &unplugged).unwrap();
+    let report = setup.scan();
+    assert_eq!(report.unreachable_sources.len(), 1);
+    assert_eq!(report.became_unavailable, 1);
+}
+
+#[test]
+fn non_recursive_source_ignores_subdirectories() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music(),
+        "top.mp3",
+        "silence.mp3",
+        song("Top", "X", "Y"),
+    );
+    add_file(
+        &setup.music().join("sub"),
+        "deep.mp3",
+        "silence.mp3",
+        song("Deep", "X", "Y"),
+    );
+    let source = setup.library.add_source(&setup.music(), false).unwrap();
+    setup.scan();
+    assert_eq!(setup.library.tracks().unwrap().len(), 1);
+
+    setup.library.set_source_recursive(source.id, true).unwrap();
+    assert_eq!(setup.scan().added, 1);
+    assert_eq!(setup.library.tracks().unwrap().len(), 2);
+}
+
+#[test]
+fn albums_group_by_album_artist_and_title() {
+    let mut setup = Setup::new();
+    let dir = setup.music();
+    // Same title, different artists: two albums.
+    add_file(
+        &dir,
+        "1.mp3",
+        "silence.mp3",
+        song("A", "Band One", "Greatest Hits"),
+    );
+    add_file(
+        &dir,
+        "2.mp3",
+        "silence.mp3",
+        song("B", "Band Two", "Greatest Hits"),
+    );
+    // A compilation: one album despite different track artists.
+    for (index, artist) in ["Singer", "Rapper"].into_iter().enumerate() {
+        let tags = Tags {
+            album_artist: Some("Various Artists"),
+            ..song("C", artist, "Summer Mix")
+        };
+        add_file(&dir, &format!("mix{index}.flac"), "silence.flac", tags);
+    }
+    // Case differences in tags do not split an album.
+    add_file(
+        &dir,
+        "w1.ogg",
+        "silence.ogg",
+        song("D", "Pink Floyd", "The Wall"),
+    );
+    add_file(
+        &dir,
+        "w2.ogg",
+        "silence.ogg",
+        song("E", "pink floyd", "the wall"),
+    );
+    setup.add_music_source();
+    setup.scan();
+
+    let albums = setup.library.albums().unwrap();
+    let summary: Vec<(String, Option<String>, u32)> = albums
+        .into_iter()
+        .map(|album| (album.title, album.artist, album.track_count))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("Greatest Hits".to_string(), Some("Band One".to_string()), 1),
+            ("Greatest Hits".to_string(), Some("Band Two".to_string()), 1),
+            ("The Wall".to_string(), Some("Pink Floyd".to_string()), 2),
+            (
+                "Summer Mix".to_string(),
+                Some("Various Artists".to_string()),
+                2
+            ),
+        ]
+    );
+    let compilation = setup
+        .library
+        .artists()
+        .unwrap()
+        .into_iter()
+        .find(|artist| artist.name == "Various Artists");
+    assert_eq!(
+        compilation.map(|artist| (artist.album_count, artist.track_count)),
+        Some((1, 0))
+    );
+}
+
+#[test]
+fn album_year_is_the_earliest_track_year() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music(),
+        "1.flac",
+        "silence.flac",
+        Tags {
+            year: Some("1994"),
+            ..song("A", "X", "Y")
+        },
+    );
+    add_file(
+        &setup.music(),
+        "2.flac",
+        "silence.flac",
+        Tags {
+            year: Some("1993-05-01"),
+            ..song("B", "X", "Y")
+        },
+    );
+    setup.add_music_source();
+    setup.scan();
+    assert_eq!(setup.library.albums().unwrap()[0].year, Some(1993));
+}
+
+#[test]
+fn artwork_comes_from_embedded_pictures_or_folder_images() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music().join("embedded"),
+        "a.mp3",
+        "silence.mp3",
+        Tags {
+            picture: Some(png()),
+            ..song("A", "X", "Embedded")
+        },
+    );
+    let folder = setup.music().join("folder");
+    add_file(&folder, "a.flac", "silence.flac", song("B", "X", "Folder"));
+    fs::write(folder.join("Cover.PNG"), png()).unwrap();
+    add_file(
+        &setup.music().join("none"),
+        "a.ogg",
+        "silence.ogg",
+        song("C", "X", "None"),
+    );
+    setup.add_music_source();
+    setup.scan();
+
+    for title in ["Embedded", "Folder"] {
+        let found =
+            album_artwork(&setup.library, title).unwrap_or_else(|| panic!("{title} has artwork"));
+        assert!(found.thumbnail.starts_with(setup.cache()));
+        assert!(image::open(&found.thumbnail).is_ok());
+    }
+    assert_eq!(album_artwork(&setup.library, "None"), None);
+
+    // A deleted cache is rebuilt by the next scan.
+    fs::remove_dir_all(setup.cache()).unwrap();
+    assert_eq!(album_artwork(&setup.library, "Embedded"), None);
+    setup.scan();
+    assert!(album_artwork(&setup.library, "Embedded").is_some());
+    assert!(album_artwork(&setup.library, "Folder").is_some());
+}
+
+fn album_artwork(library: &Library, title: &str) -> Option<Artwork> {
+    library
+        .albums()
+        .unwrap()
+        .into_iter()
+        .find(|album| album.title == title)
+        .unwrap()
+        .artwork
+}
+
+#[test]
+fn search_ignores_case_and_diacritics_and_matches_prefixes() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music(),
+        "1.flac",
+        "silence.flac",
+        song("Largo", "Antonín Dvořák", "Symphony No. 9"),
+    );
+    add_file(
+        &setup.music(),
+        "2.flac",
+        "silence.flac",
+        song("Comfortably Numb", "Pink Floyd", "The Wall"),
+    );
+    setup.add_music_source();
+    setup.scan();
+
+    let results = setup.library.search("dvorak", 10).unwrap();
+    assert_eq!(
+        results
+            .artists
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Antonín Dvořák"]
+    );
+    assert_eq!(results.tracks.len(), 1);
+    assert_eq!(results.albums.len(), 1, "albums match on their artist too");
+
+    let results = setup.library.search("LAR", 10).unwrap();
+    assert_eq!(
+        results
+            .tracks
+            .iter()
+            .map(|t| t.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Largo"]
+    );
+
+    let results = setup.library.search("floyd wall", 10).unwrap();
+    assert_eq!(
+        results
+            .albums
+            .iter()
+            .map(|a| a.title.as_str())
+            .collect::<Vec<_>>(),
+        ["The Wall"]
+    );
+    assert!(
+        results.artists.is_empty(),
+        "no artist is named both floyd and wall"
+    );
+
+    assert_eq!(setup.library.search("  ", 10).unwrap(), Default::default());
+    assert!(
+        setup.library.search("\"*:(", 10).is_ok(),
+        "query syntax in the text is not interpreted"
+    );
+}
+
+#[test]
+fn settings_persist_and_auto_update_defaults_on() {
+    let setup = Setup::new();
+    assert!(setup.library.auto_update().unwrap());
+    setup.library.set_auto_update(false).unwrap();
+    setup.library.set_setting("ui.theme", "dark").unwrap();
+    setup.library.set_setting("ui.theme", "light").unwrap();
+
+    let reopened = Library::open(
+        &setup.base.as_path().join("data/library.sqlite3"),
+        &setup.cache(),
+    )
+    .unwrap();
+    assert!(!reopened.auto_update().unwrap());
+    assert_eq!(
+        reopened.setting("ui.theme").unwrap().as_deref(),
+        Some("light")
+    );
+    assert_eq!(reopened.setting("missing").unwrap(), None);
+}
+
+#[test]
+fn cancelled_scan_stops_without_adding() {
+    let mut setup = Setup::new();
+    add_file(&setup.music(), "a.mp3", "silence.mp3", song("A", "X", "Y"));
+    setup.add_music_source();
+    let report = setup.library.scan(&AtomicBool::new(true), |_| {}).unwrap();
+    assert!(report.cancelled);
+    assert!(setup.library.tracks().unwrap().is_empty());
+}
+
+#[test]
+fn database_from_a_newer_build_is_refused() {
+    let setup = Setup::new();
+    let db = setup.base.as_path().join("data/library.sqlite3");
+    drop(setup.library);
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .pragma_update(None, "user_version", 99)
+        .unwrap();
+    match Library::open(&db, &setup.base.as_path().join("cache")) {
+        Err(Error::SchemaTooNew { found: 99, .. }) => {}
+        other => panic!("expected SchemaTooNew, got {:?}", other.err()),
+    }
+}
+
+#[test]
+fn adding_a_missing_directory_fails() {
+    let setup = Setup::new();
+    assert!(
+        setup
+            .library
+            .add_source(&setup.base.as_path().join("nope"), true)
+            .is_err()
+    );
+    let file = setup.base.as_path().join("file");
+    fs::write(&file, "x").unwrap();
+    assert!(matches!(
+        setup.library.add_source(&file, true),
+        Err(Error::NotADirectory(_))
+    ));
+}
+
+// macOS (APFS) and Windows only allow file names that are valid Unicode.
+#[cfg(target_os = "linux")]
+#[test]
+fn file_names_that_are_not_utf8_survive() {
+    use std::os::unix::ffi::OsStrExt;
+    let mut setup = Setup::new();
+    let name = std::ffi::OsStr::from_bytes(b"caf\xe9.mp3");
+    let path = setup.music().join(name);
+    fs::copy(Path::new(FIXTURES).join("silence.mp3"), &path).unwrap();
+    setup.add_music_source();
+    setup.scan();
+    assert_eq!(setup.library.tracks().unwrap()[0].path, path);
+}
+
+#[test]
+fn watcher_reports_a_new_file_once_things_are_quiet() {
+    let setup = Setup::new();
+    setup.add_music_source();
+    let (sender, receiver) = mpsc::channel();
+    let _watcher = LibraryWatcher::start(
+        &setup.library.sources().unwrap(),
+        Duration::from_millis(300),
+        move || {
+            let _ = sender.send(());
+        },
+    )
+    .unwrap();
+
+    for index in 0..3 {
+        add_file(
+            &setup.music(),
+            &format!("{index}.mp3"),
+            "silence.mp3",
+            Tags::default(),
+        );
+    }
+    receiver
+        .recv_timeout(Duration::from_secs(10))
+        .expect("a change notification");
+    // The burst of writes is reported once.
+    assert!(receiver.recv_timeout(Duration::from_millis(800)).is_err());
+}

@@ -81,8 +81,8 @@ subtext1 and overlay2 instead.
 - The Slint attribution (`AboutSlint`) picks its logo from the operating system's
   colour scheme, not VCMP's theme, so it sits on the system palette's background. It
   can look out of place when VCMP's theme differs from the OS.
-- Theme and reduced-motion choices last only until the app closes. They will be
-  saved once the library database exists (workstream 2).
+- Theme and reduced-motion choices are saved in the library database's settings
+  (`src/preferences.rs`). If the database can't be opened, they last for the session.
 - Reduced motion does not yet follow the OS preference. The spec asks for that where
   a platform exposes one; it needs per-platform code.
 - `examples/screenshots.rs` cannot force a window size under tiling window managers.
