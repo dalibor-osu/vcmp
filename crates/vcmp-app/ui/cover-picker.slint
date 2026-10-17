@@ -39,6 +39,8 @@ export global CoverSearch {
     callback choose(int);
     // Closes the picker, stopping the search.
     callback cancel();
+    // Takes away the cover fetched for the album on the album page.
+    callback remove();
 }
 
 // The picker, over the sidebar and pages like the now playing view. The covers are

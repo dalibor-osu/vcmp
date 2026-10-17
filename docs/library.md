@@ -194,6 +194,9 @@ cargo run --release -p vcmp-library --example edit_check -- /path/to/music 40
   the fetched cover comes back.
 - A fetched image whose cached files were deleted counts as no cover, and the album
   offers the search again. Fetching again replaces the row.
+- `Album::fetched_cover` says the artwork shown is a fetched cover.
+  `Library::clear_fetched_cover` forgets it, together with the automatic lookup's
+  result for the album, so that lookup may run again.
 
 ## Watching
 
