@@ -39,6 +39,12 @@ but it should be subtle.
 I like clean animations, but adding an option for reduced motion would be nice if
 user dislikes that.
 
+## App icon
+
+Chosen from offered options (2026-10-17): VCMP has no logo yet, so the installers use
+a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
+`packaging/icons/`) until the real logo exists.
+
 ## Owner decisions on flagged patterns
 
 - 2026-10-17, R-01 (neon or pastel palettes): kept. The Catppuccin-style pastel

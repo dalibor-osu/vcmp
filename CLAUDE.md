@@ -8,7 +8,8 @@ Read it before changing anything structural.
 ## Branches
 
 - `main` is production: it only receives merged pull requests, and releases are tags
-  on `main` (`vX.Y.Z`).
+  on `main` (`vX.Y.Z`). Pushing such a tag runs `.github/workflows/release.yml`, which
+  drafts a GitHub Release with the installers; README "Releases" has the steps.
 - All work happens on `feature/<topic>` branches that merge into `main` through a PR.
 - Never commit directly to `main`.
 
@@ -22,6 +23,7 @@ Read it before changing anything structural.
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read with lofty |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions: Ubuntu, Windows and macOS for pull requests into `main` and pushes to it; Ubuntu only for pull requests between feature branches. A newer push to a pull request cancels its running checks |
+| Packaging | cargo-packager: MSI and NSIS setup exe, dmg, AppImage and .deb (`[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml`, icons in `packaging/icons/`) |
 | License | MIT OR Apache-2.0 |
 
 Workspace layout:

@@ -23,3 +23,8 @@ opt-level = 3
 # full debug info made every test binary 400 to 660 MB, which filled the CI runner's
 # disk until the linker crashed (bus error).
 debug = "line-tables-only"
+
+# Release builds are what the installers ship: without symbols the binary is about
+# a quarter smaller.
+[profile.release]
+strip = true
