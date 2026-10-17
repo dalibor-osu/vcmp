@@ -21,7 +21,7 @@ Read it before changing anything structural.
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read with lofty |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
-| CI | GitHub Actions on Ubuntu, Windows and macOS |
+| CI | GitHub Actions: Ubuntu, Windows and macOS for pull requests into `main` and pushes to it; Ubuntu only for pull requests between feature branches. A newer push to a pull request cancels its running checks |
 | License | MIT OR Apache-2.0 |
 
 Workspace layout:
