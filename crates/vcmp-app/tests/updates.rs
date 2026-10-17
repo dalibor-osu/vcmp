@@ -144,20 +144,25 @@ fn a_newer_release_shows_a_note_in_the_sidebar_and_on_about() {
 }
 
 #[test]
-fn a_short_window_leaves_the_note_to_about() {
+fn a_short_window_keeps_the_note_below_the_scrolling_sections() {
     i_slint_backend_testing::init_no_event_loop();
     let window = open_window();
     updates::connect(&window, None, report_newer);
-    assert_eq!(notes(&window), 1);
-    // The smallest window: the navigation fills the sidebar.
+    // The smallest window: the sections scroll above the note instead of under it.
     window.window().set_size(LogicalSize::new(720.0, 480.0));
-    assert_eq!(
-        notes(&window),
-        0,
-        "the sidebar's would cover the navigation"
+    assert_eq!(notes(&window), 1);
+    let note = ElementHandle::find_by_accessible_label(&window, NOTE)
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Button))
+        .unwrap();
+    let sections = ElementHandle::find_by_element_id(&window, "AppWindow::sidebar-scroll")
+        .next()
+        .expect("the sidebar's scrolling part");
+    let sections_bottom = sections.absolute_position().y + sections.size().height;
+    assert!(
+        sections_bottom <= note.absolute_position().y + 0.5,
+        "the sections end at {sections_bottom}, above the note at {}",
+        note.absolute_position().y
     );
-    open_page(&window, "About");
-    assert_eq!(notes(&window), 1, "About's");
 }
 
 #[test]

@@ -1,0 +1,387 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Button, IconButton, TextField } from "components.slint";
+import { Glyph } from "icons.slint";
+import { BackButton, TrackList, TrackRow } from "album-page.slint";
+
+export struct PlaylistDetail {
+    name: string,
+    track-count: int,
+    // Entries whose file is gone; playback skips them.
+    unavailable-count: int,
+    // Of the entries that can play.
+    minutes: int,
+    has-picture: bool,
+    picture: image,
+    // The owner chose the picture, rather than it being made from album covers.
+    own-picture: bool,
+    // First letter of the name, shown when there is no picture.
+    initial: string,
+    // The entries could not be read from the library.
+    failed: bool,
+    // The last picture chosen could not be read as an image.
+    picture-failed: bool,
+}
+
+// One playlist: its picture and name, what can be done with it, and its tracks in
+// order. The name turns into a field while it is renamed; deleting asks first.
+export component PlaylistView {
+    in property <PlaylistDetail> playlist;
+    // Names the page the back button returns to.
+    in property <string> back-label: @tr("Playlists");
+    in property <[TrackRow]> tracks;
+    // Path of the track now playing, to mark it in the list.
+    in property <string> playing-path;
+    // The name is being edited.
+    in-out property <bool> renaming;
+    callback back();
+    // Plays the playlist from entry `start` (-1: from its beginning, or shuffled).
+    callback play(int, bool);
+    callback queue-track(int, bool);
+    callback remove-track(int);
+    callback move-track(int, int);
+    callback rename(string);
+    callback choose-picture();
+    callback clear-picture();
+    callback delete();
+
+    public function focus-back() {
+        back-button.focus();
+    }
+
+    // Turns the name into a field, focused with the name selected.
+    public function start-rename() {
+        root.confirming-delete = false;
+        root.new-name = root.playlist.name;
+        root.renaming = true;
+    }
+
+    private property <string> new-name;
+    private property <bool> confirming-delete;
+
+    function finish-rename(keep: bool) {
+        if keep {
+            root.rename(root.new-name);
+        }
+        root.renaming = false;
+        more.focus();
+    }
+
+    function cancel-delete() {
+        root.confirming-delete = false;
+        more.focus();
+    }
+
+    // Scrolls so the row at window y `top` with `height` is inside the view.
+    function ensure-visible(top: length, height: length) {
+        let view-top = scroll.absolute-position.y;
+        let view-bottom = view-top + scroll.visible-height;
+        if top < view-top {
+            scroll.content-y = min(0px, scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            scroll.content-y = scroll.content-y - (top + height - view-bottom);
+        }
+    }
+
+    changed playlist => {
+        // Another playlist opened while this one was being renamed or deleted.
+        root.confirming-delete = false;
+    }
+
+    forward-focus: back-button;
+
+    // Handles Escape for everything on the page; not a tab stop itself.
+    FocusScope {
+        width: parent.width;
+        height: parent.height;
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                if root.confirming-delete {
+                    root.cancel-delete();
+                } else {
+                    root.back();
+                }
+                return accept;
+            }
+            reject
+        }
+
+        scroll := ScrollView {
+            width: parent.width;
+            height: parent.height;
+
+            VerticalLayout {
+                padding: Theme.space-xxl;
+                padding-top: Theme.space-xl;
+                spacing: Theme.space-xl;
+                alignment: start;
+
+                HorizontalLayout {
+                    alignment: start;
+
+                    back-button := BackButton {
+                        label: root.back-label;
+                        clicked => {
+                            root.back();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-xl;
+                    alignment: start;
+
+                    Rectangle {
+                        width: 200px;
+                        height: 200px;
+                        border-radius: Theme.radius-l;
+                        clip: true;
+                        background: Theme.colors.surface;
+
+                        if root.playlist.has-picture: Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: root.playlist.picture;
+                            image-fit: ImageFit.cover;
+                            accessible-role: none;
+                        }
+                        if !root.playlist.has-picture: Text {
+                            text: root.playlist.initial;
+                            color: Theme.colors.text-muted;
+                            font-size: 64px;
+                            font-weight: Theme.weight-strong;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accessible-role: none;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: Theme.space-s;
+                        alignment: end;
+                        max-width: Theme.content-max-width;
+
+                        Text {
+                            text: @tr("Playlist");
+                            color: Theme.colors.text-muted;
+                            font-size: Theme.font-small;
+                        }
+
+                        if !root.renaming: Text {
+                            text: root.playlist.name;
+                            color: Theme.colors.text;
+                            font-size: Theme.font-title;
+                            font-weight: Theme.weight-strong;
+                            wrap: word-wrap;
+                        }
+
+                        if root.renaming: HorizontalLayout {
+                            spacing: Theme.space-m;
+
+                            TextField {
+                                horizontal-stretch: 1;
+                                min-width: 160px;
+                                label: @tr("Playlist name");
+                                font-size: Theme.font-heading;
+                                text <=> root.new-name;
+                                init => {
+                                    self.focus-text();
+                                }
+                                accepted => {
+                                    root.finish-rename(true);
+                                }
+                                cancelled => {
+                                    root.finish-rename(false);
+                                }
+                            }
+                            Button {
+                                text: @tr("Save");
+                                label: @tr("Save the name");
+                                primary: true;
+                                clicked => {
+                                    root.finish-rename(true);
+                                }
+                            }
+                            Button {
+                                text: @tr("Cancel");
+                                label: @tr("Keep the old name");
+                                clicked => {
+                                    root.finish-rename(false);
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: Theme.space-l;
+                            alignment: start;
+
+                            Text {
+                                text: @tr("{n} track" | "{n} tracks" % root.playlist.track-count);
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                            if root.playlist.track-count > 0: Text {
+                                text: @tr("{} min", root.playlist.minutes);
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                            if root.playlist.unavailable-count > 0: Text {
+                                text: @tr("{n} file not found" | "{n} files not found" % root.playlist.unavailable-count);
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            padding-top: Theme.space-s;
+                            spacing: Theme.space-m;
+                            alignment: start;
+
+                            if root.tracks.length > 0: Button {
+                                text: @tr("Play");
+                                label: @tr("Play {}", root.playlist.name);
+                                primary: true;
+                                clicked => {
+                                    root.play(-1, false);
+                                }
+                            }
+                            if root.tracks.length > 0: Button {
+                                text: @tr("Shuffle");
+                                label: @tr("Shuffle {}", root.playlist.name);
+                                clicked => {
+                                    root.play(-1, true);
+                                }
+                            }
+
+                            // Its menu opens below the button.
+                            actions := ContextMenuArea {
+                                width: Theme.target-height;
+                                height: Theme.target-height;
+
+                                Menu {
+                                    MenuItem {
+                                        title: @tr("Rename");
+                                        activated => {
+                                            root.start-rename();
+                                        }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Choose picture…");
+                                        activated => {
+                                            root.choose-picture();
+                                        }
+                                    }
+                                    if root.playlist.own-picture: MenuItem {
+                                        title: @tr("Use album covers");
+                                        activated => {
+                                            root.clear-picture();
+                                        }
+                                    }
+                                    MenuSeparator { }
+                                    MenuItem {
+                                        title: @tr("Delete playlist…");
+                                        activated => {
+                                            root.confirming-delete = true;
+                                        }
+                                    }
+                                }
+
+                                more := IconButton {
+                                    glyph: Glyph.more;
+                                    label: @tr("More for {}", root.playlist.name);
+                                    clicked => {
+                                        actions.show({ x: 0, y: self.height });
+                                    }
+                                }
+                            }
+                        }
+
+                        // Asks before deleting; the tracks stay in the library.
+                        if root.confirming-delete: VerticalLayout {
+                            spacing: Theme.space-m;
+
+                            Text {
+                                text: @tr("Delete “{}”? Its tracks stay in your library.", root.playlist.name);
+                                color: Theme.colors.text;
+                                font-size: Theme.font-body;
+                                wrap: word-wrap;
+                            }
+
+                            HorizontalLayout {
+                                spacing: Theme.space-m;
+                                alignment: start;
+
+                                Button {
+                                    text: @tr("Delete playlist");
+                                    label: @tr("Delete {}", root.playlist.name);
+                                    clicked => {
+                                        root.confirming-delete = false;
+                                        root.delete();
+                                    }
+                                }
+                                Button {
+                                    text: @tr("Cancel");
+                                    label: @tr("Keep {}", root.playlist.name);
+                                    init => {
+                                        self.focus();
+                                    }
+                                    clicked => {
+                                        root.cancel-delete();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if root.playlist.picture-failed: Text {
+                    text: @tr("The chosen file could not be read as a picture, so the playlist keeps its picture.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    max-width: Theme.content-max-width;
+                }
+
+                if root.playlist.failed: Text {
+                    text: @tr("The tracks of this playlist could not be read from the library.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                }
+
+                if !root.playlist.failed && root.tracks.length == 0: Text {
+                    text: @tr("This playlist is empty. To add a track, open its menu with a right click or the Menu key, and choose Add to playlist.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    max-width: Theme.content-max-width;
+                }
+
+                TrackList {
+                    max-width: Theme.content-max-width;
+                    label: @tr("Tracks");
+                    tracks: root.tracks;
+                    editable: true;
+                    playing-path: root.playing-path;
+                    play(index) => {
+                        root.play(index, false);
+                    }
+                    queue(index, next) => {
+                        root.queue-track(index, next);
+                    }
+                    remove(index) => {
+                        root.remove-track(index);
+                    }
+                    reorder(from, to) => {
+                        root.move-track(from, to);
+                    }
+                    shown-focused(top, height) => {
+                        root.ensure-visible(top, height);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -14,12 +14,16 @@ Early development. In place so far:
 - tag writing in the library core (single and batch, with embedded covers, through a
   verified copy of each file); the tag editor UI is still to come;
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
-  pages with tracks by disc;
+  pages with tracks by disc; an album without a cover can fetch one from the Cover
+  Art Archive, picked from what MusicBrainz finds;
 - the Artists page: album artists (or everyone credited) with their albums and the
   tracks they appear on elsewhere;
-- search over artists, albums and tracks, by any part of a name (Ctrl+F);
+- search over artists, albums, playlists and tracks, by any part of a name (Ctrl+F);
 - the Songs page: every track in a sortable table;
 - the Folders page: the music folders as a file tree;
+- playlists: made from any track's menu or the Playlists page, renamed, reordered
+  and deleted, with a picture made from their first four album covers or one of
+  your own; entries whose file is gone stay, dimmed, and are skipped;
 - a now playing view with the large cover, opened from the player bar;
 - music folders in Settings: add and remove folders, scans in the background with
   progress, and automatic updates when the folders change;
@@ -37,7 +41,7 @@ Early development. In place so far:
   links to its release page from the sidebar and the About page (it can be switched
   off in Settings).
 
-Playlists, the tag editor's window (writing tags is in the library already), Last.fm
+The tag editor's window (writing tags is in the library already), Last.fm
 scrobbling, artist photos and the rest of the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
 

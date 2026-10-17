@@ -17,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime};
 use slint::{
     ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
-use vcmp_library::{Album, AlbumId, ArtistId, CoverArtId, CoverLookup, Library, Track};
+use vcmp_library::{Album, AlbumId, ArtistId, CoverArtId, CoverLookup, Library, PlaylistId, Track};
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackSnapshot, PlaybackState, Player, QueueEntry,
     QueueView, RepeatMode, ShuffleMode, TrackRef,
@@ -507,6 +507,22 @@ impl PlayerService {
                 }
             }
         });
+        window.on_play_playlist({
+            let weak = weak.clone();
+            move |start, shuffle| {
+                if let Some(service) = weak.upgrade() {
+                    service.play_playlist(start, shuffle);
+                }
+            }
+        });
+        window.on_queue_playlist_track({
+            let weak = weak.clone();
+            move |index, next| {
+                if let Some(service) = weak.upgrade() {
+                    service.queue_playlist_track(index, next);
+                }
+            }
+        });
         window.on_play_album(move |start, shuffle| {
             if let Some(service) = weak.upgrade() {
                 service.play_album(start, shuffle);
@@ -638,6 +654,58 @@ impl PlayerService {
             origin: Some(format!("folder:{}", folder.to_string_lossy())),
             start: Some(start),
         });
+    }
+
+    /// Plays the open playlist from entry `start` (-1: from its beginning), or
+    /// shuffled. Entries whose file is gone are left out; starting at one plays from
+    /// the next that is there.
+    pub fn play_playlist(&self, start: i32, shuffle: bool) {
+        let Some(playlist) = self.view.playlists().shown() else {
+            return;
+        };
+        let start = usize::try_from(start).ok();
+        let first = start.map(|start| {
+            playlist.entries[..start.min(playlist.entries.len())]
+                .iter()
+                .filter(|item| item.track.available)
+                .count()
+        });
+        let entries: Vec<QueueEntry> = playlist
+            .entries
+            .iter()
+            .filter(|item| item.track.available)
+            .filter_map(|item| entry(&item.track))
+            .collect();
+        if first.is_some_and(|first| first >= entries.len()) {
+            return;
+        }
+        if shuffle {
+            self.set_shuffle(Shuffle::On);
+        }
+        self.player.send(Command::PlayContext {
+            entries,
+            origin: Some(format!("playlist:{}", playlist.id.0)),
+            start: if shuffle { None } else { first },
+        });
+    }
+
+    /// Puts entry `index` of the open playlist into Up next, if its file is there.
+    pub fn queue_playlist_track(&self, index: i32, next: bool) {
+        let Some(playlist) = self.view.playlists().shown() else {
+            return;
+        };
+        let track = usize::try_from(index)
+            .ok()
+            .and_then(|index| playlist.entries.get(index))
+            .map(|entry| &entry.track)
+            .filter(|track| track.available);
+        if let Some(entry) = track.and_then(entry) {
+            self.player.send(if next {
+                Command::PlayNext(vec![entry])
+            } else {
+                Command::AddToQueue(vec![entry])
+            });
+        }
     }
 
     /// Plays every song in the Songs page's order, from song `start`.
@@ -844,6 +912,12 @@ impl PlayerService {
                 "folder" => Path::new(key)
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned()),
+                "playlist" => self
+                    .library
+                    .playlist(PlaylistId(key.parse().ok()?))
+                    .ok()
+                    .flatten()
+                    .map(|playlist| playlist.name),
                 _ => None,
             })
             .unwrap_or_default();
@@ -1039,6 +1113,53 @@ impl PlayerService {
             self.update_presence();
             self.update_media();
         }
+    }
+
+    /// Shows an album's new artwork wherever the player shows it: on its rows in the
+    /// queue panel and, while it plays, in the bar, the now playing view, the
+    /// system's media widget and the Discord presence.
+    pub fn artwork_changed(&self, album: AlbumId) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        self.queue_covers.borrow_mut().remove(&album);
+        let queued = [state.get_up_next(), state.get_upcoming()]
+            .iter()
+            .any(|rows| rows.iter().any(|row| row.album_id == album.0 as i32));
+        if queued {
+            let _ = self.queue_cover(album);
+        }
+        if self.album.get() != Some(album) {
+            return;
+        }
+        let Some(album) = self.library.album(album).ok().flatten() else {
+            return;
+        };
+        let cover = album
+            .artwork
+            .as_ref()
+            .and_then(|artwork| Image::load_from_path(&artwork.thumbnail).ok());
+        state.set_has_cover(cover.is_some());
+        state.set_cover(cover.unwrap_or_default());
+        self.forget_large_cover(&state);
+        *self.large_cover.borrow_mut() = album
+            .artwork
+            .as_ref()
+            .map(|artwork| artwork.original.clone());
+        if state.get_now_playing_open() {
+            self.load_large_cover();
+        }
+        let cover_url = self.known_cover(&album);
+        if let Some(listening) = self.listening.borrow_mut().as_mut() {
+            listening.cover_url = cover_url.clone();
+        }
+        if let Some(track) = self.media_track.borrow_mut().as_mut() {
+            track.cover_file = album.artwork.map(|artwork| artwork.thumbnail);
+            track.cover_url = cover_url;
+        }
+        self.update_presence();
+        self.update_media();
     }
 
     /// Plays the album open on its page from track `start` (-1: from its start, or a

@@ -13,17 +13,22 @@ dials come from DESIGN.md).
 | File | Holds |
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
-| `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `ProgressBar` |
+| `ui/components.slint` | `FocusRing`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
-| `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
+| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
+| `ui/playlist-page.slint` | `PlaylistView`: one playlist's picture, name, actions and tracks |
+| `ui/playlist-state.slint` | `Playlists` global: the playlist names every Add to playlist menu lists |
+| `src/playlists.rs` | `PlaylistBrowser`: the playlist grid and page, the sidebar list, and the edits behind them |
 | `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
 | `ui/songs-page.slint` | `SongTable`: every track with sortable columns, only the rows in view created |
 | `ui/folders-page.slint` | `FolderBrowser`: the path back up, the folders and the files of one folder |
 | `src/folders.rs` | `FolderBrowser`: the folder tree built from the library's tracks |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
-| `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist grid and an artist's albums |
-| `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages |
+| `ui/cover-picker.slint` | `CoverSearch` global and `CoverPicker`: "Find cover online" and the covers to pick from |
+| `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
+| `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist and playlist grids, an artist's albums and search |
+| `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages; owns the folder and playlist browsers |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
@@ -85,7 +90,7 @@ subtext1 and overlay2 instead.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Songs, Folders, Settings, About) |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Playlists, Songs, Folders, Settings, About), then the playlists by name |
 | Folder browser built from the library, files listed by file name | Instant, and it shows the music VCMP knows; the file name comes first because the browser is where badly tagged files are found |
 | Songs table without a track-number column, missing values sorted last | Numbers only mean something within an album, which the Album column already orders; untagged files at the top would hide the library behind them |
 | Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
@@ -95,11 +100,15 @@ subtext1 and overlay2 instead.
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
+| The sidebar's sections and playlists scroll as one, above its foot | Eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
 | A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+| "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
+| The cover picker covers the sidebar and pages like the now playing view | One overlay pattern in the app; the covers get the room, and the player bar stays usable |
+| A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 
 ## Album grid
 
@@ -154,6 +163,31 @@ its scroll position and current card survive.
   more than one.
 - **Track artist:** shown only where it differs from the album artist, as on a
   compilation.
+- **Find cover online:** an album without artwork has this button under its
+  missing cover. Nothing is sent anywhere before it is chosen.
+  - It opens the cover picker (`CoverPicker`) over the sidebar and pages, and
+    `CoverFetch` asks `vcmp-integrations::musicbrainz::CoverPicker` for covers. That
+    sends the album title and artist to musicbrainz.org, at one request a second
+    (shared with the Discord lookup), and fetches 250 px previews from the Cover
+    Art Archive. A release the files are tagged with comes first, then the matching
+    releases, their release groups when a release has no art, and the matching
+    release groups: at most 8 covers, each image once, from at most 12 image
+    requests.
+  - Covers appear as they arrive, each with its release title, year and country
+    (a worldwide release names none). The picker's sentence says whether it is
+    still looking, found nothing, could not reach the services (with Search
+    again), or broke off after finding some.
+  - Choosing a cover (a click, or Enter on the current one) downloads it at up to
+    1200 px and stores it as the album's artwork (`Library::set_fetched_cover`, see
+    [docs/library.md](library.md#covers-fetched-online)). The picker closes, and
+    the album page, the grids and, while the album plays, the player bar, the now
+    playing view, the media widget and the queue panel show it at once. Discord
+    shows the picked cover too. A failed download keeps the picker open with a
+    sentence, so another cover can be picked.
+  - Keyboard: the focus starts on Cancel and moves to the first cover when it
+    arrives; the covers are one tab stop (`CardGrid`: arrows, Home/End, Enter).
+    Escape or Cancel closes the picker and stops the search, and the focus returns
+    to the album page's back button.
 
 The Albums page fades in through a `FadeCurtain`, created each time the page is
 shown, because the page itself stays alive while hidden.
@@ -181,6 +215,39 @@ shown, because the page itself stays alive while hidden.
 - **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
   returns to the grid from anywhere on the page.
 
+## Playlists page
+
+- **In the sidebar:** Playlists comes after Artists. Below the sections, the
+  playlists are listed by name, and each opens its page; the open one is
+  highlighted.
+- **The grid** shows each playlist's picture, name and number of tracks. New
+  playlist makes "Playlist n" and opens it with the name field focused and
+  selected, ready to be typed over. Without playlists the page says how to make one.
+- **A playlist's page** (`PlaylistView`) shows its picture, name, number of tracks,
+  minutes of the tracks that can play and how many files are not found, then
+  Play, Shuffle and a More button (a right click on it does the same) with
+  Rename, Choose picture…, Use album covers (after choosing a picture) and Delete
+  playlist….
+  - **Rename** turns the name into a field: Enter or Save keeps it, Escape or Cancel
+    leaves it. An empty name keeps the old one.
+  - **Delete** asks first, on the page, with the focus on Cancel; Escape cancels.
+    The tracks stay in the library.
+  - **Choose picture** opens the system's file dialog for images. A file that can't
+    be read as a picture leaves the picture as it was and says so on the page.
+- **Entries** are numbered by position. One whose file is gone is dimmed and says
+  "File not found" where the artist would be. Play, Shuffle and a click play the
+  entries that are there, as one context (`playlist:<id>`, named in the queue
+  panel); a click on a missing entry plays from the next one that is there.
+- **Editing:** a playlist's `TrackList` adds Move up, Move down and Remove from
+  playlist to its track menu, and Alt+Up, Alt+Down and Delete to its keys. The
+  keyboard's current track follows a moved one.
+- **Adding:** every track menu (album, artist, search, folder and playlist lists,
+  and the songs table) has Add to playlist, with New playlist and every playlist by
+  name. New playlist there makes "Playlist n" with the track, without leaving the
+  page.
+- **Getting back:** the back button, Escape, or the Playlists sidebar entry. A
+  playlist opened from search goes back to Search.
+
 ## Search
 
 - **The Search page** is first in the sidebar; Ctrl+F (Cmd+F on macOS) opens it
@@ -189,20 +256,20 @@ shown, because the page itself stays alive while hidden.
 - **The field** (`SearchField`) searches 150 ms after typing pauses
   (`SEARCH_DELAY`): a one-letter search takes about 50 ms on a few thousand tracks.
   Escape or the clear button empties it.
-- **Results:** up to 12 artists and 12 albums as cards, and up to 50 tracks with
-  their artist and album. A search finds any part of a name, so Japanese titles
+- **Results:** up to 12 artists, 12 albums and 12 playlists as cards, and up to 50
+  tracks with their artist and album. Playlists are found by their names. A search finds any part of a name, so Japanese titles
   without spaces are found by a word inside them (see `docs/library.md`). Without
   a search the page says what it finds; when nothing matches, it says so.
-- **Opening a result:** an artist or album opens on the Artists or Albums page, and
+- **Opening a result:** an artist, album or playlist opens on its own page, and
   its back button (or Escape) returns to Search, where the results are still
   shown. Opening something from those pages' own grids goes back to the grid as
   before.
 - **Tracks:** a click or Enter plays the found tracks from that one (the queue
   panel says "Next from your search"); the track menu offers Play now, Play next
   and Add to queue.
-- **`TrackList`** is the track list on album pages, artist pages and search: one tab
-  stop, Up/Down, Home/End, Enter, and the Menu key or a right click for the
-  track menu.
+- **`TrackList`** is the track list on album, artist, folder and playlist pages and
+  search: one tab stop, Up/Down, Home/End, Enter, and the Menu key or a right click
+  for the track menu (Play now, Play next, Add to queue, Add to playlist).
 
 ## Page filters
 
@@ -379,7 +446,8 @@ The Albums page tells apart why it is empty:
     running and the presence is on (it sends the album title and artist to
     musicbrainz.org). Each album is looked up once: the answer is kept in the library
     (`cover_lookups`), an album with no match is tried again after 30 days, and a
-    failed request after 10 minutes. Albums without a cover show no picture until
+    failed request after 10 minutes. A cover picked with "Find cover online"
+    replaces the lookup's answer. Albums without a cover show no picture until
     there is an app logo;
   - the client runs on its own thread and reconnects every 15 s while Discord is
     away; it tells `PlayerService` when Discord is reached or lost;
@@ -472,12 +540,16 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 ## Known limits
 
 - Up next can be filled from album and artist pages and search, and reordered by
-  keyboard or menu, not by dragging.
+  keyboard or menu, not by dragging. Playlist entries likewise move one step at a
+  time, and whole albums can't be added to a playlist in one go yet.
+- The queue panel and the now playing view have no Add to playlist yet.
 - Going back is one step: an album opened from an artist found by search returns
   to the artist, and the artist to Search, but there is no general history.
 - The queue panel appears without an animation; one is planned.
 - Artists have no photos of their own yet: choosing a photo, and the web search for
   one (fanart.tv), come with the integrations.
+- A fetched cover can't be replaced or removed from the UI yet: "Find cover
+  online" is offered only while an album has no cover.
 - The track menus are Slint's own, styled by the operating system's colour scheme
   like `AboutSlint` below, so they can look out of place when VCMP's theme differs
   from the OS.
@@ -494,8 +566,6 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - The update check asks GitHub without signing in, so it finds nothing while the
   repository is private (GitHub answers 404). It runs once per start: a VCMP left
   open for days learns of a release at its next start.
-- In a window too short to fit the update note under the navigation, the sidebar
-  leaves it out; About still shows it.
 
 - The Slint attribution (`AboutSlint`) picks its logo from the operating system's
   colour scheme, not VCMP's theme, so it sits on the system palette's background. It
