@@ -12,12 +12,16 @@ crate.
 | Database | data directory, `library.sqlite3` (Linux: `~/.local/share/vcmp/`) |
 | Artwork originals | cache directory, `artwork/<hash>.<ext>` (Linux: `~/.cache/vcmp/`) |
 | Thumbnails | cache directory, `thumbnails/<hash>.jpg`, longest side 400 px |
+| Playlist pictures made from covers | cache directory, `mosaics/<hash>.jpg`, 400 px |
+| Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px |
 
 Covers fetched online (see [Covers fetched online](#covers-fetched-online)) are cached
 the same way.
 
-The cache can be deleted at any time: the next scan rebuilds it, except for fetched
-covers, which nothing downloads again. The database runs in
+The cache can be deleted at any time: the next scan rebuilds it, and playlist
+pictures are made again when next shown. Fetched covers are the exception: nothing
+downloads them again. Pictures the owner chose are kept next to the database
+instead, because nothing could rebuild them. The database runs in
 WAL mode, so one connection can scan while others read. Open one `Library` per
 thread.
 
@@ -26,7 +30,7 @@ path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 4, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 5, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -38,7 +42,9 @@ migrations; a database from a newer build is refused instead of being altered.
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
 | `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
 | `track_search`, `album_search`, `artist_search` | FTS5 trigram indexes, case and diacritics ignored (version 3; version 1 indexed words) |
-| `fetched_covers` | Covers the user fetched for albums whose files have no art: the cached image's key, the Cover Art Archive release or release group it came from, and when, keyed by the album's group key (version 4) |
+| `playlists` | Playlist name, the file name of the owner's picture (or NULL) and when it was made (version 4) |
+| `playlist_entries` | A playlist's tracks by position (from 0); the same track may appear more than once (version 4) |
+| `fetched_covers` | Covers the user fetched for albums whose files have no art: the cached image's key, the Cover Art Archive release or release group it came from, and when, keyed by the album's group key (version 5) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -203,6 +209,31 @@ tracks are searched separately.
   (3,621 tracks) searches take 7 to 16 ms, a one-letter search about 50 ms.
   `examples/search.rs` times searches on any library.
 
+## Playlists
+
+`src/playlists.rs`. A playlist is a name and an ordered list of track ids.
+
+- **Entries outlive their files.** Tracks are never deleted (see
+  [Scanning](#scanning)), so an entry keeps pointing at its track while the file is
+  gone, and `PlaylistEntry::track.available` says so. The playlist counts every
+  entry, and its duration only the available ones. A moved file that is re-linked
+  keeps its entries; a test checks it.
+- **Edits** (add, remove, move) read the entry list, change it, and write it back in
+  one transaction. Shifting positions one by one would collide on the
+  `(playlist_id, position)` key, and playlists are small enough that a rewrite costs
+  nothing noticeable.
+- **The picture** is the owner's own image when they chose one: decoded, bounded to
+  600 px, and stored as a JPEG named by playlist id and content hash, so a new one
+  never reuses the old file name. Otherwise it is made from the covers of the first
+  four different albums in playlist order (the files' own cover or a fetched one,
+  if it is in the cache): a
+  2 x 2 grid of 200 px crops, cached under `mosaics/` and named by the four
+  covers, so it changes when the order brings other albums to the front. With
+  fewer than four albums the picture is the first album's cover; with none there is
+  no picture. Deleting a playlist or going back to covers deletes the owner's file.
+- **Search:** `Library::search_playlists` keeps the playlists whose name holds every
+  typed word, ignoring case.
+
 ## Measured
 
 The library used below has 3,621 tracks, 127 GB, mostly FLAC, on an NTFS hard disk
@@ -279,3 +310,7 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   artwork comes from its first two tracks, so to change it, edit the whole album.
 - A file whose tag lofty can only read in part (a damaged frame) may lose that part
   when it is written. The read-back check compares what lofty can read.
+- Playlist pictures made from covers that no longer fit any playlist stay in
+  `mosaics/` until the cache is deleted. Each is about 30 KB.
+- Playlist search compares names in Rust after reading every playlist, and lowercases
+  them the simple way, so it ignores case but not diacritics.

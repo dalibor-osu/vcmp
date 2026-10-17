@@ -1,5 +1,6 @@
-//! Scanning behaviour against real (tiny) audio files. Each test copies fixtures into
-//! a temporary directory and writes the tags it needs there.
+//! Scanning, and what builds on the scanned tracks (search, playlists), against real
+//! (tiny) audio files. Each test copies fixtures into a temporary directory and
+//! writes the tags it needs there.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,7 +14,8 @@ use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
 use tempfile::TempDir;
 use vcmp_library::{
-    Artwork, CoverArtId, Error, FieldEdit, Format, Library, LibraryWatcher, ScanReport, TagEdit,
+    Artwork, CoverArtId, Error, FieldEdit, Format, Library, LibraryWatcher, PlaylistId, ScanReport,
+    TagEdit, TrackId,
 };
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
@@ -287,7 +289,7 @@ fn changed_tags_update_the_track_and_drop_the_empty_album() {
 }
 
 #[test]
-fn moved_file_keeps_its_track_id() {
+fn moved_file_keeps_its_track_id_and_playlist_entry() {
     let mut setup = Setup::new();
     let old = add_file(
         &setup.music(),
@@ -298,6 +300,8 @@ fn moved_file_keeps_its_track_id() {
     setup.add_music_source();
     setup.scan();
     let id = setup.library.track_id_for_path(&old).unwrap().unwrap();
+    let playlist = setup.library.create_playlist("Calm").unwrap();
+    setup.library.add_to_playlist(playlist, &[id]).unwrap();
 
     let new = setup.music().join("Dvořák/New World/02 Largo.flac");
     fs::create_dir_all(new.parent().unwrap()).unwrap();
@@ -312,6 +316,9 @@ fn moved_file_keeps_its_track_id() {
     assert_eq!(track.path, new);
     assert!(track.available);
     assert_eq!(setup.library.tracks().unwrap().len(), 1);
+    let entries = setup.library.playlist_entries(playlist).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!((entries[0].track.id, &entries[0].track.path), (id, &new));
 }
 
 #[test]
@@ -594,6 +601,12 @@ fn a_fetched_cover_stays_until_the_files_bring_their_own() {
         .expect("a png is accepted");
     assert!(fetched.thumbnail.starts_with(setup.cache()));
     assert_eq!(album_artwork(&setup.library, "Bare"), Some(fetched.clone()));
+    // A playlist's picture uses it like the files' own art.
+    let playlist = setup.library.create_playlist("Mix").unwrap();
+    let track = setup.library.track_id_for_path(&path).unwrap().unwrap();
+    setup.library.add_to_playlist(playlist, &[track]).unwrap();
+    let picture = setup.library.playlist(playlist).unwrap().unwrap().picture;
+    assert_eq!(picture, Some(fetched.thumbnail.clone()));
 
     // Rescans keep it, also when a file changed without gaining art.
     setup.scan();
@@ -939,4 +952,177 @@ fn search_finds_parts_of_words_in_any_script() {
     assert!(titles("%").is_empty());
     let results = setup.library.search("ライブ", 10).unwrap();
     assert_eq!(results.albums.len(), 1);
+}
+
+/// Three songs on one album with a cover, by title.
+fn three_songs(setup: &mut Setup) -> [TrackId; 3] {
+    let album = setup.music().join("Album");
+    for (index, title) in ["One", "Two", "Three"].into_iter().enumerate() {
+        add_file(
+            &album,
+            &format!("{}.flac", index + 1),
+            "silence.flac",
+            Tags {
+                track: Some(index as u32 + 1),
+                picture: Some(png()),
+                ..song(title, "Artist", "Album")
+            },
+        );
+    }
+    setup.add_music_source();
+    setup.scan();
+    let id = |title: &str| {
+        let tracks = setup.library.tracks().unwrap();
+        tracks.iter().find(|track| track.title == title).unwrap().id
+    };
+    [id("One"), id("Two"), id("Three")]
+}
+
+fn entry_titles(library: &Library, playlist: PlaylistId) -> Vec<String> {
+    library
+        .playlist_entries(playlist)
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.track.title)
+        .collect()
+}
+
+#[test]
+fn a_playlist_keeps_its_order_through_edits() {
+    let mut setup = Setup::new();
+    let [one, two, three] = three_songs(&mut setup);
+    let library = &setup.library;
+    let road = library.create_playlist("  Road trip ").unwrap();
+    library.add_to_playlist(road, &[one, two]).unwrap();
+    // A track may be in a playlist more than once.
+    library.add_to_playlist(road, &[three, one]).unwrap();
+    assert_eq!(entry_titles(library, road), ["One", "Two", "Three", "One"]);
+
+    library.move_in_playlist(road, 0, 2).unwrap();
+    assert_eq!(entry_titles(library, road), ["Two", "Three", "One", "One"]);
+    library.move_in_playlist(road, 3, 0).unwrap();
+    assert_eq!(entry_titles(library, road), ["One", "Two", "Three", "One"]);
+    library.remove_from_playlist(road, &[1, 3]).unwrap();
+    assert_eq!(entry_titles(library, road), ["One", "Three"]);
+    let positions: Vec<u32> = library
+        .playlist_entries(road)
+        .unwrap()
+        .iter()
+        .map(|entry| entry.position)
+        .collect();
+    assert_eq!(positions, [0, 1]);
+
+    library.rename_playlist(road, "Commute").unwrap();
+    let quiet = library.create_playlist("calm").unwrap();
+    let names: Vec<String> = library
+        .playlists()
+        .unwrap()
+        .into_iter()
+        .map(|playlist| playlist.name)
+        .collect();
+    assert_eq!(names, ["calm", "Commute"]);
+    let commute = library.playlist(road).unwrap().unwrap();
+    assert_eq!((commute.track_count, commute.available_count), (2, 2));
+    let empty = library.playlist(quiet).unwrap().unwrap();
+    assert_eq!((empty.track_count, empty.picture), (0, None));
+
+    library.delete_playlist(road).unwrap();
+    assert_eq!(library.playlist(road).unwrap(), None);
+    assert!(library.playlist_entries(road).unwrap().is_empty());
+}
+
+#[test]
+fn a_missing_file_stays_in_its_playlists_and_comes_back() {
+    let mut setup = Setup::new();
+    let [one, two, _] = three_songs(&mut setup);
+    let playlist = setup.library.create_playlist("Mix").unwrap();
+    setup
+        .library
+        .add_to_playlist(playlist, &[one, two])
+        .unwrap();
+    let full = setup.library.playlist(playlist).unwrap().unwrap();
+
+    let moved = setup.base.join("away.flac");
+    fs::rename(setup.music().join("Album/2.flac"), &moved).unwrap();
+    setup.scan();
+    let entries = setup.library.playlist_entries(playlist).unwrap();
+    let available: Vec<bool> = entries.iter().map(|entry| entry.track.available).collect();
+    assert_eq!(available, [true, false]);
+    let partial = setup.library.playlist(playlist).unwrap().unwrap();
+    assert_eq!((partial.track_count, partial.available_count), (2, 1));
+    assert!(partial.duration < full.duration || full.duration.is_zero());
+
+    fs::rename(&moved, setup.music().join("Album/2.flac")).unwrap();
+    setup.scan();
+    let back = setup.library.playlist(playlist).unwrap().unwrap();
+    assert_eq!(back.available_count, 2);
+}
+
+#[test]
+fn a_playlist_picture_is_its_own_image_or_the_album_cover() {
+    let mut setup = Setup::new();
+    let [one, ..] = three_songs(&mut setup);
+    let library = &setup.library;
+    let playlist = library.create_playlist("Mix").unwrap();
+    library.add_to_playlist(playlist, &[one]).unwrap();
+    let cover = album_artwork(library, "Album").unwrap().thumbnail;
+    let made = library.playlist(playlist).unwrap().unwrap();
+    assert_eq!(
+        (made.picture, made.own_picture),
+        (Some(cover.clone()), false)
+    );
+
+    let source = setup.base.join("picked.png");
+    fs::write(&source, png()).unwrap();
+    library.set_playlist_image(playlist, &source).unwrap();
+    let own = library.playlist(playlist).unwrap().unwrap();
+    let picture = own.picture.unwrap();
+    assert!(own.own_picture);
+    assert!(picture.starts_with(setup.base.join("data/images/playlists")));
+    assert!(image::open(&picture).is_ok());
+
+    // The cache can go; the owner's picture is not in it.
+    fs::remove_dir_all(setup.cache()).unwrap();
+    assert!(picture.is_file());
+
+    library.clear_playlist_image(playlist).unwrap();
+    assert!(!picture.exists());
+    assert!(!library.playlist(playlist).unwrap().unwrap().own_picture);
+
+    library.set_playlist_image(playlist, &source).unwrap();
+    let picture = library
+        .playlist(playlist)
+        .unwrap()
+        .unwrap()
+        .picture
+        .unwrap();
+    library.delete_playlist(playlist).unwrap();
+    assert!(!picture.exists());
+
+    fs::write(&source, b"not an image").unwrap();
+    let other = library.create_playlist("Other").unwrap();
+    assert!(matches!(
+        library.set_playlist_image(other, &source),
+        Err(Error::UnreadableImage(_))
+    ));
+}
+
+#[test]
+fn playlists_are_found_by_every_word_of_their_name() {
+    let setup = Setup::new();
+    let library = &setup.library;
+    library.create_playlist("Summer Evenings").unwrap();
+    library.create_playlist("Winter").unwrap();
+    let found = |text: &str| -> Vec<String> {
+        library
+            .search_playlists(text)
+            .unwrap()
+            .into_iter()
+            .map(|playlist| playlist.name)
+            .collect()
+    };
+    assert_eq!(found("even sum"), ["Summer Evenings"]);
+    assert_eq!(found("WIN"), ["Winter"]);
+    assert!(found("summer winter").is_empty());
+    assert!(found("  ").is_empty());
 }

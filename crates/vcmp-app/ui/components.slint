@@ -82,6 +82,69 @@ export component NavItem {
     }
 }
 
+// A playlist listed in the sidebar, below the sections: opens it.
+export component PlaylistLink {
+    in property <string> label;
+    // Its page is open.
+    in property <bool> selected;
+    callback activated;
+
+    min-height: Theme.target-height;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.activated();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: root.selected || touch.has-hover ? Theme.colors.surface : transparent;
+        animate background { duration: Theme.duration-fast; }
+    }
+
+    Text {
+        x: Theme.space-l;
+        width: parent.width - 2 * Theme.space-l;
+        text: root.label;
+        color: Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: root.selected ? Theme.weight-strong : Theme.weight-regular;
+        vertical-alignment: center;
+        overflow: elide;
+        accessible-role: none;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.activated();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return {
+                root.activated();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
 // A single-choice control with one tab stop; Left/Right arrows move the choice.
 // The owner applies a choice by updating `current-index` in its `selected` handler.
 export component SegmentedChoice {
@@ -778,6 +841,64 @@ export component SearchField {
                         root.clear();
                         input.focus();
                     }
+                }
+            }
+        }
+    }
+}
+
+// A one-line field for a name. Enter keeps the text, Escape gives up; the owner
+// offers buttons for both too.
+export component TextField {
+    in property <string> label;
+    in-out property <string> text;
+    in property <length> font-size: Theme.font-body;
+    callback accepted(string);
+    callback cancelled();
+
+    // Focuses the field with its text selected, ready to be typed over.
+    public function focus-text() {
+        input.focus();
+        input.select-all();
+    }
+
+    min-height: Theme.target-height;
+    forward-focus: input;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: Theme.colors.base;
+        border-width: input.has-focus ? 2px : 1px;
+        border-color: input.has-focus ? Theme.colors.accent : Theme.colors.outline;
+    }
+
+    // Sees the keys the text input leaves, such as Escape.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.cancelled();
+                return accept;
+            }
+            reject
+        }
+
+        HorizontalLayout {
+            padding-left: Theme.space-m;
+            padding-right: Theme.space-m;
+
+            input := TextInput {
+                text <=> root.text;
+                single-line: true;
+                color: Theme.colors.text;
+                font-size: root.font-size;
+                vertical-alignment: center;
+                selection-background-color: Theme.colors.surface;
+                selection-foreground-color: Theme.colors.text;
+                accessible-label: root.label;
+                accepted => {
+                    root.accepted(self.text);
                 }
             }
         }

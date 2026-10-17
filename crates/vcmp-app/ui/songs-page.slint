@@ -2,6 +2,7 @@ import { Theme } from "theme.slint";
 import { FocusRing } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { PlayerState } from "player-state.slint";
+import { Playlists } from "playlist-state.slint";
 
 export enum SongColumn { title, artist, album, year, duration }
 
@@ -318,6 +319,23 @@ export component SongTable {
                     title: @tr("Add to queue");
                     activated => {
                         root.queue(root.current, false);
+                    }
+                }
+                Menu {
+                    title: @tr("Add to playlist");
+
+                    MenuItem {
+                        title: @tr("New playlist");
+                        activated => {
+                            Playlists.add-track(-1, root.songs[root.current].path);
+                        }
+                    }
+                    if Playlists.names.length > 0: MenuSeparator { }
+                    for name[index] in Playlists.names: MenuItem {
+                        title: name;
+                        activated => {
+                            Playlists.add-track(index, root.songs[root.current].path);
+                        }
                     }
                 }
             }

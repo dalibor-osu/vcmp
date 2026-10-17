@@ -1,6 +1,7 @@
 //! Album artwork in the cache directory: the original image under `artwork/` and a
-//! downscaled JPEG under `thumbnails/`, both named by a hash of the image bytes. The
-//! cache can be deleted at any time; the next scan rebuilds it.
+//! downscaled JPEG under `thumbnails/`, both named by a hash of the image bytes, and
+//! playlist pictures made from four covers under `mosaics/`. The cache can be deleted
+//! at any time; the next scan rebuilds it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,7 @@ pub struct Artwork {
 pub(crate) struct ArtworkStore {
     originals: PathBuf,
     thumbnails: PathBuf,
+    mosaics: PathBuf,
 }
 
 impl ArtworkStore {
@@ -35,6 +37,7 @@ impl ArtworkStore {
         Self {
             originals: cache_dir.join("artwork"),
             thumbnails: cache_dir.join("thumbnails"),
+            mosaics: cache_dir.join("mosaics"),
         }
     }
 
@@ -73,6 +76,46 @@ impl ArtworkStore {
             })?;
         write_atomically(&artwork.thumbnail, &jpeg)?;
         Ok(Some(key))
+    }
+
+    /// A picture for a set of stored images: their thumbnails in a 2 x 2 grid when
+    /// there are four, the first thumbnail with fewer, nothing with none. A grid is
+    /// made once and kept, named by the keys it shows.
+    pub(crate) fn mosaic(&self, keys: &[String]) -> Result<Option<PathBuf>> {
+        let Some(first) = keys.first() else {
+            return Ok(None);
+        };
+        if keys.len() < 4 {
+            return Ok(Some(self.paths(first).thumbnail));
+        }
+        let name = blake3::hash(keys[..4].join("\n").as_bytes()).to_hex();
+        let path = self.mosaics.join(format!("{}.jpg", &name[..32]));
+        if path.is_file() {
+            return Ok(Some(path));
+        }
+        const TILE: u32 = THUMBNAIL_SIZE / 2;
+        let mut grid = image::RgbImage::new(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
+        for (index, key) in keys[..4].iter().enumerate() {
+            let thumbnail = self.paths(key).thumbnail;
+            let Ok(tile) = image::open(&thumbnail) else {
+                // The cache lost a thumbnail; the next scan stores it again.
+                return Ok(Some(self.paths(first).thumbnail));
+            };
+            let tile = tile
+                .resize_to_fill(TILE, TILE, image::imageops::FilterType::Triangle)
+                .into_rgb8();
+            let (x, y) = (index as u32 % 2 * TILE, index as u32 / 2 * TILE);
+            image::imageops::replace(&mut grid, &tile, x.into(), y.into());
+        }
+        let mut jpeg = Vec::new();
+        JpegEncoder::new_with_quality(&mut jpeg, 85)
+            .encode_image(&grid)
+            .map_err(|error| Error::Io {
+                path: path.clone(),
+                source: std::io::Error::other(error),
+            })?;
+        write_atomically(&path, &jpeg)?;
+        Ok(Some(path))
     }
 
     fn paths(&self, key: &str) -> Artwork {
@@ -171,6 +214,39 @@ mod tests {
         let key = store.store(&png(10, 10)).unwrap().unwrap();
         fs::remove_dir_all(cache.path().join("thumbnails")).unwrap();
         assert_eq!(store.get(&key), None);
+    }
+
+    #[test]
+    fn four_covers_make_a_grid_and_fewer_show_the_first() {
+        let cache = tempfile::tempdir().unwrap();
+        let store = ArtworkStore::new(cache.path());
+        let colours = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]];
+        let keys: Vec<String> = colours
+            .iter()
+            .map(|&colour| {
+                let image = image::RgbImage::from_pixel(300, 200, image::Rgb(colour));
+                let mut bytes = std::io::Cursor::new(Vec::new());
+                image.write_to(&mut bytes, ImageFormat::Png).unwrap();
+                store.store(&bytes.into_inner()).unwrap().unwrap()
+            })
+            .collect();
+
+        assert_eq!(store.mosaic(&[]).unwrap(), None);
+        let first = store.get(&keys[0]).unwrap().thumbnail;
+        assert_eq!(store.mosaic(&keys[..3]).unwrap(), Some(first));
+
+        let path = store.mosaic(&keys).unwrap().expect("a grid");
+        let grid = image::open(&path).unwrap().into_rgb8();
+        assert_eq!(grid.dimensions(), (THUMBNAIL_SIZE, THUMBNAIL_SIZE));
+        let quarter = THUMBNAIL_SIZE / 4;
+        let near = |pixel: &image::Rgb<u8>, colour: [u8; 3]| {
+            pixel.0.iter().zip(colour).all(|(a, b)| a.abs_diff(b) < 40)
+        };
+        assert!(near(grid.get_pixel(quarter, quarter), colours[0]));
+        assert!(near(grid.get_pixel(3 * quarter, quarter), colours[1]));
+        assert!(near(grid.get_pixel(quarter, 3 * quarter), colours[2]));
+        assert!(near(grid.get_pixel(3 * quarter, 3 * quarter), colours[3]));
+        assert_eq!(store.mosaic(&keys).unwrap(), Some(path));
     }
 
     #[test]

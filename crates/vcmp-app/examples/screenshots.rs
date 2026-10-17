@@ -36,10 +36,11 @@ use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, Queue
 struct Shot {
     name: &'static str,
     mode: ThemeMode,
-    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Songs, 4 Folders, 5 Settings,
-    // 6 About.
+    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Playlists, 4 Songs, 5 Folders,
+    // 6 Settings, 7 About.
     page: i32,
-    // Grid position of the album (or, on the Artists page, the artist) to open.
+    // Grid position of the album (or, on the Artists and Playlists pages, the artist
+    // or playlist) to open.
     album: Option<i32>,
     // Tab presses before the frame, to show the keyboard focus ring. Focus carries
     // over between shots, so the count continues from the previous shot.
@@ -83,9 +84,9 @@ const fn cover_picker(name: &'static str, mode: ThemeMode) -> Shot {
 }
 
 const SHOTS: &[Shot] = &[
-    // First, from the start: Search, Albums, Artists, Songs, Folders, Settings,
-    // About, then the grid.
-    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 8),
+    // First, from the start: Search, Albums, Artists, Playlists, Songs, Folders,
+    // Settings, About, then the grid.
+    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 9),
     shot("albums-light", ThemeMode::Light, 1, None, 0),
     shot("albums-dark", ThemeMode::Dark, 1, None, 0),
     shot("album-light", ThemeMode::Light, 1, Some(ALBUM), 0),
@@ -96,21 +97,25 @@ const SHOTS: &[Shot] = &[
     shot("artist-dark", ThemeMode::Dark, 2, Some(ARTIST), 0),
     shot("search-light", ThemeMode::Light, 0, None, 0),
     shot("search-dark", ThemeMode::Dark, 0, None, 0),
-    shot("songs-light", ThemeMode::Light, 3, None, 0),
-    shot("songs-dark", ThemeMode::Dark, 3, None, 0),
-    shot("folders-light", ThemeMode::Light, 4, None, 0),
-    shot("folders-dark", ThemeMode::Dark, 4, None, 0),
+    shot("playlists-light", ThemeMode::Light, 3, None, 0),
+    shot("playlists-dark", ThemeMode::Dark, 3, None, 0),
+    shot("playlist-light", ThemeMode::Light, 3, Some(0), 0),
+    shot("playlist-dark", ThemeMode::Dark, 3, Some(0), 0),
+    shot("songs-light", ThemeMode::Light, 4, None, 0),
+    shot("songs-dark", ThemeMode::Dark, 4, None, 0),
+    shot("folders-light", ThemeMode::Light, 5, None, 0),
+    shot("folders-dark", ThemeMode::Dark, 5, None, 0),
     now_playing("now-playing-light", ThemeMode::Light),
     now_playing("now-playing-dark", ThemeMode::Dark),
     cover_picker("cover-picker-light", ThemeMode::Light),
     cover_picker("cover-picker-dark", ThemeMode::Dark),
-    shot("settings-light", ThemeMode::Light, 5, None, 0),
-    shot("settings-dark", ThemeMode::Dark, 5, None, 0),
-    shot("about-light", ThemeMode::Light, 6, None, 0),
-    shot("about-dark", ThemeMode::Dark, 6, None, 0),
-    shot("focus-nav-light", ThemeMode::Light, 5, None, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 5, None, 3),
-    shot("focus-switch-light", ThemeMode::Light, 5, None, 1),
+    shot("settings-light", ThemeMode::Light, 6, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 6, None, 0),
+    shot("about-light", ThemeMode::Light, 7, None, 0),
+    shot("about-dark", ThemeMode::Dark, 7, None, 0),
+    shot("focus-nav-light", ThemeMode::Light, 6, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 6, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 6, None, 1),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -162,7 +167,7 @@ fn prepare(window: &AppWindow, shot: &Shot) {
         show_cover_picker(window);
     }
     window.global::<CoverPicker>().set_open(shot.cover_picker);
-    if shot.page == 4 {
+    if shot.page == 5 {
         // Inside the first music folder, where there is more than one row.
         window.invoke_folders_needed();
         window.invoke_folder_go_to(-1);
@@ -182,6 +187,7 @@ fn prepare(window: &AppWindow, shot: &Shot) {
                 .unwrap_or(index);
             window.invoke_artist_activated(index);
         }
+        (3, Some(index)) => window.invoke_playlist_activated(index),
         (_, Some(index)) => {
             let index = std::env::var("VCMP_SHOT_ALBUM")
                 .ok()
@@ -192,6 +198,7 @@ fn prepare(window: &AppWindow, shot: &Shot) {
         (_, None) => {
             window.set_album_open(false);
             window.set_artist_open(false);
+            window.set_playlist_open(false);
         }
     }
     // The album shots show the queue panel too.
