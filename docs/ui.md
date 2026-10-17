@@ -241,6 +241,34 @@ The Albums page tells apart why it is empty:
     away; it tells `PlayerService` when Discord is reached or lost;
   - the application ID is built in (`APPLICATION_ID`) and can be replaced at build
     time with `VCMP_DISCORD_APPLICATION_ID`.
+- **OS media controls** (`vcmp-integrations::media_controls`, always on): MPRIS on
+  Linux, System Media Transport Controls on Windows, Now Playing on macOS.
+  - Media keys and the system's media widget play, pause, stop, skip, seek, set
+    shuffle, repeat and volume, raise the window (un-minimise it) and quit VCMP.
+    `PlayerService::media_control` turns each request into what the player bar's
+    own control does, so the bar and the saved settings follow.
+  - The widget shows the title, artist, album, cover, length, position, volume,
+    shuffle, repeat, and playing or paused. `PlayerService` sends the whole state
+    on every engine event and volume change; the controls publish only what
+    changed.
+  - On Linux the bus name is `org.mpris.MediaPlayer2.vcmp`, the identity "VCMP" and
+    the desktop entry `vcmp`, so the widget finds the icon once `vcmp.desktop` is
+    installed. The cover is the cached thumbnail as a `file://` address.
+  - Windows attaches the controls to the window by its `HWND` (Slint's
+    `raw-window-handle-06` feature, Windows only), so `src/media_keys.rs` starts
+    them from the event loop and waits up to 5 s for the window to exist.
+  - The controls run on their own thread on Linux and Windows, so a stalled D-Bus or
+    WinRT call never holds up the UI. macOS wants Now Playing touched from the main
+    thread, so there they are updated in place.
+  - The crate is [`playwire`](https://crates.io/crates/playwire), not `souvlaki`.
+    souvlaki's last release (0.8.3, June 2025) still has the macOS cover crash fixed
+    only on its main branch, and depends on windows 0.44, cocoa/objc 0.2 and zbus 3
+    (or libdbus), all older than what VCMP already builds. playwire uses the
+    windows 0.62, objc2 0.6 and zbus 5 already in the tree (no libdbus to install),
+    and publishes `DesktopEntry`, shuffle, repeat and real capability flags, which
+    souvlaki does not. It is young (first release August 2026) and has one
+    maintainer; it was read through before adopting it, and only
+    `media_controls.rs` names it, so it can be swapped.
 
 The icons are simple shapes drawn on a 24-point grid (`ui/icons/*.svg`), not taken
 from an icon set. Media controls are the one place in the UI where shapes read
@@ -283,6 +311,14 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   from the OS.
 - Tracks whose file path isn't valid Unicode can't be queued: the engine names
   tracks by a string path.
+- The OS media controls were tried by hand on Linux (MPRIS) only; Windows and macOS
+  are built and tested in CI but not yet seen working.
+- Windows takes media widget covers only from the web, so there the widget shows
+  the Cover Art Archive cover when one is known and none otherwise.
+- The Windows media flyout may name VCMP "Unknown app" until the installer registers
+  an AppUserModelID; on Linux the widget's icon needs the installed `vcmp.desktop`.
+- Raising the window from the media widget only un-minimises it: Wayland compositors
+  don't let an app take focus without an activation token.
 
 - The Slint attribution (`AboutSlint`) picks its logo from the operating system's
   colour scheme, not VCMP's theme, so it sits on the system palette's background. It

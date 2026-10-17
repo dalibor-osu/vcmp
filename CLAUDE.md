@@ -20,6 +20,7 @@ Read it before changing anything structural.
 | UI | Slint 1.18, royalty-free license (the `AboutSlint` widget must stay on the About page) |
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read with lofty |
+| OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions on Ubuntu, Windows and macOS |
 | License | MIT OR Apache-2.0 |
@@ -31,7 +32,7 @@ Workspace layout:
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
 | `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
-| `crates/vcmp-integrations` | Discord Rich Presence and its MusicBrainz cover lookup; planned: OS media controls, Last.fm, artist photos, update check |
+| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup; planned: Last.fm, artist photos, update check |
 
 The core crates must never depend on `vcmp-app` or Slint.
 

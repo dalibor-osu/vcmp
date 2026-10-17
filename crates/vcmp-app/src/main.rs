@@ -66,6 +66,7 @@ fn main() -> Result<(), slint::PlatformError> {
                                 Some(presence),
                             );
                             PlayerService::listen(events);
+                            vcmp_app::media_keys::start(&window, &service);
                             Some(service)
                         }
                         Err(error) => {

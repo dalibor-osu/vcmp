@@ -16,12 +16,13 @@ use slint::{ComponentHandle, Model, SharedString};
 use tempfile::TempDir;
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{
-    CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink, RETRY_NOT_FOUND,
+    CoverSearch, MediaSink, PlayerControl, PlayerService, Presence, PresenceSink, RETRY_NOT_FOUND,
     SETTING_DISCORD, SETTING_OUTPUT_DEVICE, SETTING_REPEAT, SETTING_SHUFFLE, SETTING_VOLUME,
 };
 use vcmp_app::saved_queue;
 use vcmp_app::{AppWindow, PlayState, PlayerProblem, PlayerState, Repeat, Shuffle, ShuffleKind};
 use vcmp_integrations::discord::Listening;
+use vcmp_integrations::media_controls::{self, Control, MediaState};
 use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, Lookup};
 use vcmp_library::{AlbumId, CoverArtId, Library};
 use vcmp_playback::{
@@ -804,4 +805,146 @@ fn the_output_device_is_chosen_and_remembered() {
     app.state().invoke_set_output_device(-1);
     assert_eq!(app.sent.take(), [Command::SetOutputDevice(None)]);
     assert_eq!(app.state().get_output_device(), -1, "the system default");
+}
+
+/// What the system's media widget was told.
+#[derive(Clone, Default)]
+struct Widget(Rc<RefCell<Vec<MediaState>>>);
+
+impl MediaSink for Widget {
+    fn update(&self, state: MediaState) {
+        self.0.borrow_mut().push(state);
+    }
+}
+
+impl Widget {
+    fn last(&self) -> MediaState {
+        self.0
+            .borrow()
+            .last()
+            .cloned()
+            .expect("the widget was updated")
+    }
+}
+
+fn with_widget(app: &App) -> Widget {
+    let widget = Widget::default();
+    app.service.set_media_controls(Box::new(widget.clone()));
+    widget
+}
+
+#[test]
+fn media_keys_send_commands() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.sent.take();
+
+    for control in [
+        Control::TogglePlayPause,
+        Control::Play,
+        Control::Pause,
+        Control::Stop,
+        Control::Next,
+        Control::Previous,
+        Control::SeekTo(Duration::from_millis(400)),
+    ] {
+        app.service.media_control(control);
+    }
+    assert_eq!(
+        app.sent.take(),
+        [
+            Command::TogglePlayPause,
+            Command::Play,
+            Command::Pause,
+            Command::Stop,
+            Command::Next,
+            Command::Previous,
+            Command::Seek(Duration::from_millis(400)),
+        ]
+    );
+    assert_eq!(
+        app.state().get_position_ms(),
+        400,
+        "the bar follows the seek"
+    );
+}
+
+#[test]
+fn relative_seeks_stay_inside_the_track() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service
+        .handle_event(Event::Position(Duration::from_millis(300)));
+    app.sent.take();
+
+    let by = Duration::from_secs(10);
+    app.service
+        .media_control(Control::SeekBy { forward: false, by });
+    app.service
+        .media_control(Control::SeekBy { forward: true, by });
+    assert_eq!(
+        app.sent.take(),
+        [
+            Command::Seek(Duration::ZERO),
+            // The track is a second long.
+            Command::Seek(Duration::from_secs(1)),
+        ]
+    );
+}
+
+#[test]
+fn the_widget_changes_shuffle_repeat_and_volume() {
+    let app = start(|_| {});
+    app.sent.take();
+    app.service.media_control(Control::SetShuffle(true));
+    app.service
+        .media_control(Control::SetRepeat(media_controls::Repeat::One));
+    app.service.media_control(Control::SetVolume(0.25));
+    assert_eq!(
+        app.sent.take(),
+        [
+            Command::SetShuffle(ShuffleMode::LessRepeats),
+            Command::SetRepeat(RepeatMode::One),
+            Command::SetVolume(0.25),
+        ]
+    );
+    assert_eq!(app.state().get_shuffle(), Shuffle::On);
+    assert_eq!(app.state().get_repeat(), Repeat::One);
+    assert_eq!(
+        app.library.setting(SETTING_VOLUME).unwrap().as_deref(),
+        Some("0.25")
+    );
+}
+
+#[test]
+fn the_playing_track_reaches_the_media_widget() {
+    let app = start(|_| {});
+    let widget = with_widget(&app);
+    assert_eq!(widget.last().track, None, "nothing plays yet");
+
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Playing));
+    let shown = widget.last();
+    let track = shown.track.expect("a track is shown");
+    assert_eq!(track.id, app.path("1.flac"));
+    assert_eq!(track.title, "Opening");
+    assert_eq!(track.artist.as_deref(), Some("Band"));
+    assert_eq!(track.album.as_deref(), Some("Record"));
+    assert_eq!(track.duration, Some(Duration::from_secs(1)));
+    assert!(shown.playing);
+
+    app.service
+        .handle_event(Event::Position(Duration::from_millis(250)));
+    assert_eq!(widget.last().position, Duration::from_millis(250));
+
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Paused));
+    assert!(!widget.last().playing);
+
+    app.state().invoke_toggle_mute();
+    assert_eq!(widget.last().volume, 0.0, "muted");
+
+    app.service.handle_event(Event::TrackChanged(None));
+    assert_eq!(widget.last().track, None, "the queue ran out");
 }

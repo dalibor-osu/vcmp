@@ -20,7 +20,9 @@ Early development. In place so far:
   panel with Up next, the queue restored after a restart, and a choice of output
   device;
 - Discord Rich Presence: "Listening to VCMP" with the track, its progress and the
-  album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID.
+  album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID;
+- OS media controls: media keys and the system's media widget (MPRIS on Linux, the
+  Windows media flyout, Now Playing on macOS) control playback and show the track.
 
 The other library views and everything else in the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
