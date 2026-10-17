@@ -161,8 +161,9 @@ fn back_button_escape_and_the_sidebar_return_to_the_grid() {
 #[test]
 fn the_grid_works_from_the_keyboard() {
     let (_dir, window, _browser) = open();
-    // Search, Albums, Artists, Songs, Settings and About in the sidebar, then the grid.
-    for _ in 0..7 {
+    // Search, Albums, Artists, Songs, Folders, Settings and About in the sidebar,
+    // the albums filter, then the grid.
+    for _ in 0..9 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);
@@ -176,7 +177,7 @@ fn the_grid_works_from_the_keyboard() {
 
     press(&window, Key::Escape);
     press(&window, Key::LeftArrow);
-    press(&window, Key::Space);
+    press(&window, Key::Return);
     assert_eq!(
         window.get_album_detail().title,
         "Summer Mix",
@@ -208,4 +209,28 @@ fn the_album_page_fits_the_smallest_window() {
             "{label:?} spans x {left}..{right}"
         );
     }
+}
+
+#[test]
+fn the_filter_narrows_the_albums() {
+    let (_dir, window, _browser) = open();
+    window.set_albums_filter("zed".into());
+    window.invoke_albums_filter_edited("zed".into());
+    let titles: Vec<String> = window
+        .get_albums()
+        .iter()
+        .map(|tile| tile.title.to_string())
+        .collect();
+    assert_eq!(titles, ["Zed Alone"]);
+    window.invoke_album_activated(0);
+    assert_eq!(
+        window.get_album_detail().title,
+        "Zed Alone",
+        "the card shown opens"
+    );
+    window.set_album_open(false);
+
+    window.set_albums_filter("various mix".into());
+    window.invoke_albums_filter_edited("various mix".into());
+    assert_eq!(window.get_albums().row_count(), 1, "by artist and title");
 }

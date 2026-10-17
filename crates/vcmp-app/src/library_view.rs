@@ -9,9 +9,10 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
-use vcmp_library::{Album, Artist, Library, Track};
+use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
+use crate::folders::FolderBrowser;
 use crate::{AlbumDetail, AlbumTile, AppWindow, ArtistDetail, SongColumn, SongRow, TrackRow};
 
 pub struct LibraryView {
@@ -32,8 +33,14 @@ pub struct LibraryView {
     search_artists_grid: Rc<CoverGrid>,
     search_albums_grid: Rc<CoverGrid>,
     search_timer: Timer,
-    // Every track in the Songs page's order, once the page was shown.
-    songs: RefCell<Option<Vec<Track>>>,
+    // Every album, before the Albums page's filter.
+    all_albums: RefCell<Vec<Album>>,
+    // Every track in the Songs page's order, once the page was shown, and those
+    // the page's filter leaves, as shown.
+    all_songs: RefCell<Option<Vec<Track>>>,
+    songs: RefCell<Vec<Track>>,
+    songs_filter_timer: Timer,
+    folders: Rc<FolderBrowser>,
 }
 
 /// Setting key: the Songs page's sort, as "<column>" or "<column>:reverse".
@@ -72,7 +79,9 @@ pub struct ArtistTracks {
 impl LibraryView {
     /// Shows the library's albums. Keep the view alive as long as the window.
     pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<Rc<Self>> {
-        let browser = AlbumBrowser::connect(window, &library.albums()?);
+        let albums = library.albums()?;
+        let browser = AlbumBrowser::connect(window, &albums);
+        let folders = FolderBrowser::connect(window, library.clone());
         let artist_grid = CoverGrid::connect(window, Grid::Artists, Vec::new(), 2);
         let artist_albums_grid = CoverGrid::connect(window, Grid::ArtistAlbums, Vec::new(), 2);
         let weak = Rc::downgrade(&artist_grid);
@@ -94,7 +103,11 @@ impl LibraryView {
             search_artists_grid: CoverGrid::connect(window, Grid::SearchArtists, Vec::new(), 2),
             search_albums_grid: CoverGrid::connect(window, Grid::SearchAlbums, Vec::new(), 2),
             search_timer: Timer::default(),
+            all_albums: RefCell::new(albums),
+            all_songs: RefCell::default(),
             songs: RefCell::default(),
+            songs_filter_timer: Timer::default(),
+            folders,
         });
         if let Some((column, descending)) = view
             .library
@@ -165,10 +178,34 @@ impl LibraryView {
             }
         });
         let weak = Rc::downgrade(&view);
+        window.on_albums_filter_edited(move |_| {
+            if let Some(view) = weak.upgrade() {
+                view.show_albums();
+            }
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_artists_filter_edited(move |_| {
+            if let Some(view) = weak.upgrade() {
+                view.show_artists();
+            }
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_songs_filter_edited(move |_| {
+            let Some(view) = weak.upgrade() else { return };
+            // Tens of thousands of rows: filter once typing pauses.
+            let weak = Rc::downgrade(&view);
+            view.songs_filter_timer
+                .start(TimerMode::SingleShot, SEARCH_DELAY, move || {
+                    if let Some(view) = weak.upgrade() {
+                        view.show_songs();
+                    }
+                });
+        });
+        let weak = Rc::downgrade(&view);
         window.on_songs_needed(move || {
             let Some(view) = weak.upgrade() else { return };
-            if view.songs.borrow().is_none() {
-                view.show_songs();
+            if view.all_songs.borrow().is_none() {
+                view.load_songs();
             }
         });
         let weak = Rc::downgrade(&view);
@@ -190,7 +227,7 @@ impl LibraryView {
             if let Err(error) = view.library.set_setting(SETTING_SONGS_SORT, &value) {
                 log::warn!("could not save the songs order: {error}");
             }
-            view.show_songs();
+            view.load_songs();
         });
         let weak = Rc::downgrade(&view);
         window.on_artist_album_activated(move |index| {
@@ -235,12 +272,14 @@ impl LibraryView {
                 return;
             }
         };
-        self.browser.replace(&albums);
+        *self.all_albums.borrow_mut() = albums.clone();
+        self.show_albums();
         self.show_artists();
         self.search();
-        if self.songs.borrow().is_some() {
-            self.show_songs();
+        if self.all_songs.borrow().is_some() {
+            self.load_songs();
         }
+        self.folders.reload();
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -287,6 +326,24 @@ impl LibraryView {
         })
     }
 
+    /// Opens an album on the Albums page by its id, as the player bar does.
+    pub fn open_album_by_id(&self, id: AlbumId) {
+        match self.library.album(id) {
+            Ok(Some(album)) => self.open_album(album, false),
+            Ok(None) => {}
+            Err(error) => log::error!("could not read album {}: {error}", id.0),
+        }
+    }
+
+    /// Opens an artist on the Artists page by their id, as the player bar does.
+    pub fn open_artist_by_id(&self, id: ArtistId) {
+        match self.library.artist(id) {
+            Ok(Some(artist)) => self.open_artist(artist),
+            Ok(None) => {}
+            Err(error) => log::error!("could not read artist {}: {error}", id.0),
+        }
+    }
+
     /// Opens an album on the Albums page, or (`from_artist`) on the artist's page.
     /// One album page is open at a time, so the other page's closes.
     fn open_album(&self, album: Album, from_artist: bool) {
@@ -305,10 +362,12 @@ impl LibraryView {
             return;
         };
         let all = window.get_artists_show_all();
+        let filter = Filter::new(&window.get_artists_filter());
         let artists: Vec<Artist> = match self.library.artists() {
             Ok(artists) => artists
                 .into_iter()
                 .filter(|artist| all || artist.album_count > 0)
+                .filter(|artist| filter.matches(&[&artist.name]))
                 .collect(),
             Err(error) => {
                 log::error!("could not read artists: {error}");
@@ -385,8 +444,27 @@ impl LibraryView {
         *self.found.borrow_mut() = found;
     }
 
-    /// Reads every track and shows it in the Songs page's order.
-    fn show_songs(&self) {
+    /// Shows the albums the Albums page's filter leaves.
+    fn show_albums(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let filter = Filter::new(&window.get_albums_filter());
+        let albums: Vec<Album> = self
+            .all_albums
+            .borrow()
+            .iter()
+            .filter(|album| {
+                filter.matches(&[&album.title, album.artist.as_deref().unwrap_or_default()])
+            })
+            .cloned()
+            .collect();
+        self.browser.replace(&albums);
+    }
+
+    /// Reads every track, in the Songs page's order, and shows those its filter
+    /// leaves.
+    fn load_songs(&self) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -399,6 +477,30 @@ impl LibraryView {
             window.get_songs_sort_column(),
             window.get_songs_sort_descending(),
         );
+        *self.all_songs.borrow_mut() = Some(tracks);
+        self.show_songs();
+    }
+
+    /// Shows the songs the Songs page's filter leaves.
+    fn show_songs(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let filter = Filter::new(&window.get_songs_filter());
+        let tracks: Vec<Track> = self
+            .all_songs
+            .borrow()
+            .iter()
+            .flatten()
+            .filter(|track| {
+                filter.matches(&[
+                    &track.title,
+                    track.artist.as_deref().unwrap_or_default(),
+                    track.album.as_deref().unwrap_or_default(),
+                ])
+            })
+            .cloned()
+            .collect();
         let rows: Vec<SongRow> = tracks
             .iter()
             .map(|track| SongRow {
@@ -415,17 +517,22 @@ impl LibraryView {
             })
             .collect();
         window.set_songs(ModelRc::new(VecModel::from(rows)));
-        *self.songs.borrow_mut() = Some(tracks);
+        *self.songs.borrow_mut() = tracks;
     }
 
-    /// Every track in the Songs page's order (empty until the page was shown).
+    /// The tracks the Songs page shows, in its order (none until it was shown).
     pub fn songs(&self) -> Vec<Track> {
-        self.songs.borrow().clone().unwrap_or_default()
+        self.songs.borrow().clone()
     }
 
     /// One track of the Songs page.
     pub fn song(&self, index: usize) -> Option<Track> {
-        self.songs.borrow().as_ref()?.get(index).cloned()
+        self.songs.borrow().get(index).cloned()
+    }
+
+    /// The folder browser.
+    pub fn folders(&self) -> &Rc<FolderBrowser> {
+        &self.folders
     }
 
     /// The tracks the last search found, in the order shown.
@@ -491,6 +598,26 @@ impl LibraryView {
                 window.set_artist_appearances(ModelRc::default());
             }
         }
+    }
+}
+
+/// A page filter's words, lowercased. A row passes when every word is in one of its
+/// names, ignoring case; an empty filter passes everything.
+struct Filter(Vec<String>);
+
+impl Filter {
+    fn new(text: &str) -> Self {
+        Self(text.split_whitespace().map(str::to_lowercase).collect())
+    }
+
+    fn matches(&self, names: &[&str]) -> bool {
+        if self.0.is_empty() {
+            return true;
+        }
+        let names: Vec<String> = names.iter().map(|name| name.to_lowercase()).collect();
+        self.0
+            .iter()
+            .all(|word| names.iter().any(|name| name.contains(word.as_str())))
     }
 }
 
@@ -766,6 +893,15 @@ mod tests {
             "0 untagged",
             "unknown years last"
         );
+    }
+
+    #[test]
+    fn filters_need_every_word_in_some_name() {
+        let filter = Filter::new("  pink WALL ");
+        assert!(filter.matches(&["The Wall", "Pink Floyd"]));
+        assert!(!filter.matches(&["The Wall", "Roger Waters"]));
+        assert!(Filter::new("").matches(&["anything"]));
+        assert!(Filter::new("ライブ").matches(&["ラブライブ! Best"]));
     }
 
     #[test]

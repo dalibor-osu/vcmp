@@ -15,10 +15,12 @@ dials come from DESIGN.md).
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
 | `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SongsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
 | `ui/songs-page.slint` | `SongTable`: every track with sortable columns, only the rows in view created |
+| `ui/folders-page.slint` | `FolderBrowser`: the path back up, the folders and the files of one folder |
+| `src/folders.rs` | `FolderBrowser`: the folder tree built from the library's tracks |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist grid and an artist's albums |
 | `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages |
@@ -27,6 +29,7 @@ dials come from DESIGN.md).
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
 | `ui/player-state.slint` | `PlayerState` global: the current track, position, volume, shuffle, repeat |
 | `ui/player-bar.slint` | `PlayerBar`, its play button and the `Slider` |
+| `ui/now-playing.slint` | `NowPlayingView`: the playing track's large cover and details over the pages |
 | `ui/queue-panel.slint` | `QueuePanel`: the track playing, Up next and what follows |
 | `ui/icons/*.svg` | The control icons, painted in `currentColor` |
 | `src/icons.rs` | `IconArt`: writes the tint into an icon's SVG and keeps the result |
@@ -74,11 +77,14 @@ subtext1 and overlay2 instead.
 | Pink marks what is active (page, option, switch) | Gives the neon accent a job, so it stays an accent rather than decoration |
 | Glow only on the current-page marker | DESIGN.md asks for subtle neon; one glowing element per screen keeps it subtle |
 | Sora for everything, two weights (400, 600) | The owner's choice; two weights carry hierarchy without a second family at ENERGY 1 |
-| Type scale 12 / 14 / 16 / 20 / 26 px | Small steps suit a calm UI; the page title is the one large element per screen |
+| Type scale 12 / 14 / 16 / 20 / 26 px, and 34 px for the track in the now playing view | Small steps suit a calm UI; the page title is the one large element per screen, and the now playing view's title takes its place there |
+| Now playing covers the pages, not the player bar | The bar already holds every control, so the view needs none of its own and the controls stay where people know them |
+| Titles, artists and albums of the playing track are links, underlined on hover | People expect to go from what plays to where it comes from; the underline marks a link without adding colour |
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Songs, Settings, About) |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Songs, Folders, Settings, About) |
+| Folder browser built from the library, files listed by file name | Instant, and it shows the music VCMP knows; the file name comes first because the browser is where badly tagged files are found |
 | Songs table without a track-number column, missing values sorted last | Numbers only mean something within an album, which the Album column already orders; untagged files at the top would hide the library behind them |
 | Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
 | Artists in round frames, albums in rounded squares | The shape tells the two grids apart at a glance, as people know it from other players |
@@ -192,8 +198,18 @@ shown, because the page itself stays alive while hidden.
   panel says "Next from your search"); the track menu offers Play now, Play next
   and Add to queue.
 - **`TrackList`** is the track list on album pages, artist pages and search: one tab
-  stop, Up/Down, Home/End, Enter or Space, and the Menu key or a right click for the
+  stop, Up/Down, Home/End, Enter, and the Menu key or a right click for the
   track menu.
+
+## Page filters
+
+The Albums, Artists and Songs pages each have a filter field beside their title
+(`SearchField` in its compact form). A row stays when every typed word appears in
+one of its names, ignoring case: an album's title or artist, an artist's name, a
+song's title, artist or album. Albums and artists filter as you type; the songs
+table, which can hold tens of thousands of rows, once typing pauses for 150 ms.
+The page says when nothing matches, and Escape or the clear button empties the
+field. Unlike Search, a filter only narrows the page it is on.
 
 ## Songs page
 
@@ -206,10 +222,46 @@ shown, because the page itself stays alive while hidden.
 - **Loading:** the tracks are read the first time the page is shown, not at
   startup, and again after library changes once they were loaded.
 - **Keyboard:** the headers are buttons; the rows are one tab stop with Up/Down,
-  Page Up/Down, Home/End and Enter or Space. The Menu key or a right click opens
+  Page Up/Down, Home/End and Enter. The Menu key or a right click opens
   the track menu.
 - **Playing:** a click or Enter plays every song in the table's order from that one;
   the queue panel says "Next from all songs".
+
+## Folders page
+
+- **The top level** lists the music folders with how many tracks are under each;
+  one that is not there now (an unplugged drive) says "Not connected".
+- **Inside a folder:** its subfolders that hold tracks, by name with their track
+  counts, then its files by file name, each with its title and artist after it.
+  The tree comes from the library's tracks (`src/folders.rs`), read the first time
+  the page is shown and again after library changes; a folder that lost all its
+  files gives way to the nearest one above that still has some.
+- **Getting around:** the path above the lists ("Music folders › Hudba › …"), whose
+  steps are buttons; Backspace or Alt+Up on the page goes up one folder. The
+  folders are one tab stop (arrows, Enter opens), the files another (`TrackList`).
+- **Playing:** a file plays its folder's files from that one; the queue panel names
+  the folder.
+
+## Now playing view
+
+- **Opening:** the now playing button in the player bar, next to the queue
+  button, opens and closes it. The view (`NowPlayingView`) lies over the sidebar
+  and pages and fades in; the player bar stays below it with the controls, and
+  the queue panel can be open beside it. Escape, the close button (top left) or a
+  click on the background returns; the focus starts on the close button so Escape
+  works at once.
+- **Leading on:** as in the player bar, the title, the album and the cover lead to
+  the album's page, and the artist to the artist's page; the view closes on the
+  way. The next track is a button that skips to it.
+- **Content:** the cover as large as the view allows (up to 560 px), then the
+  title, artist and album, and the next track as the queue stands. Beside each
+  other in a wide window, stacked and centred in a narrow one. With the queue
+  panel open in a wide window, the view narrows to leave it room.
+- **The large cover** is the full-size artwork, decoded off the UI thread at up to
+  1200 px when the view opens (and for each new track while it is open). The bar's
+  small cover stands in until then; a decode that arrives after the track changed
+  is dropped.
+- Lyrics would go here later.
 
 ## Music folders and scanning
 
@@ -248,7 +300,9 @@ The Albums page tells apart why it is empty:
 ## Playback
 
 - **The player bar** runs along the bottom of the window:
-  - the current track with its cover;
+  - the current track with its cover: the title and the cover lead to its album's
+    page, the artist to the artist's page (links, underlined on hover, and tab
+    stops; the cover is for the pointer, the title the keyboard's way);
   - shuffle, previous, play/pause, next and repeat (off, all, one);
   - the position with a seek slider, and volume;
   - the speaker icon mutes and unmutes, coming back to the earlier volume. Moving the
@@ -259,22 +313,40 @@ The Albums page tells apart why it is empty:
 - **On the album page:**
   - Play starts the album; Shuffle turns shuffle on and starts it;
   - clicking a track, or pressing Enter on it, plays the album from there;
-  - the track list is one tab stop (Up/Down, Home/End, Enter or Space);
+  - the track list is one tab stop (Up/Down, Home/End, Enter);
   - a track's menu (right click, or the Menu key on the current track) offers Play
     now, Play next (front of Up next) and Add to queue (end of Up next);
   - the playing track gets a play mark and an accent title.
+- **Space** plays and pauses everywhere except while typing in a text field, so
+  controls are activated with Enter. Slint routes keys only to the focused element
+  and drops the focus when that element is removed or hidden (the now playing
+  view's close button, an album page's back button), after which keys reach
+  nothing. So the app catches Space from the native window events before Slint
+  routes them (`src/shortcuts.rs`, through Slint's winit hook), and the window's
+  own key handler does the same where the hook cannot reach, as in tests. Whether
+  a text field has the focus comes from Slint's `TextInputInterface`.
+- **A click takes the focus off** whatever has it first (the same hook), so focus
+  rings go away and Space works again after clicking anywhere. A click on a text
+  field gives it the focus straight back, as fields take the focus when pressed;
+  the app's other controls never take focus on a click.
 - **The queue panel** opens from the queue button in the player bar, and stays open
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
   the page narrows to make room for it; in a narrower one the panel lies over the
-  page's right edge, so the page keeps the width its controls need. It shows the track
+  page's right edge, so the page keeps the width its controls need. It lies over
+  the now playing view too.
+  - Each track shows its album's cover, decoded off the UI thread at 96 px and
+    kept per album (up to 500), and filled into the rows when it arrives.
+  - The track menu offers what applies: Play, then Remove, Move up and Move down
+    for tracks added to Up next, or Play next and Add to queue for the album's (or
+    list's) own tracks, which stay in their place too. The engine can't take a
+    track out of the album being played. It shows the track
   playing, Up next (with Clear, and a remove button per track), then "Next from" the
   album being played, at most 100 tracks ahead, as the engine reports them.
-  - Clicking a track, or Enter or Space on it, plays it; the tracks before it are
+  - Clicking a track, or Enter on it, plays it; the tracks before it are
     dropped, as the engine's `SkipTo` does.
   - The tracks are one tab stop: Up/Down and Home/End move, Delete removes from Up
-    next, Alt+Up/Alt+Down reorder it, and the Menu key opens the track's menu (Play,
-    Remove from queue, Move up, Move down). The remove buttons are not tab stops,
-    since Delete does the same.
+    next, Alt+Up/Alt+Down reorder it, and the Menu key opens the track's menu. The
+    remove buttons are not tab stops, since Delete does the same.
 - **The queue comes back after a restart**, paused at the saved position: context,
   Up next, history, shuffle and repeat. `PlayerService` saves the engine's snapshot
   in the settings (`playback.queue`, `src/saved_queue.rs`) whenever a track starts
@@ -282,7 +354,7 @@ The Albums page tells apart why it is empty:
   is ignored with a warning.
 - **Settings → Playback → Output device** lists "System default" and the devices,
   listed off the UI thread each time Settings opens and when the list opens. Up and
-  Down change the choice directly; a click, Enter or Space opens the list. The
+  Down change the choice directly; a click or Enter opens the list. The
   choice is saved by name (`playback.output_device`) and used when the engine
   starts. A chosen device that is unplugged stays in the list, and the description
   names the device playing instead.
@@ -355,7 +427,8 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 
 ## Accessibility patterns
 
-- Every control is a `FocusScope` with Space or Enter (arrows in `SegmentedChoice`)
+- Every control is a `FocusScope` activated with Enter (arrows in `SegmentedChoice`);
+  Space is play and pause everywhere but in text fields
   and an accent `FocusRing` drawn 3 px outside it. Mouse clicks do not move focus
   (`focus-on-click: false`).
 - Rings show only in keyboard mode (`Theme.keyboard-navigation`), like
@@ -364,7 +437,7 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   a control is clicked. So focus can move for keyboard users, as when an album
   opens, without leaving a ring in front of mouse users.
 - The album grid is a single tab stop. Arrow keys, Home/End and Page Up/Down move
-  the current card and scroll it into view; Enter or Space opens it.
+  the current card and scroll it into view; Enter opens it.
 - Controls set `accessible-role`, `accessible-label`, the checked or selected state,
   and `accessible-action-default`. Tests find elements through these properties.
 - Interactive targets are at least 40 px tall (`Theme.target-height`).

@@ -22,6 +22,10 @@ export struct QueueRow {
     title: string,
     artist: string,
     duration: string,
+    // The album, to match its cover when it arrives; -1 for none.
+    album-id: int,
+    has-cover: bool,
+    cover: image,
 }
 
 export global PlayerState {
@@ -30,10 +34,29 @@ export global PlayerState {
     in property <bool> has-track;
     in property <string> title;
     in property <string> artist;
+    // Empty when unknown.
+    in property <string> album;
     in property <bool> has-cover;
     in property <image> cover;
     // First letter of the title, shown when there is no cover.
     in property <string> initial;
+    // The full-size cover for the now playing view, decoded when it is open.
+    in property <bool> has-large-cover;
+    in property <image> large-cover;
+    // The now playing view is open, so the full-size cover is wanted.
+    in-out property <bool> now-playing-open;
+    // The view opened: decode the full-size cover if it is not there yet.
+    callback load-large-cover();
+    // The playing track's album and artist are in the library, so the bar can lead
+    // to their pages.
+    in property <bool> has-album-link;
+    in property <bool> has-artist-link;
+    // Open the playing track's album or artist (the window switches the page).
+    callback go-to-album();
+    callback go-to-artist();
+    // The track after this one, as the queue stands.
+    in property <string> next-title;
+    in property <string> next-artist;
     // File path of the current track, to mark it in track lists.
     in property <string> track-path;
 
@@ -86,6 +109,9 @@ export global PlayerState {
     // Plays a queue panel entry, counted over Up next followed by the context tracks.
     callback play-queue-entry(int);
     callback remove-from-up-next(int);
+    // Puts a context track (by its place among them) into Up next: at its front
+    // (`next`), or at its end.
+    callback queue-upcoming(int, bool);
     callback move-in-up-next(int, int);
     callback clear-up-next();
     // An index into `output-devices`, or -1 for the system default.

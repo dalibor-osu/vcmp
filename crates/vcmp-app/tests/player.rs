@@ -203,6 +203,13 @@ impl App {
         QueueEntry::new(TrackRef::local(self.path(name)))
     }
 
+    fn key_text(&self, text: &str) {
+        let text: SharedString = text.into();
+        let window = self.window.window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+    }
+
     fn key(&self, key: Key) {
         let text: SharedString = key.into();
         let window = self.window.window();
@@ -947,4 +954,214 @@ fn the_playing_track_reaches_the_media_widget() {
 
     app.service.handle_event(Event::TrackChanged(None));
     assert_eq!(widget.last().track, None, "the queue ran out");
+}
+
+#[test]
+fn the_now_playing_button_opens_the_view_and_escape_or_the_background_closes_it() {
+    let app = start(|_| {});
+    let toggle = || {
+        ElementHandle::find_by_accessible_label(&app.window, "Now playing")
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Button))
+            .expect("the now playing button")
+    };
+    assert_eq!(
+        toggle().accessible_enabled(),
+        Some(false),
+        "nothing to show yet"
+    );
+
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        upcoming: vec![app.entry("2.flac")],
+        ..QueueView::default()
+    }));
+    assert_eq!(app.state().get_album(), "Record");
+    assert_eq!(
+        (
+            app.state().get_next_title().as_str(),
+            app.state().get_next_artist().as_str()
+        ),
+        ("Closing", "Band")
+    );
+
+    toggle().invoke_accessible_default_action();
+    assert!(app.state().get_now_playing_open());
+    assert_eq!(toggle().accessible_checked(), Some(true));
+    app.key(Key::Escape);
+    assert!(!app.state().get_now_playing_open(), "Escape closes it");
+
+    toggle().invoke_accessible_default_action();
+    // A click on the background, away from the cover and the text.
+    let size = app.window.window().size().to_logical(1.0);
+    let position = slint::LogicalPosition::new(size.width - 40.0, 80.0);
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: slint::platform::PointerEventButton::Left,
+        });
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: slint::platform::PointerEventButton::Left,
+        });
+    assert!(
+        !app.state().get_now_playing_open(),
+        "the background closes it"
+    );
+}
+
+#[test]
+fn the_playing_track_leads_to_its_album_and_artist() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    assert!(app.state().get_has_album_link() && app.state().get_has_artist_link());
+
+    app.press(AccessibleRole::Button, "Opening, go to the album Record");
+    assert_eq!(app.window.get_current_page(), vcmp_app::Page::Albums);
+    assert!(app.window.get_album_open());
+    assert_eq!(app.window.get_album_detail().title, "Record");
+
+    app.press(AccessibleRole::Button, "Band, go to the artist");
+    assert_eq!(app.window.get_current_page(), vcmp_app::Page::Artists);
+    assert!(app.window.get_artist_open());
+    assert_eq!(app.window.get_artist_detail().name, "Band");
+
+    // The same from the now playing view, which closes on the way.
+    app.state().set_now_playing_open(true);
+    let links: Vec<_> =
+        ElementHandle::find_by_accessible_label(&app.window, "Record, go to the album")
+            .filter(|element| element.accessible_role() == Some(AccessibleRole::Button))
+            .collect();
+    assert_eq!(links.len(), 1, "the album name in the view");
+    links[0].invoke_accessible_default_action();
+    assert!(!app.state().get_now_playing_open());
+    assert_eq!(app.window.get_current_page(), vcmp_app::Page::Albums);
+}
+
+#[test]
+fn the_next_track_in_the_view_plays_when_chosen() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        upcoming: vec![app.entry("2.flac")],
+        ..QueueView::default()
+    }));
+    app.state().set_now_playing_open(true);
+    app.sent.take();
+    app.press(AccessibleRole::Button, "Play the next track, Closing");
+    assert_eq!(app.sent.take(), [Command::Next]);
+}
+
+#[test]
+fn space_plays_and_pauses_everywhere_but_in_text_fields() {
+    let app = start(|_| {});
+    app.sent.take();
+    app.key(Key::Space);
+    assert_eq!(app.sent.take(), [], "nothing loaded");
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.key(Key::Space);
+    assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
+
+    // An album page focuses its back button; Space still plays and pauses.
+    app.open_album();
+    app.key(Key::Space);
+    assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
+    assert!(app.window.get_album_open(), "the back button kept still");
+
+    // In a text field, Space types.
+    app.press(AccessibleRole::Tab, "Search");
+    app.window.invoke_release_focus();
+    let ctrl = |pressed: bool| {
+        let text: SharedString = Key::Control.into();
+        app.window.window().dispatch_event(if pressed {
+            WindowEvent::KeyPressed { text }
+        } else {
+            WindowEvent::KeyReleased { text }
+        });
+    };
+    ctrl(true);
+    app.key_text("f");
+    ctrl(false);
+    app.key_text("a");
+    app.key(Key::Space);
+    app.key_text("b");
+    assert_eq!(app.window.get_search_text(), "a b");
+    assert_eq!(app.sent.take(), []);
+
+    // A click elsewhere takes the focus out of the field, and Space plays again.
+    app.window.invoke_release_focus();
+    app.key(Key::Space);
+    assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
+}
+
+#[test]
+fn the_queue_panel_scrolls_and_queues_album_tracks() {
+    let app = start(|_| {});
+    app.window
+        .window()
+        .set_size(slint::LogicalSize::new(1100.0, 600.0));
+    app.window.set_queue_open(true);
+    let upcoming: Vec<QueueEntry> = (0..60)
+        .map(|i| app.entry(if i % 2 == 0 { "1.flac" } else { "2.flac" }))
+        .collect();
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        upcoming,
+        ..QueueView::default()
+    }));
+    // The heading above the album's tracks scrolls up with them, out of view (where
+    // it is no longer kept).
+    let heading_y = || {
+        ElementHandle::find_by_accessible_label(&app.window, "Next up")
+            .next()
+            .map(|heading| heading.absolute_position().y)
+    };
+    let before = heading_y().expect("the heading");
+    let size = app.window.window().size().to_logical(1.0);
+    let position = slint::LogicalPosition::new(size.width - 100.0, size.height / 2.0);
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::PointerMoved { position });
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position,
+            delta_x: 0.0,
+            delta_y: -300.0,
+        });
+    let after = heading_y();
+    assert!(
+        after.is_none_or(|after| after < before - 200.0),
+        "the panel scrolled: {before} to {after:?}"
+    );
+
+    app.sent.take();
+    app.state().invoke_queue_upcoming(1, true);
+    app.state().invoke_queue_upcoming(0, false);
+    let sent = app.sent.take();
+    assert!(
+        matches!(&sent[..], [Command::PlayNext(next), Command::AddToQueue(added)]
+            if *next[0].track.id == *app.path("2.flac") && *added[0].track.id == *app.path("1.flac")),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn queue_rows_get_their_album_cover() {
+    let app = start(|_| {});
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        up_next: vec![app.entry("1.flac")],
+        upcoming: vec![app.entry("2.flac")],
+        ..QueueView::default()
+    }));
+    let album = app.album();
+    let row = app.state().get_up_next().row_data(0).unwrap();
+    assert_eq!(row.album_id, album.0 as i32);
+    assert!(!row.has_cover, "this album has no artwork");
+
+    let pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(4, 4);
+    app.service.queue_cover_decoded(album, Some(pixels));
+    assert!(app.state().get_up_next().row_data(0).unwrap().has_cover);
+    assert!(app.state().get_upcoming().row_data(0).unwrap().has_cover);
 }

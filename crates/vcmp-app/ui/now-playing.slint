@@ -1,0 +1,304 @@
+import { Theme } from "theme.slint";
+import { FocusRing, IconButton, TextLink } from "components.slint";
+import { Glyph } from "icons.slint";
+import { PlayerState } from "player-state.slint";
+
+// The cover as large as the view allows: the full-size image once it is decoded,
+// the bar's small one until then, the title's first letter without any.
+component BigCover inherits Rectangle {
+    in property <length> size;
+    callback clicked();
+
+    width: root.size;
+    height: root.size;
+    border-radius: Theme.radius-l;
+    clip: true;
+    background: Theme.colors.surface;
+
+    if PlayerState.has-large-cover || PlayerState.has-cover: Image {
+        width: parent.width;
+        height: parent.height;
+        source: PlayerState.has-large-cover ? PlayerState.large-cover : PlayerState.cover;
+        image-fit: ImageFit.cover;
+        accessible-role: none;
+    }
+    if !PlayerState.has-large-cover && !PlayerState.has-cover: Text {
+        text: PlayerState.initial;
+        color: Theme.colors.text-muted;
+        font-size: root.size / 3;
+        font-weight: Theme.weight-strong;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+
+    // The cover leads to its album, like the title; a click on the background
+    // closes the view instead.
+    TouchArea {
+        mouse-cursor: PlayerState.has-album-link ? pointer : default;
+        clicked => {
+            if PlayerState.has-album-link {
+                root.clicked();
+            }
+        }
+    }
+}
+
+// The track after this one: choosing it skips there.
+component NextTrack {
+    in property <TextHorizontalAlignment> align;
+
+    accessible-role: button;
+    accessible-label: @tr("Play the next track, {}", PlayerState.next-title);
+    accessible-action-default => {
+        PlayerState.next();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+    }
+
+    VerticalLayout {
+        padding: Theme.space-s;
+        spacing: Theme.space-xs;
+
+        Text {
+            text: @tr("Next");
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            font-weight: Theme.weight-strong;
+            horizontal-alignment: root.align;
+            accessible-role: none;
+        }
+        Text {
+            text: PlayerState.next-artist == "" ? PlayerState.next-title : @tr("{0} · {1}", PlayerState.next-title, PlayerState.next-artist);
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            overflow: elide;
+            horizontal-alignment: root.align;
+            accessible-role: none;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            Theme.keyboard-navigation = false;
+            PlayerState.next();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                PlayerState.next();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// Title, artist and album, and what plays next. The title and the album lead to
+// the album, the artist to the artist, and the next track plays when chosen.
+// `centered` under the cover in a narrow window, beside it otherwise.
+component TrackDetails inherits VerticalLayout {
+    in property <bool> centered;
+    callback show-album();
+    callback show-artist();
+    private property <TextHorizontalAlignment> align: root.centered ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
+
+    spacing: Theme.space-s;
+    alignment: center;
+
+    if !PlayerState.has-track: Text {
+        text: @tr("Nothing playing");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-display;
+        font-weight: Theme.weight-strong;
+        wrap: word-wrap;
+        horizontal-alignment: root.align;
+    }
+    if PlayerState.has-track: TextLink {
+        text: PlayerState.title;
+        label: PlayerState.album == "" ? PlayerState.title : @tr("{0}, go to the album {1}", PlayerState.title, PlayerState.album);
+        font-size: Theme.font-display;
+        font-weight: Theme.weight-strong;
+        wrap: true;
+        horizontal-alignment: root.align;
+        enabled: PlayerState.has-album-link;
+        clicked => {
+            root.show-album();
+        }
+    }
+    if PlayerState.artist != "": TextLink {
+        text: PlayerState.artist;
+        label: @tr("{}, go to the artist", PlayerState.artist);
+        font-size: Theme.font-heading;
+        wrap: true;
+        horizontal-alignment: root.align;
+        enabled: PlayerState.has-artist-link;
+        clicked => {
+            root.show-artist();
+        }
+    }
+    if PlayerState.album != "": TextLink {
+        text: PlayerState.album;
+        label: @tr("{}, go to the album", PlayerState.album);
+        color: Theme.colors.text-muted;
+        wrap: true;
+        horizontal-alignment: root.align;
+        enabled: PlayerState.has-album-link;
+        clicked => {
+            root.show-album();
+        }
+    }
+
+    if PlayerState.next-title != "": VerticalLayout {
+        padding-top: Theme.space-xl;
+
+        NextTrack {
+            align: root.align;
+        }
+    }
+}
+
+// The track playing, large: its cover, title, artist and album, and what plays
+// next. It covers the pages; the player bar below stays and holds the controls.
+// Escape, the close button or a click on the background returns; this is where
+// lyrics would go later.
+export component NowPlayingView inherits Rectangle {
+    callback close();
+    // Leads to the playing track's album or artist.
+    callback show-album();
+    callback show-artist();
+
+    public function focus-close() {
+        close-button.focus();
+    }
+
+    private property <bool> wide: root.width > root.height * 1.2;
+    private property <length> room: Theme.space-xxl * 2;
+    private property <length> cover-size: max(120px, root.wide
+        ? min(root.height - root.room, root.width * 0.45, 560px)
+        : min(root.width - root.room, root.height * 0.5, 560px));
+
+    background: Theme.colors.base;
+    accessible-role: groupbox;
+    accessible-label: @tr("Now playing");
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+        // Escape works at once; the focus ring shows only for keyboard users.
+        close-button.focus();
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    // Escape closes, wherever the focus is in the view.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.close();
+                return accept;
+            }
+            reject
+        }
+
+        TouchArea {
+            clicked => {
+                root.close();
+            }
+        }
+
+        if root.wide: HorizontalLayout {
+            padding: Theme.space-xxl;
+            spacing: Theme.space-xxl;
+            alignment: center;
+
+            VerticalLayout {
+                alignment: center;
+
+                BigCover {
+                    size: root.cover-size;
+                    clicked => {
+                        root.show-album();
+                    }
+                }
+            }
+            // Clicks between the texts keep the view open; the catcher lies under
+            // the links, which take their own clicks.
+            Rectangle {
+                max-width: 480px;
+
+                TouchArea { }
+                TrackDetails {
+                    width: parent.width;
+                    height: parent.height;
+                    show-album => {
+                        root.show-album();
+                    }
+                    show-artist => {
+                        root.show-artist();
+                    }
+                }
+            }
+        }
+
+        if !root.wide: VerticalLayout {
+            padding: Theme.space-xxl;
+            spacing: Theme.space-xl;
+            alignment: center;
+
+            HorizontalLayout {
+                alignment: center;
+
+                BigCover {
+                    size: root.cover-size;
+                    clicked => {
+                        root.show-album();
+                    }
+                }
+            }
+            Rectangle {
+                TouchArea { }
+                TrackDetails {
+                    width: parent.width;
+                    height: parent.height;
+                    centered: true;
+                    show-album => {
+                        root.show-album();
+                    }
+                    show-artist => {
+                        root.show-artist();
+                    }
+                }
+            }
+        }
+
+        close-button := IconButton {
+            x: Theme.space-l;
+            y: Theme.space-l;
+            glyph: Glyph.chevron-down;
+            label: @tr("Close now playing");
+            clicked => {
+                root.close();
+            }
+        }
+    }
+}

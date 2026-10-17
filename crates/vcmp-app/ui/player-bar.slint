@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { FocusRing, IconButton } from "components.slint";
+import { FocusRing, IconButton, TextLink } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle } from "player-state.slint";
 
@@ -189,6 +189,9 @@ export component Slider {
 // volume.
 export component PlayerBar inherits Rectangle {
     in-out property <bool> queue-open;
+    // Leads from the playing track to its album or artist.
+    callback show-album();
+    callback show-artist();
 
     background: Theme.colors.mantle;
     height: 88px;
@@ -205,7 +208,8 @@ export component PlayerBar inherits Rectangle {
         padding-right: Theme.space-xl;
         spacing: Theme.space-xl;
 
-        // What is playing.
+        // What is playing. The title and the cover lead to the album, the artist
+        // to the artist; the cover is for the pointer, the title the keyboard's way.
         HorizontalLayout {
             min-width: 160px;
             preferred-width: 280px;
@@ -237,6 +241,15 @@ export component PlayerBar inherits Rectangle {
                     vertical-alignment: center;
                     accessible-role: none;
                 }
+
+                TouchArea {
+                    enabled: PlayerState.has-album-link;
+                    mouse-cursor: self.enabled ? pointer : default;
+                    clicked => {
+                        Theme.keyboard-navigation = false;
+                        root.show-album();
+                    }
+                }
             }
 
             VerticalLayout {
@@ -244,19 +257,32 @@ export component PlayerBar inherits Rectangle {
                 spacing: 2px;
                 horizontal-stretch: 1;
 
-                Text {
-                    text: PlayerState.has-track ? PlayerState.title : @tr("Nothing playing");
-                    color: PlayerState.has-track ? Theme.colors.text : Theme.colors.text-muted;
+                if !PlayerState.has-track: Text {
+                    text: @tr("Nothing playing");
+                    color: Theme.colors.text-muted;
                     font-size: Theme.font-body;
-                    font-weight: PlayerState.has-track ? Theme.weight-strong : Theme.weight-regular;
                     overflow: elide;
                 }
 
-                if PlayerState.has-track && PlayerState.artist != "": Text {
+                if PlayerState.has-track: TextLink {
+                    text: PlayerState.title;
+                    label: PlayerState.album == "" ? PlayerState.title : @tr("{0}, go to the album {1}", PlayerState.title, PlayerState.album);
+                    font-weight: Theme.weight-strong;
+                    enabled: PlayerState.has-album-link;
+                    clicked => {
+                        root.show-album();
+                    }
+                }
+
+                if PlayerState.has-track && PlayerState.artist != "": TextLink {
                     text: PlayerState.artist;
+                    label: @tr("{}, go to the artist", PlayerState.artist);
                     color: Theme.colors.text-muted;
                     font-size: Theme.font-small;
-                    overflow: elide;
+                    enabled: PlayerState.has-artist-link;
+                    clicked => {
+                        root.show-artist();
+                    }
                 }
 
                 if PlayerState.problem != PlayerProblem.none: Text {
@@ -378,13 +404,31 @@ export component PlayerBar inherits Rectangle {
             }
         }
 
-        // The queue panel's switch, and the volume.
+        // The now playing view's and the queue panel's switches, and the volume.
         HorizontalLayout {
-            min-width: 160px;
-            preferred-width: 240px;
+            min-width: 200px;
+            preferred-width: 280px;
             horizontal-stretch: 1;
             alignment: end;
             spacing: Theme.space-s;
+
+            VerticalLayout {
+                alignment: center;
+
+                IconButton {
+                    glyph: Glyph.expand;
+                    checkable: true;
+                    active: PlayerState.now-playing-open;
+                    enabled: PlayerState.has-track || PlayerState.now-playing-open;
+                    label: @tr("Now playing");
+                    clicked => {
+                        PlayerState.now-playing-open = !PlayerState.now-playing-open;
+                        if PlayerState.now-playing-open {
+                            PlayerState.load-large-cover();
+                        }
+                    }
+                }
+            }
 
             VerticalLayout {
                 alignment: center;
