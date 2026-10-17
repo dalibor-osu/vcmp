@@ -23,6 +23,8 @@ export component NavItem {
     in property <string> label;
     in property <bool> selected;
     callback activated;
+    // Window position of the entry when the keyboard focuses it, to scroll it into view.
+    callback shown-focused(length, length);
 
     min-height: Theme.target-height;
     accessible-role: tab;
@@ -64,6 +66,7 @@ export component NavItem {
         focus-gained(reason) => {
             if reason == FocusReason.tab-navigation {
                 Theme.keyboard-navigation = true;
+                root.shown-focused(root.absolute-position.y, root.height);
             }
         }
         key-pressed(event) => {
@@ -88,6 +91,8 @@ export component PlaylistLink {
     // Its page is open.
     in property <bool> selected;
     callback activated;
+    // Window position of the entry when the keyboard focuses it, to scroll it into view.
+    callback shown-focused(length, length);
 
     min-height: Theme.target-height;
     accessible-role: button;
@@ -127,6 +132,7 @@ export component PlaylistLink {
         focus-gained(reason) => {
             if reason == FocusReason.tab-navigation {
                 Theme.keyboard-navigation = true;
+                root.shown-focused(root.absolute-position.y, root.height);
             }
         }
         key-pressed(event) => {

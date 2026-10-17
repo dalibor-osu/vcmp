@@ -24,12 +24,14 @@ use slint::{
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
+use vcmp_app::updates;
 use vcmp_app::{
     AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, PlayerState,
-    Theme, ThemeMode,
+    Theme, ThemeMode, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
+use vcmp_integrations::updates::Release;
 use vcmp_library::Library;
 use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, QueueView, TrackRef};
 
@@ -47,6 +49,8 @@ struct Shot {
     tabs: usize,
     // The now playing view is open over the page.
     now_playing: bool,
+    // A newer VCMP is reported, so its note shows.
+    update: bool,
     // The cover picker is open, with stand-in covers.
     cover_picker: bool,
 }
@@ -65,6 +69,7 @@ const fn shot(
         album,
         tabs,
         now_playing: false,
+        update: false,
         cover_picker: false,
     }
 }
@@ -73,6 +78,14 @@ const fn now_playing(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         now_playing: true,
         ..shot(name, mode, 1, None, 0)
+    }
+}
+
+/// The About page, with the note that a newer VCMP is out there and in the sidebar.
+const fn update(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        update: true,
+        ..shot(name, mode, 7, None, 0)
     }
 }
 
@@ -113,6 +126,8 @@ const SHOTS: &[Shot] = &[
     shot("settings-dark", ThemeMode::Dark, 6, None, 0),
     shot("about-light", ThemeMode::Light, 7, None, 0),
     shot("about-dark", ThemeMode::Dark, 7, None, 0),
+    update("update-light", ThemeMode::Light),
+    update("update-dark", ThemeMode::Dark),
     shot("focus-nav-light", ThemeMode::Light, 6, None, 1),
     shot("focus-theme-dark", ThemeMode::Dark, 6, None, 3),
     shot("focus-switch-light", ThemeMode::Light, 6, None, 1),
@@ -162,6 +177,17 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     player.set_now_playing_open(shot.now_playing);
     if shot.now_playing {
         player.invoke_load_large_cover();
+    }
+    if shot.update {
+        updates::show(
+            window,
+            &Release {
+                version: "1.2.0".into(),
+                url: "https://github.com/dalibor-osu/vcmp/releases".into(),
+            },
+        );
+    } else {
+        window.global::<UpdateState>().set_version("".into());
     }
     if shot.cover_picker {
         show_cover_picker(window);

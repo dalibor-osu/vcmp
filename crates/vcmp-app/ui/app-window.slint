@@ -17,11 +17,13 @@ import { PlayerBar } from "player-bar.slint";
 import { QueuePanel } from "queue-panel.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { Glyph, IconArt } from "icons.slint";
+import { SidebarUpdateNote, UpdateState } from "updates.slint";
 import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint";
 
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
 export { CoverSearch, CoverSearchStatus }
 export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow }
+export { UpdateState }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { search, albums, artists, playlists, songs, folders, settings, about }
@@ -192,6 +194,21 @@ export component AppWindow inherits Window {
     private property <length> queue-width: 320px;
     private property <length> page-width: pages.width - (root.queue-open && root.width >= 1000px ? root.queue-width : 0px);
     private property <length> marker-height: 20px;
+    // The marker's place below the first section; it slides when the page changes.
+    private property <length> marker-offset: root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+    animate marker-offset { duration: Theme.duration-medium; easing: ease-in-out; }
+
+    // Scrolls the sidebar so the entry at window y `top` with `height` is in view,
+    // when the keyboard moves to it.
+    function show-in-sidebar(top: length, height: length) {
+        let view-top = sidebar-scroll.absolute-position.y;
+        let view-bottom = view-top + sidebar-scroll.visible-height;
+        if top < view-top {
+            sidebar-scroll.content-y = min(0px, sidebar-scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            sidebar-scroll.content-y = sidebar-scroll.content-y - (top + height - view-bottom);
+        }
+    }
 
     title: "VCMP";
     min-width: 720px;
@@ -244,71 +261,75 @@ export component AppWindow inherits Window {
                         width: 220px;
                         background: Theme.colors.mantle;
 
-                        sidebar-layout := VerticalLayout {
-                            padding: Theme.space-l;
-                            spacing: Theme.space-xl;
+                        // The wordmark, the sections and the playlists scroll together
+                        // when the window is too short for them; the scan status and the
+                        // update note stay below.
+                        sidebar-scroll := ScrollView {
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height - sidebar-foot.height;
 
-                            // Wordmark, inset to line up with the navigation labels.
-                            HorizontalLayout {
-                                vertical-stretch: 0;
-                                padding-left: Theme.space-l;
+                            sidebar-content := VerticalLayout {
+                                padding: Theme.space-l;
+                                spacing: Theme.space-xl;
+                                alignment: start;
 
-                                Text {
-                                    text: "VCMP";
-                                    color: Theme.colors.text;
-                                    font-size: Theme.font-wordmark;
-                                    font-weight: Theme.weight-strong;
-                                }
-                            }
-
-                            nav-list := VerticalLayout {
-                                vertical-stretch: 0;
-                                spacing: root.nav-spacing;
-                                accessible-role: tab-list;
-                                accessible-label: @tr("Sections");
-
-                                for entry[index] in root.nav: NavItem {
-                                    label: entry.label;
-                                    selected: index == root.selected-index;
-                                    activated => {
-                                        // Choosing Albums or Artists again goes back to the grid.
-                                        if index == root.selected-index && entry.page == Page.albums {
-                                            albums-page.close-album();
-                                        }
-                                        if index == root.selected-index && entry.page == Page.artists {
-                                            artists-page.show-grid();
-                                        }
-                                        if index == root.selected-index && entry.page == Page.playlists {
-                                            playlists-page.close-playlist();
-                                        }
-                                        root.selected-index = index;
-                                    }
-                                }
-                            }
-
-                            // The playlists, below the sections; the rest of the
-                            // sidebar's height, scrolling when they don't fit.
-                            VerticalLayout {
-                                vertical-stretch: 1;
-                                spacing: Theme.space-s;
-
-                                if Playlists.names.length > 0: HorizontalLayout {
+                                // Wordmark, inset to line up with the navigation labels.
+                                HorizontalLayout {
                                     padding-left: Theme.space-l;
 
                                     Text {
-                                        text: @tr("Playlists");
-                                        color: Theme.colors.text-muted;
-                                        font-size: Theme.font-small;
-                                        accessible-role: none;
+                                        text: "VCMP";
+                                        color: Theme.colors.text;
+                                        font-size: Theme.font-wordmark;
+                                        font-weight: Theme.weight-strong;
                                     }
                                 }
 
-                                if Playlists.names.length > 0: ScrollView {
-                                    vertical-stretch: 1;
+                                nav-list := VerticalLayout {
+                                    spacing: root.nav-spacing;
+                                    accessible-role: tab-list;
+                                    accessible-label: @tr("Sections");
+
+                                    for entry[index] in root.nav: NavItem {
+                                        label: entry.label;
+                                        selected: index == root.selected-index;
+                                        activated => {
+                                            // Choosing Albums or Artists again goes back to the grid.
+                                            if index == root.selected-index && entry.page == Page.albums {
+                                                albums-page.close-album();
+                                            }
+                                            if index == root.selected-index && entry.page == Page.artists {
+                                                artists-page.show-grid();
+                                            }
+                                            if index == root.selected-index && entry.page == Page.playlists {
+                                                playlists-page.close-playlist();
+                                            }
+                                            root.selected-index = index;
+                                        }
+                                        shown-focused(top, height) => {
+                                            root.show-in-sidebar(top, height);
+                                        }
+                                    }
+                                }
+
+                                // The playlists, below the sections.
+                                if Playlists.names.length > 0: VerticalLayout {
+                                    spacing: Theme.space-s;
+
+                                    HorizontalLayout {
+                                        padding-left: Theme.space-l;
+
+                                        Text {
+                                            text: @tr("Playlists");
+                                            color: Theme.colors.text-muted;
+                                            font-size: Theme.font-small;
+                                            accessible-role: none;
+                                        }
+                                    }
 
                                     VerticalLayout {
                                         spacing: root.nav-spacing;
-                                        alignment: start;
                                         accessible-role: list;
                                         accessible-label: @tr("Playlists");
 
@@ -318,19 +339,26 @@ export component AppWindow inherits Window {
                                             activated => {
                                                 root.show-playlist(index);
                                             }
+                                            shown-focused(top, height) => {
+                                                root.show-in-sidebar(top, height);
+                                            }
                                         }
                                     }
                                 }
-
-                                // Takes the height when there are no playlists, so
-                                // the rest of the sidebar keeps its size.
-                                if Playlists.names.length == 0: Rectangle { }
                             }
+                        }
+
+                        // Its own height, at the bottom: left to the default, the layout
+                        // would fill the sidebar from `y` down.
+                        sidebar-foot := VerticalLayout {
+                            y: parent.height - self.height;
+                            width: parent.width;
+                            height: self.preferred-height;
 
                             // Scan status, visible from every page while albums appear.
                             if LibraryState.scanning: VerticalLayout {
-                                vertical-stretch: 0;
-                                padding-left: Theme.space-s;
+                                padding: Theme.space-l;
+                                padding-left: Theme.space-xl;
                                 spacing: Theme.space-s;
 
                                 Text {
@@ -344,21 +372,25 @@ export component AppWindow inherits Window {
                                     label: @tr("Scan progress");
                                 }
                             }
+
+                            // A newer VCMP is out: shown where the scan status goes,
+                            // which has the place while a scan runs. About shows it too.
+                            if UpdateState.available && !LibraryState.scanning: SidebarUpdateNote { }
                         }
 
-                        // Current-page marker: the one place the neon glow is used.
+                        // Current-page marker: the one place the neon glow is used. It
+                        // scrolls with the sections and hides outside their view.
                         marker := Rectangle {
                             x: Theme.space-l - 6px;
-                            y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+                            y: sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y + root.marker-offset;
+                            visible: self.y >= sidebar-scroll.y && self.y + self.height <= sidebar-scroll.y + sidebar-scroll.visible-height;
                             width: 3px;
                             height: root.marker-height;
                             border-radius: Theme.radius-s;
                             background: Theme.colors.accent;
                             drop-shadow-blur: 8px;
                             drop-shadow-color: Theme.colors.glow;
-                            animate y { duration: Theme.duration-medium; easing: ease-in-out; }
                         }
-
                     }
 
                     pages := Rectangle {

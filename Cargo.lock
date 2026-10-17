@@ -5838,6 +5838,7 @@ dependencies = [
  "discord-rich-presence",
  "log",
  "playwire",
+ "semver",
  "serde",
  "serde_json",
  "unicode-normalization",

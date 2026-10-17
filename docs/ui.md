@@ -41,6 +41,8 @@ dials come from DESIGN.md).
 | `src/player_service.rs` | `PlayerService`: commands to the playback engine, its events into `PlayerState` |
 | `src/saved_queue.rs` | The queue kept across restarts, as versioned JSON in the settings |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
+| `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note and the Updates section of Settings |
+| `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
 ## Rules enforced by tests
@@ -98,6 +100,8 @@ subtext1 and overlay2 instead.
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
+| The sidebar's sections and playlists scroll as one, above its foot | Eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
+| A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
@@ -214,8 +218,8 @@ shown, because the page itself stays alive while hidden.
 ## Playlists page
 
 - **In the sidebar:** Playlists comes after Artists. Below the sections, the
-  playlists are listed by name (scrolling when they don't fit), and each opens its
-  page; the open one is highlighted.
+  playlists are listed by name, and each opens its page; the open one is
+  highlighted.
 - **The grid** shows each playlist's picture, name and number of tracks. New
   playlist makes "Playlist n" and opens it with the name field focused and
   selected, ready to be typed over. Without playlists the page says how to make one.
@@ -492,6 +496,28 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   owner's GPU that step cut a block out of the next button. It did not happen on
   other machines, so it could not be caught by screenshot tests.
 
+## Update check
+
+- When VCMP starts, unless "Check for updates" (Settings, Updates) is off, a worker
+  thread asks GitHub's REST API for the repository's ten newest releases
+  (`vcmp_integrations::updates`). It takes the highest version among the published
+  ones, skipping drafts, pre-releases (flagged as such, or with a version like
+  `2.0.0-beta.1`) and tags that are no version, and compares it with the running
+  version by semver precedence. The list is read rather than GitHub's "latest"
+  release, because a fix for an older line published after a newer release would
+  otherwise count as the newest.
+- A newer version fills `UpdateState`, and the note "VCMP 1.2.0 is available" shows
+  at the foot of the sidebar and under the version on About. Activating it opens the
+  release page in the browser; VCMP downloads nothing. The page address is built
+  from the tag, not taken from the answer.
+- The request carries VCMP's User-Agent (its name and version). GitHub sees the IP
+  address and nothing about the library; the setting's description says so.
+- Network errors and answers other than 200 (offline, the rate limit, 404) are
+  logged and show nothing.
+- The switch is saved as `integrations.update_check` ("false" when off; absent
+  means on). Turning it on checks at once, at most once per run; turning it off
+  hides a note already shown.
+
 ## Accessibility patterns
 
 - Every control is a `FocusScope` activated with Enter (arrows in `SegmentedChoice`);
@@ -537,6 +563,9 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   an AppUserModelID; on Linux the widget's icon needs the installed `vcmp.desktop`.
 - Raising the window from the media widget only un-minimises it: Wayland compositors
   don't let an app take focus without an activation token.
+- The update check asks GitHub without signing in, so it finds nothing while the
+  repository is private (GitHub answers 404). It runs once per start: a VCMP left
+  open for days learns of a release at its next start.
 
 - The Slint attribution (`AboutSlint`) picks its logo from the operating system's
   colour scheme, not VCMP's theme, so it sits on the system palette's background. It
