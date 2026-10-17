@@ -78,6 +78,13 @@ struct ReadJob<'a> {
     with_cover: bool,
 }
 
+/// What a scan walked: the music files by encoded path, and each folder's cover images
+/// as `name size modified` lines.
+struct Discovered {
+    files: HashMap<Vec<u8>, Found>,
+    folder_images: HashMap<PathBuf, Vec<String>>,
+}
+
 struct Known {
     id: i64,
     size: i64,
@@ -93,11 +100,19 @@ pub(crate) fn scan(
     progress: &mut dyn FnMut(ScanProgress),
 ) -> Result<ScanReport> {
     let mut report = ScanReport::default();
-    let found = discover(conn, &mut report, cancel, progress)?;
+    let Discovered {
+        files: found,
+        folder_images,
+    } = discover(conn, &mut report, cancel, progress)?;
     if cancel.load(Ordering::Relaxed) {
         report.cancelled = true;
         return Ok(report);
     }
+    // Albums made from here on are new to this scan.
+    let first_new_album: i64 =
+        conn.query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM albums", [], |row| {
+            row.get(0)
+        })?;
     let known = known_tracks(conn)?;
 
     let mut to_read = Vec::new();
@@ -187,7 +202,11 @@ pub(crate) fn scan(
                             &mut claimed,
                             &mut report,
                         )?;
+                        // A new album takes the cover of its first file read. One that
+                        // had art before is left to the artwork pass, which looks at
+                        // its first tracks, so a changed later track can't swap it.
                         if let (Some(album), Some(cover)) = (album, track.cover)
+                            && album >= first_new_album
                             && !cover_sent.contains(&album)
                             && album_needs_artwork(&tx, album)?
                         {
@@ -220,10 +239,68 @@ pub(crate) fn scan(
         total,
     });
 
+    recheck_changed_folder_art(conn, &found, &folder_images)?;
     finish_groups(conn)?;
     find_artwork(conn, artwork, cancel, progress)?;
     report.cancelled = cancel.load(Ordering::Relaxed);
     Ok(report)
+}
+
+/// Sends the albums of every folder whose cover images were added, replaced or
+/// removed since the last scan back to the artwork pass, and records what each
+/// folder holds now. A folder seen for the first time is only recorded: its albums
+/// are new, or were looked at when their files were.
+fn recheck_changed_folder_art(
+    conn: &mut Connection,
+    found: &HashMap<Vec<u8>, Found>,
+    folder_images: &HashMap<PathBuf, Vec<String>>,
+) -> Result<()> {
+    let mut files_by_folder: HashMap<&Path, Vec<&Found>> = HashMap::new();
+    for file in found.values() {
+        if let Some(folder) = file.path.parent() {
+            files_by_folder.entry(folder).or_default().push(file);
+        }
+    }
+    let stored: HashMap<Vec<u8>, String> = conn
+        .prepare("SELECT folder, fingerprint FROM folder_art")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+
+    let tx = conn.transaction()?;
+    for (folder, files) in &files_by_folder {
+        let mut images = folder_images.get(*folder).cloned().unwrap_or_default();
+        images.sort();
+        let fingerprint = images.join("\n");
+        let key = path_codec::encode(folder);
+        match stored.get(&key) {
+            Some(old) if *old == fingerprint => continue,
+            Some(_) => {
+                for file in files {
+                    tx.execute(
+                        "UPDATE albums SET artwork_state = 0
+                         WHERE id = (SELECT album_id FROM tracks WHERE path = ?1)",
+                        [path_codec::encode(&file.path)],
+                    )?;
+                }
+            }
+            None => {}
+        }
+        tx.execute(
+            "INSERT INTO folder_art (folder, fingerprint) VALUES (?1, ?2)
+             ON CONFLICT (folder) DO UPDATE SET fingerprint = excluded.fingerprint",
+            params![key, fingerprint],
+        )?;
+    }
+    // Folders without music any more.
+    let current: HashSet<Vec<u8>> = files_by_folder
+        .keys()
+        .map(|folder| path_codec::encode(folder))
+        .collect();
+    for folder in stored.keys().filter(|folder| !current.contains(*folder)) {
+        tx.execute("DELETE FROM folder_art WHERE folder = ?1", [folder])?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 /// Re-reads files whose tags VCMP just wrote, the way a scan reads changed files, so
@@ -320,7 +397,7 @@ fn discover(
     report: &mut ScanReport,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(ScanProgress),
-) -> Result<HashMap<Vec<u8>, Found>> {
+) -> Result<Discovered> {
     let mut statement = conn.prepare("SELECT id, path, recursive FROM source_dirs ORDER BY id")?;
     let sources: Vec<(i64, PathBuf, bool)> = statement
         .query_map([], |row| {
@@ -333,6 +410,7 @@ fn discover(
         .collect::<rusqlite::Result<_>>()?;
 
     let mut found = HashMap::new();
+    let mut folder_images: HashMap<PathBuf, Vec<String>> = HashMap::new();
     for (source_id, root, recursive) in sources {
         if !root.is_dir() {
             report.unreachable_sources.push(root);
@@ -341,9 +419,33 @@ fn discover(
         let walker = WalkDir::new(&root).max_depth(if recursive { usize::MAX } else { 1 });
         for entry in walker.into_iter().filter_map(|entry| entry.ok()) {
             if cancel.load(Ordering::Relaxed) {
-                return Ok(found);
+                return Ok(Discovered {
+                    files: found,
+                    folder_images,
+                });
             }
-            if !entry.file_type().is_file() || Format::from_extension(entry.path()).is_none() {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if artwork::is_folder_image(entry.path()) {
+                if let (Some(folder), Some(name), Ok(metadata)) = (
+                    entry.path().parent(),
+                    entry.path().file_name(),
+                    entry.metadata(),
+                ) {
+                    let modified = metadata.modified().map(millis).unwrap_or(0);
+                    folder_images
+                        .entry(folder.to_path_buf())
+                        .or_default()
+                        .push(format!(
+                            "{} {} {modified}",
+                            name.to_string_lossy(),
+                            metadata.len()
+                        ));
+                }
+                continue;
+            }
+            if Format::from_extension(entry.path()).is_none() {
                 continue;
             }
             let Ok(metadata) = entry.metadata() else {
@@ -371,7 +473,10 @@ fn discover(
         done: found.len(),
         total: 0,
     });
-    Ok(found)
+    Ok(Discovered {
+        files: found,
+        folder_images,
+    })
 }
 
 fn known_tracks(conn: &Connection) -> Result<HashMap<Vec<u8>, Known>> {
@@ -494,9 +599,10 @@ fn apply(
         ],
     )?;
     if let Some(album_id) = album_id {
-        // New or changed tracks may bring artwork the album did not have.
+        // New or changed tracks may bring artwork the album did not have, or another
+        // program may have replaced or removed the art it has: look again.
         tx.execute(
-            "UPDATE albums SET artwork_state = 0 WHERE id = ?1 AND artwork_state = 2",
+            "UPDATE albums SET artwork_state = 0 WHERE id = ?1 AND artwork_state != 0",
             [album_id],
         )?;
     }
@@ -674,8 +780,9 @@ fn find_artwork(
         Ok(())
     })?;
     save_artwork(conn, &found)?;
-    // Albums checked without success are not checked again until a track changes.
-    // They lose art their files no longer have, so a fetched cover shows instead.
+    // Albums checked without success are not checked again until a track or a
+    // folder image changes. They lose art their files no longer have, so a fetched
+    // cover shows instead.
     let failed = found
         .iter()
         .filter(|(_, key)| key.is_none())

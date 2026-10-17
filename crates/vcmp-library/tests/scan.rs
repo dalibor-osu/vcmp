@@ -1126,3 +1126,113 @@ fn playlists_are_found_by_every_word_of_their_name() {
     assert!(found("summer winter").is_empty());
     assert!(found("  ").is_empty());
 }
+
+fn png_of(size: u32, colour: [u8; 3]) -> Vec<u8> {
+    let image = image::RgbImage::from_pixel(size, size, image::Rgb(colour));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+#[test]
+fn art_another_program_replaces_or_removes_in_the_files_is_noticed() {
+    let mut setup = Setup::new();
+    let album = setup.music().join("Album");
+    let picture = |data: Vec<u8>| Tags {
+        picture: Some(data),
+        ..song("One", "Band", "Album")
+    };
+    let path = add_file(
+        &album,
+        "1.flac",
+        "silence.flac",
+        picture(png_of(64, [200, 0, 0])),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let first = album_artwork(&setup.library, "Album").expect("the embedded cover");
+
+    // Another program puts a new cover in the file.
+    write_tags(&path, picture(png_of(80, [0, 0, 200])));
+    setup.scan();
+    let second = album_artwork(&setup.library, "Album").expect("the new cover");
+    assert_ne!(first, second);
+
+    // And then takes it out.
+    write_tags(&path, song("One", "Band", "Album"));
+    setup.scan();
+    assert_eq!(album_artwork(&setup.library, "Album"), None);
+}
+
+#[test]
+fn a_folder_image_added_replaced_or_removed_is_noticed() {
+    let mut setup = Setup::new();
+    let album = setup.music().join("Album");
+    add_file(
+        &album,
+        "1.flac",
+        "silence.flac",
+        song("One", "Band", "Album"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    assert_eq!(album_artwork(&setup.library, "Album"), None);
+
+    let cover = album.join("Cover.PNG");
+    fs::write(&cover, png_of(64, [200, 0, 0])).unwrap();
+    let report = setup.scan();
+    assert_eq!(report.updated, 0, "no music file changed");
+    let first = album_artwork(&setup.library, "Album").expect("the folder's cover");
+
+    fs::write(&cover, png_of(80, [0, 0, 200])).unwrap();
+    setup.scan();
+    let second = album_artwork(&setup.library, "Album").expect("the replaced cover");
+    assert_ne!(first, second);
+
+    fs::remove_file(&cover).unwrap();
+    setup.scan();
+    assert_eq!(album_artwork(&setup.library, "Album"), None);
+
+    // Images that aren't covers don't count.
+    fs::write(album.join("booklet.png"), png_of(64, [0, 200, 0])).unwrap();
+    setup.scan();
+    assert_eq!(album_artwork(&setup.library, "Album"), None);
+}
+
+#[test]
+fn a_changed_later_track_keeps_the_album_cover_of_its_first_tracks() {
+    let mut setup = Setup::new();
+    let album = setup.music().join("Album");
+    fn with(title: &str, track: u32, data: Vec<u8>) -> Tags<'_> {
+        Tags {
+            track: Some(track),
+            picture: Some(data),
+            ..song(title, "Band", "Album")
+        }
+    }
+    add_file(
+        &album,
+        "1.flac",
+        "silence.flac",
+        with("One", 1, png_of(64, [200, 0, 0])),
+    );
+    add_file(
+        &album,
+        "2.flac",
+        "silence.flac",
+        with("Two", 2, png_of(64, [200, 0, 0])),
+    );
+    let third = add_file(
+        &album,
+        "3.flac",
+        "silence.flac",
+        with("Three", 3, png_of(64, [200, 0, 0])),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let cover = album_artwork(&setup.library, "Album").unwrap();
+
+    write_tags(&third, with("Three", 3, png_of(80, [0, 0, 200])));
+    setup.scan();
+    assert_eq!(album_artwork(&setup.library, "Album"), Some(cover));
+}

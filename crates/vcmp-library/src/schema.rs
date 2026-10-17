@@ -164,6 +164,16 @@ CREATE TABLE scrobble_queue (
     played_ms INTEGER NOT NULL
 ) STRICT;
 "#,
+    r#"
+-- The cover images in each music folder (cover.jpg and the like) as a fingerprint
+-- of their names, sizes and modification times. Adding, replacing or removing such
+-- an image changes no music file, so a scan compares fingerprints to know when the
+-- folder's albums need their artwork looked for again.
+CREATE TABLE folder_art (
+    folder BLOB PRIMARY KEY,
+    fingerprint TEXT NOT NULL
+) STRICT;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;
