@@ -413,6 +413,33 @@ impl PlayerService {
                 }
             }
         });
+        window.on_play_folder_file({
+            let weak = weak.clone();
+            move |index| {
+                if let (Some(service), Ok(index)) = (weak.upgrade(), usize::try_from(index)) {
+                    service.play_folder(index);
+                }
+            }
+        });
+        window.on_queue_folder_file({
+            let weak = weak.clone();
+            move |index, next| {
+                let Some(service) = weak.upgrade() else {
+                    return;
+                };
+                let files = service.view.folders().files();
+                let track = usize::try_from(index)
+                    .ok()
+                    .and_then(|index| files.get(index));
+                if let Some(entry) = track.and_then(entry) {
+                    service.player.send(if next {
+                        Command::PlayNext(vec![entry])
+                    } else {
+                        Command::AddToQueue(vec![entry])
+                    });
+                }
+            }
+        });
         window.on_queue_album_track({
             let weak = weak.clone();
             move |index, next| {
@@ -536,6 +563,20 @@ impl PlayerService {
         self.player.send(Command::PlayContext {
             entries,
             origin: Some(SEARCH_ORIGIN.to_string()),
+            start: Some(start),
+        });
+    }
+
+    /// Plays the files of the folder shown in the folder browser, from file `start`.
+    pub fn play_folder(&self, start: usize) {
+        let folders = self.view.folders();
+        let Some(folder) = folders.folder() else {
+            return;
+        };
+        let entries: Vec<QueueEntry> = folders.files().iter().filter_map(entry).collect();
+        self.player.send(Command::PlayContext {
+            entries,
+            origin: Some(format!("folder:{}", folder.to_string_lossy())),
             start: Some(start),
         });
     }
@@ -667,20 +708,22 @@ impl PlayerService {
             .origin
             .as_deref()
             .and_then(|origin| origin.split_once(':'))
-            .and_then(|(kind, id)| Some((kind, id.parse::<i64>().ok()?)))
-            .and_then(|(kind, id)| match kind {
+            .and_then(|(kind, key)| match kind {
                 "album" => self
                     .library
-                    .album(AlbumId(id))
+                    .album(AlbumId(key.parse().ok()?))
                     .ok()
                     .flatten()
                     .map(|album| album.title),
                 "artist" => self
                     .library
-                    .artist(ArtistId(id))
+                    .artist(ArtistId(key.parse().ok()?))
                     .ok()
                     .flatten()
                     .map(|artist| artist.name),
+                "folder" => Path::new(key)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned()),
                 _ => None,
             })
             .unwrap_or_default();

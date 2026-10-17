@@ -15,10 +15,12 @@ dials come from DESIGN.md).
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
 | `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SongsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
 | `ui/songs-page.slint` | `SongTable`: every track with sortable columns, only the rows in view created |
+| `ui/folders-page.slint` | `FolderBrowser`: the path back up, the folders and the files of one folder |
+| `src/folders.rs` | `FolderBrowser`: the folder tree built from the library's tracks |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist grid and an artist's albums |
 | `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages |
@@ -78,7 +80,8 @@ subtext1 and overlay2 instead.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Songs, Settings, About) |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Songs, Folders, Settings, About) |
+| Folder browser built from the library, files listed by file name | Instant, and it shows the music VCMP knows; the file name comes first because the browser is where badly tagged files are found |
 | Songs table without a track-number column, missing values sorted last | Numbers only mean something within an album, which the Album column already orders; untagged files at the top would hide the library behind them |
 | Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
 | Artists in round frames, albums in rounded squares | The shape tells the two grids apart at a glance, as people know it from other players |
@@ -210,6 +213,21 @@ shown, because the page itself stays alive while hidden.
   the track menu.
 - **Playing:** a click or Enter plays every song in the table's order from that one;
   the queue panel says "Next from all songs".
+
+## Folders page
+
+- **The top level** lists the music folders with how many tracks are under each;
+  one that is not there now (an unplugged drive) says "Not connected".
+- **Inside a folder:** its subfolders that hold tracks, by name with their track
+  counts, then its files by file name, each with its title and artist after it.
+  The tree comes from the library's tracks (`src/folders.rs`), read the first time
+  the page is shown and again after library changes; a folder that lost all its
+  files gives way to the nearest one above that still has some.
+- **Getting around:** the path above the lists ("Music folders › Hudba › …"), whose
+  steps are buttons; Backspace or Alt+Up on the page goes up one folder. The
+  folders are one tab stop (arrows, Enter opens), the files another (`TrackList`).
+- **Playing:** a file plays its folder's files from that one; the queue panel names
+  the folder.
 
 ## Music folders and scanning
 

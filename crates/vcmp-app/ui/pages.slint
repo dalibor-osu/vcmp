@@ -8,6 +8,7 @@ import { AlbumGrid, AlbumTile, CardGrid } from "album-grid.slint";
 import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
 import { ArtistDetail, ArtistView } from "artist-page.slint";
 import { SongColumn, SongRow, SongTable } from "songs-page.slint";
+import { FolderBrowser, FolderRow } from "folders-page.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -767,6 +768,68 @@ export component SongsPage inherits Rectangle {
             }
             queue(index, next) => {
                 root.queue(index, next);
+            }
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
+// The music folders as a file tree. The tracks are read the first time the page is
+// shown, like the Songs page.
+export component FoldersPage inherits Rectangle {
+    in property <bool> shown;
+    in property <[string]> crumbs;
+    in property <[FolderRow]> folders;
+    in property <[TrackRow]> files;
+    callback needed();
+    callback open-folder(int);
+    callback go-to(int);
+    callback play-file(int);
+    callback queue-file(int, bool);
+
+    changed shown => {
+        if self.shown {
+            root.needed();
+        }
+    }
+    init => {
+        if self.shown {
+            root.needed();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        padding: Theme.space-xxl;
+        padding-bottom: 0;
+        spacing: Theme.space-l;
+
+        Text {
+            text: @tr("Folders");
+            color: Theme.colors.text;
+            font-size: Theme.font-title;
+            font-weight: Theme.weight-strong;
+        }
+
+        FolderBrowser {
+            vertical-stretch: 1;
+            crumbs: root.crumbs;
+            folders: root.folders;
+            files: root.files;
+            has-sources: LibraryState.folders.length > 0;
+            open-folder(index) => {
+                root.open-folder(index);
+            }
+            go-to(index) => {
+                root.go-to(index);
+            }
+            play-file(index) => {
+                root.play-file(index);
+            }
+            queue-file(index, next) => {
+                root.queue-file(index, next);
             }
         }
     }

@@ -2,6 +2,7 @@
 //! crates.
 
 pub mod albums;
+pub mod folders;
 pub mod icons;
 pub mod library_service;
 pub mod library_view;

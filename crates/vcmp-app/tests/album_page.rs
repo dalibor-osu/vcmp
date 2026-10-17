@@ -161,8 +161,9 @@ fn back_button_escape_and_the_sidebar_return_to_the_grid() {
 #[test]
 fn the_grid_works_from_the_keyboard() {
     let (_dir, window, _browser) = open();
-    // Search, Albums, Artists, Songs, Settings and About in the sidebar, then the grid.
-    for _ in 0..7 {
+    // Search, Albums, Artists, Songs, Folders, Settings and About in the sidebar,
+    // then the grid.
+    for _ in 0..8 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);

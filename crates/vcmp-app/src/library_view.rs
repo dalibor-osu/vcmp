@@ -12,6 +12,7 @@ use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
 use vcmp_library::{Album, Artist, Library, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
+use crate::folders::FolderBrowser;
 use crate::{AlbumDetail, AlbumTile, AppWindow, ArtistDetail, SongColumn, SongRow, TrackRow};
 
 pub struct LibraryView {
@@ -34,6 +35,7 @@ pub struct LibraryView {
     search_timer: Timer,
     // Every track in the Songs page's order, once the page was shown.
     songs: RefCell<Option<Vec<Track>>>,
+    folders: Rc<FolderBrowser>,
 }
 
 /// Setting key: the Songs page's sort, as "<column>" or "<column>:reverse".
@@ -73,6 +75,7 @@ impl LibraryView {
     /// Shows the library's albums. Keep the view alive as long as the window.
     pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<Rc<Self>> {
         let browser = AlbumBrowser::connect(window, &library.albums()?);
+        let folders = FolderBrowser::connect(window, library.clone());
         let artist_grid = CoverGrid::connect(window, Grid::Artists, Vec::new(), 2);
         let artist_albums_grid = CoverGrid::connect(window, Grid::ArtistAlbums, Vec::new(), 2);
         let weak = Rc::downgrade(&artist_grid);
@@ -95,6 +98,7 @@ impl LibraryView {
             search_albums_grid: CoverGrid::connect(window, Grid::SearchAlbums, Vec::new(), 2),
             search_timer: Timer::default(),
             songs: RefCell::default(),
+            folders,
         });
         if let Some((column, descending)) = view
             .library
@@ -241,6 +245,7 @@ impl LibraryView {
         if self.songs.borrow().is_some() {
             self.show_songs();
         }
+        self.folders.reload();
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -426,6 +431,11 @@ impl LibraryView {
     /// One track of the Songs page.
     pub fn song(&self, index: usize) -> Option<Track> {
         self.songs.borrow().as_ref()?.get(index).cloned()
+    }
+
+    /// The folder browser.
+    pub fn folders(&self) -> &Rc<FolderBrowser> {
+        &self.folders
     }
 
     /// The tracks the last search found, in the order shown.

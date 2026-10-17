@@ -30,7 +30,8 @@ use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, Queue
 struct Shot {
     name: &'static str,
     mode: ThemeMode,
-    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Songs, 4 Settings, 5 About.
+    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Songs, 4 Folders, 5 Settings,
+    // 6 About.
     page: i32,
     // Grid position of the album (or, on the Artists page, the artist) to open.
     album: Option<i32>,
@@ -56,9 +57,9 @@ const fn shot(
 }
 
 const SHOTS: &[Shot] = &[
-    // First, from the start: Search, Albums, Artists, Songs, Settings, About, then
-    // the grid.
-    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 7),
+    // First, from the start: Search, Albums, Artists, Songs, Folders, Settings,
+    // About, then the grid.
+    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 8),
     shot("albums-light", ThemeMode::Light, 1, None, 0),
     shot("albums-dark", ThemeMode::Dark, 1, None, 0),
     shot("album-light", ThemeMode::Light, 1, Some(ALBUM), 0),
@@ -71,13 +72,15 @@ const SHOTS: &[Shot] = &[
     shot("search-dark", ThemeMode::Dark, 0, None, 0),
     shot("songs-light", ThemeMode::Light, 3, None, 0),
     shot("songs-dark", ThemeMode::Dark, 3, None, 0),
-    shot("settings-light", ThemeMode::Light, 4, None, 0),
-    shot("settings-dark", ThemeMode::Dark, 4, None, 0),
-    shot("about-light", ThemeMode::Light, 5, None, 0),
-    shot("about-dark", ThemeMode::Dark, 5, None, 0),
-    shot("focus-nav-light", ThemeMode::Light, 4, None, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 4, None, 3),
-    shot("focus-switch-light", ThemeMode::Light, 4, None, 1),
+    shot("folders-light", ThemeMode::Light, 4, None, 0),
+    shot("folders-dark", ThemeMode::Dark, 4, None, 0),
+    shot("settings-light", ThemeMode::Light, 5, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 5, None, 0),
+    shot("about-light", ThemeMode::Light, 6, None, 0),
+    shot("about-dark", ThemeMode::Dark, 6, None, 0),
+    shot("focus-nav-light", ThemeMode::Light, 5, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 5, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 5, None, 1),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -120,6 +123,12 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     let theme = window.global::<Theme>();
     theme.set_mode(shot.mode);
     window.set_selected_index(shot.page);
+    if shot.page == 4 {
+        // Inside the first music folder, where there is more than one row.
+        window.invoke_folders_needed();
+        window.invoke_folder_go_to(-1);
+        window.invoke_open_folder(0);
+    }
     if shot.page == 0 {
         // Set `VCMP_SHOT_SEARCH` to search for something else.
         let text = std::env::var("VCMP_SHOT_SEARCH").unwrap_or_else(|_| "ライブ".into());
