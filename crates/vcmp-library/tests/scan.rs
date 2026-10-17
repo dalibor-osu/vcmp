@@ -511,7 +511,9 @@ fn album_year_is_the_earliest_track_year() {
     );
     setup.add_music_source();
     setup.scan();
-    assert_eq!(setup.library.albums().unwrap()[0].year, Some(1993));
+    let album = &setup.library.albums().unwrap()[0];
+    assert_eq!(album.year, Some(1993));
+    assert_eq!(setup.library.album(album.id).unwrap().as_ref(), Some(album));
     assert_eq!(setup.library.available_track_count().unwrap(), 2);
 }
 

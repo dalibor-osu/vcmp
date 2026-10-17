@@ -15,10 +15,10 @@ Early development. In place so far:
   pages with tracks by disc;
 - music folders in Settings: add and remove folders, scans in the background with
   progress, and automatic updates when the folders change;
-- the playback engine: gapless MP3, FLAC, WAV and Ogg Vorbis, queue and shuffle, so
-  far not wired to the window.
+- playback: gapless MP3, FLAC, WAV and Ogg Vorbis, with a player bar (seek, volume,
+  shuffle, repeat) and Play, Shuffle and play-from-track on album pages.
 
-The other library views, the player controls and everything else in the
+The queue panel, the other library views and everything else in the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
 
 ## Build and run

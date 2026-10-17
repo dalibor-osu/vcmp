@@ -1,0 +1,53 @@
+// What the UI knows about playback. Rust keeps the properties current from the
+// engine's events and implements the callbacks (src/player_service.rs).
+
+export enum PlayState { stopped, playing, paused }
+
+export enum Shuffle { off, on }
+
+// How shuffle picks tracks, chosen in Settings.
+export enum ShuffleKind { true-random, fewer-repeats }
+
+export enum Repeat { off, all, one }
+
+// The last playback problem; the UI words the sentence so it can be translated.
+export enum PlayerProblem { none, no-output, track-failed }
+
+export global PlayerState {
+    in property <PlayState> state;
+    // A track is loaded (playing, paused, or stopped at its start).
+    in property <bool> has-track;
+    in property <string> title;
+    in property <string> artist;
+    in property <bool> has-cover;
+    in property <image> cover;
+    // First letter of the title, shown when there is no cover.
+    in property <string> initial;
+    // File path of the current track, to mark it in track lists.
+    in property <string> track-path;
+
+    in property <int> position-ms;
+    in property <int> duration-ms;
+    in property <string> position-text;
+    in property <string> duration-text;
+
+    // 0 to 1.
+    in property <float> volume: 1;
+    in property <Shuffle> shuffle;
+    in property <ShuffleKind> shuffle-kind: ShuffleKind.fewer-repeats;
+    in property <Repeat> repeat;
+
+    in property <PlayerProblem> problem;
+    in property <string> problem-detail;
+
+    callback toggle-play();
+    callback next();
+    callback previous();
+    callback seek(int);
+    // While the volume slider moves; `volume-committed` once it is let go.
+    callback volume-changed(float);
+    callback volume-committed(float);
+    callback set-shuffle(Shuffle);
+    callback set-shuffle-kind(ShuffleKind);
+    callback set-repeat(Repeat);
+}

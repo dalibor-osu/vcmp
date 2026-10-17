@@ -46,6 +46,19 @@ impl LibraryView {
         &self.browser
     }
 
+    /// The album the album page shows, while it is open.
+    pub fn shown_album(&self) -> Option<Album> {
+        let open = self
+            .window
+            .upgrade()
+            .is_some_and(|window| window.get_album_open());
+        if open {
+            self.open.borrow().clone()
+        } else {
+            None
+        }
+    }
+
     /// Reads the albums again after the library changed: the grid, and the album
     /// page when one is open. An album that disappeared stays on screen, marked as
     /// gone, until the user leaves it.
@@ -117,6 +130,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
                 duration: format_duration(track.duration).into(),
                 disc: disc(track) as i32,
                 disc_start,
+                path: track.path.to_string_lossy().as_ref().into(),
             }
         })
         .collect();
@@ -163,7 +177,7 @@ fn shown_artist(track: &Track, album: &Album) -> String {
 }
 
 /// `m:ss`, or `h:mm:ss` from an hour on.
-fn format_duration(duration: Duration) -> String {
+pub(crate) fn format_duration(duration: Duration) -> String {
     let seconds = duration.as_secs();
     let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
     if hours > 0 {

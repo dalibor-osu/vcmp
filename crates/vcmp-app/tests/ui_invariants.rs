@@ -140,16 +140,38 @@ fn without_tr_calls(line: &str) -> String {
     out
 }
 
+/// Removes string literals that are SVG path data (icon shapes such as
+/// "M 7 4 L 20 12 Z"): drawing commands and numbers, not text.
+fn without_path_data(line: &str) -> String {
+    let is_path_data = |text: &str| {
+        text.starts_with('M')
+            && text
+                .chars()
+                .all(|c| "MLHVCQZmlhvcqz0123456789 .,-".contains(c))
+    };
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(start) = rest.find('"') {
+        let Some(length) = rest[start + 1..].find('"') else {
+            break;
+        };
+        let literal = &rest[start..start + length + 2];
+        out.push_str(&rest[..start]);
+        if !is_path_data(&literal[1..literal.len() - 1]) {
+            out.push_str(literal);
+        }
+        rest = &rest[start + length + 2..];
+    }
+    out.push_str(rest);
+    out
+}
+
 #[test]
 fn text_is_translatable() {
     let mut violations = Vec::new();
     for path in slint_sources() {
         for (number, line) in code_lines(&path) {
-            // Path drawing commands are data, not text.
-            if line.starts_with("commands:") {
-                continue;
-            }
-            let mut remaining = without_tr_calls(&line);
+            let mut remaining = without_path_data(&without_tr_calls(&line));
             for literal in ALLOWED_LITERALS {
                 remaining = remaining.replace(literal, "");
             }

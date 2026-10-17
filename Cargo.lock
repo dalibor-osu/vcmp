@@ -5571,6 +5571,7 @@ dependencies = [
  "slint-build",
  "tempfile",
  "vcmp-library",
+ "vcmp-playback",
 ]
 
 [[package]]

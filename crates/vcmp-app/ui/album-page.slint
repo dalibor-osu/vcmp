@@ -1,6 +1,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { FocusRing } from "components.slint";
+import { Button, FocusRing } from "components.slint";
+import { Icon, Icons } from "player-bar.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -29,6 +30,8 @@ export struct TrackRow {
     disc: int,
     // First track of its disc, so the disc heading goes above it.
     disc-start: bool,
+    // File path, matched against the playing track.
+    path: string,
 }
 
 // Returns to the album grid. The chevron points the way back.
@@ -106,9 +109,23 @@ component BackButton {
     }
 }
 
+// One track of the list. Clicking it plays the album from here; the playing track
+// is marked in the accent.
 component TrackLine {
     in property <TrackRow> track;
     in property <bool> show-disc;
+    in property <bool> playing;
+    // The keyboard's current track in a focused list.
+    in property <bool> focused;
+    callback clicked();
+    // Where the row is, so the list can scroll it into view.
+    callback shown-focused(length, length);
+
+    changed focused => {
+        if self.focused {
+            root.shown-focused(row.absolute-position.y, row.height);
+        }
+    }
 
     VerticalLayout {
         if root.show-disc && root.track.disc-start: Text {
@@ -120,48 +137,90 @@ component TrackLine {
             vertical-alignment: bottom;
         }
 
-        HorizontalLayout {
+        row := Rectangle {
             min-height: Theme.target-height;
-            spacing: Theme.space-l;
-
-            Text {
-                width: 32px;
-                text: root.track.number;
-                color: Theme.colors.text-muted;
-                font-size: Theme.font-body;
-                horizontal-alignment: right;
-                vertical-alignment: center;
+            border-radius: Theme.radius-m;
+            background: touch.has-hover ? Theme.colors.surface : transparent;
+            accessible-role: list-item;
+            accessible-label: root.track.artist == "" ? root.track.title : @tr("{0}, {1}", root.track.title, root.track.artist);
+            accessible-item-selected: root.focused;
+            accessible-action-default => {
+                root.clicked();
             }
 
-            // Zero preferred widths make the columns share space by stretch alone,
-            // so every row's artist column starts at the same x.
-            Text {
-                horizontal-stretch: 2;
-                preferred-width: 0;
-                text: root.track.title;
-                color: Theme.colors.text;
-                font-size: Theme.font-body;
-                vertical-alignment: center;
-                overflow: elide;
+            HorizontalLayout {
+                spacing: Theme.space-l;
+                padding-right: Theme.space-s;
+
+                // The number, or a play mark on the track now playing.
+                Rectangle {
+                    width: 32px;
+
+                    if !root.playing: Text {
+                        width: parent.width;
+                        text: root.track.number;
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-body;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                    if root.playing: Icon {
+                        x: parent.width - self.width;
+                        width: 14px;
+                        height: 14px;
+                        glyph: Icons.play;
+                        tint: Theme.colors.accent;
+                    }
+                }
+
+                // Zero preferred widths make the columns share space by stretch alone,
+                // so every row's artist column starts at the same x.
+                Text {
+                    horizontal-stretch: 2;
+                    preferred-width: 0;
+                    text: root.track.title;
+                    color: root.playing ? Theme.colors.accent : Theme.colors.text;
+                    font-size: Theme.font-body;
+                    font-weight: root.playing ? Theme.weight-strong : Theme.weight-regular;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: none;
+                }
+
+                if root.track.artist != "": Text {
+                    horizontal-stretch: 1;
+                    preferred-width: 0;
+                    text: root.track.artist;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-body;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: none;
+                }
+
+                Text {
+                    width: 64px;
+                    text: root.track.duration;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-body;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
             }
 
-            if root.track.artist != "": Text {
-                horizontal-stretch: 1;
-                preferred-width: 0;
-                text: root.track.artist;
-                color: Theme.colors.text-muted;
-                font-size: Theme.font-body;
-                vertical-alignment: center;
-                overflow: elide;
+            touch := TouchArea {
+                clicked => {
+                    Theme.keyboard-navigation = false;
+                    root.clicked();
+                }
             }
 
-            Text {
-                width: 64px;
-                text: root.track.duration;
-                color: Theme.colors.text-muted;
-                font-size: Theme.font-body;
-                horizontal-alignment: right;
-                vertical-alignment: center;
+            if root.focused: FocusRing {
+                around-width: parent.width;
+                around-height: parent.height;
+                radius: Theme.radius-m;
             }
         }
     }
@@ -172,10 +231,28 @@ export component AlbumView {
     in property <AlbumDetail> album;
     in property <[TrackRow]> tracks;
     in property <bool> multi-disc;
+    // Path of the track now playing, to mark it in the list.
+    in property <string> playing-path;
     callback back();
+    // Plays the album from track `start` (-1: from its beginning, or shuffled).
+    callback play(int, bool);
+
+    // The keyboard's current track; the list is one tab stop.
+    private property <int> current: 0;
 
     public function focus-back() {
         back-button.focus();
+    }
+
+    // Scrolls so the row at window y `top` with `height` is inside the view.
+    function ensure-visible(top: length, height: length) {
+        let view-top = scroll.absolute-position.y;
+        let view-bottom = view-top + scroll.visible-height;
+        if top < view-top {
+            scroll.content-y = min(0px, scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            scroll.content-y = scroll.content-y - (top + height - view-bottom);
+        }
     }
 
     forward-focus: back-button;
@@ -194,7 +271,7 @@ export component AlbumView {
             reject
         }
 
-        ScrollView {
+        scroll := ScrollView {
             width: parent.width;
             height: parent.height;
 
@@ -284,6 +361,29 @@ export component AlbumView {
                                 font-size: Theme.font-small;
                             }
                         }
+
+                        if root.tracks.length > 0: HorizontalLayout {
+                            padding-top: Theme.space-s;
+                            spacing: Theme.space-m;
+                            alignment: start;
+
+                            Button {
+                                text: @tr("Play");
+                                label: @tr("Play {}", root.album.title);
+                                primary: true;
+                                clicked => {
+                                    root.play(-1, false);
+                                }
+                            }
+
+                            Button {
+                                text: @tr("Shuffle");
+                                label: @tr("Shuffle {}", root.album.title);
+                                clicked => {
+                                    root.play(-1, true);
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -301,13 +401,48 @@ export component AlbumView {
                     wrap: word-wrap;
                 }
 
-                VerticalLayout {
+                // The tracks: one tab stop; Up/Down move, Enter or Space plays.
+                list := FocusScope {
                     max-width: Theme.content-max-width;
-                    accessible-role: list;
+                    focus-on-click: false;
+                    focus-gained(reason) => {
+                        if reason == FocusReason.tab-navigation {
+                            Theme.keyboard-navigation = true;
+                        }
+                    }
+                    key-pressed(event) => {
+                        if event.text == Key.DownArrow {
+                            root.current = min(root.tracks.length - 1, root.current + 1);
+                        } else if event.text == Key.UpArrow {
+                            root.current = max(0, root.current - 1);
+                        } else if event.text == Key.Home {
+                            root.current = 0;
+                        } else if event.text == Key.End {
+                            root.current = root.tracks.length - 1;
+                        } else if event.text == Key.Return || event.text == Key.Space {
+                            root.play(root.current, false);
+                        } else {
+                            return reject;
+                        }
+                        accept
+                    }
 
-                    for track in root.tracks: TrackLine {
-                        track: track;
-                        show-disc: root.multi-disc;
+                    VerticalLayout {
+                        accessible-role: AccessibleRole.list;
+
+                        for track[index] in root.tracks: TrackLine {
+                            track: track;
+                            show-disc: root.multi-disc;
+                            playing: track.path == root.playing-path;
+                            focused: list.has-focus && index == root.current;
+                            clicked => {
+                                root.current = index;
+                                root.play(index, false);
+                            }
+                            shown-focused(top, height) => {
+                                root.ensure-visible(top, height);
+                            }
+                        }
                     }
                 }
             }

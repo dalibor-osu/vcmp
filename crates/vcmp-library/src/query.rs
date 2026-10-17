@@ -144,6 +144,18 @@ fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
     })
 }
 
+/// One album, if it still has available tracks.
+pub(crate) fn album(
+    conn: &Connection,
+    store: &ArtworkStore,
+    AlbumId(id): AlbumId,
+) -> Result<Option<Album>> {
+    let sql = format!("{ALBUM_QUERY} WHERE a.id = ?1 GROUP BY a.id");
+    Ok(conn
+        .query_row(&sql, [id], |row| album_from(row, store))
+        .optional()?)
+}
+
 pub(crate) fn albums(
     conn: &Connection,
     store: &ArtworkStore,

@@ -6,27 +6,48 @@ use std::rc::Rc;
 
 use slint::ComponentHandle;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
+use vcmp_app::library_view::LibraryView;
+use vcmp_app::player_service::PlayerService;
 use vcmp_library::Library;
+use vcmp_playback::{Player, PlayerOptions};
 
 fn main() -> Result<(), slint::PlatformError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let window = vcmp_app::create_window()?;
     // Without a database VCMP still runs; preferences then last for this session only.
-    let mut _library_service = None;
+    // The services stay alive until the window closes.
+    let mut _services = None;
     match library_paths()
         .and_then(|paths| Ok((Library::open(&paths.database, &paths.cache)?, paths)))
     {
         Ok((library, paths)) => {
             let library = Rc::new(library);
-            match vcmp_app::library_view::LibraryView::connect(&window, library.clone()) {
-                Ok(browser) => {
-                    _library_service = Some(LibraryService::connect(
+            match LibraryView::connect(&window, library.clone()) {
+                Ok(view) => {
+                    let library_service = LibraryService::connect(
                         &window,
                         library.clone(),
                         paths,
-                        browser,
+                        view.clone(),
                         Delivery::EventLoop,
-                    ));
+                    );
+                    let player_service = match Player::new(PlayerOptions::default()) {
+                        Ok((player, events)) => {
+                            let service = PlayerService::connect(
+                                &window,
+                                library.clone(),
+                                view,
+                                Box::new(player),
+                            );
+                            PlayerService::listen(events);
+                            Some(service)
+                        }
+                        Err(error) => {
+                            log::error!("could not start the playback engine: {error}");
+                            None
+                        }
+                    };
+                    _services = Some((library_service, player_service));
                 }
                 Err(error) => {
                     log::error!("could not read albums: {error}");

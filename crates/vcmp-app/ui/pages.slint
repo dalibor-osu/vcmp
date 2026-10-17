@@ -3,6 +3,7 @@ import { Theme, ThemeMode } from "theme.slint";
 import { Button, FocusRing, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
 import { LibraryState } from "library-state.slint";
 import { LibrarySection } from "library-settings.slint";
+import { PlayerState, ShuffleKind } from "player-state.slint";
 import { AlbumGrid, AlbumTile } from "album-grid.slint";
 import { AlbumDetail, AlbumView, TrackRow } from "album-page.slint";
 
@@ -51,6 +52,30 @@ export component SettingsPage inherits Page {
                 checked: LibraryState.auto-update;
                 toggled(on) => {
                     LibraryState.set-auto-update(on);
+                }
+            }
+        }
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-xs;
+        max-width: Theme.content-max-width;
+
+        SectionHeading {
+            text: @tr("Playback");
+        }
+
+        SettingRow {
+            title: @tr("Shuffle");
+            description: @tr("Fewer repeats plays every track once before any comes back, and keeps the same artist apart. Fully random may play a track again soon.");
+
+            SegmentedChoice {
+                label: @tr("Shuffle");
+                segment-min: 128px;
+                options: [@tr("Fewer repeats"), @tr("Fully random")];
+                current-index: PlayerState.shuffle-kind == ShuffleKind.true-random ? 1 : 0;
+                selected(index) => {
+                    PlayerState.set-shuffle-kind(index == 1 ? ShuffleKind.true-random : ShuffleKind.fewer-repeats);
                 }
             }
         }
@@ -202,6 +227,8 @@ export component AlbumsPage inherits Rectangle {
     in property <bool> shown;
     // Showing one album instead of the grid.
     in-out property <bool> album-open;
+    // Plays the open album from a track (-1: from its start), shuffled or not.
+    callback play-album(int, bool);
     // The library database could not be opened or read.
     in property <bool> library-failed;
     callback range-changed(int, int);
@@ -287,6 +314,10 @@ export component AlbumsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.album-open;
+        playing-path: PlayerState.track-path;
+        play(start, shuffle) => {
+            root.play-album(start, shuffle);
+        }
         album: root.album;
         tracks: root.tracks;
         multi-disc: root.multi-disc;

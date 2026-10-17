@@ -192,6 +192,11 @@ impl Library {
         query::albums(&self.conn, &self.artwork, None)
     }
 
+    /// One album, if it still has available tracks.
+    pub fn album(&self, id: AlbumId) -> Result<Option<Album>> {
+        query::album(&self.conn, &self.artwork, id)
+    }
+
     pub fn artist_albums(&self, artist: ArtistId) -> Result<Vec<Album>> {
         query::albums(&self.conn, &self.artwork, Some(artist))
     }

@@ -19,8 +19,11 @@ use std::time::Duration;
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, SharedString, Timer, TimerMode};
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
+use vcmp_app::library_view::LibraryView;
+use vcmp_app::player_service::{PlayerControl, PlayerService};
 use vcmp_app::{AppWindow, Theme, ThemeMode};
 use vcmp_library::Library;
+use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, TrackRef};
 
 struct Shot {
     name: &'static str,
@@ -70,6 +73,13 @@ const SHOTS: &[Shot] = &[
 /// another).
 const ALBUM: i32 = 0;
 
+/// Takes playback commands and plays nothing.
+struct Silent;
+
+impl PlayerControl for Silent {
+    fn send(&self, _: Command) {}
+}
+
 fn press(window: &AppWindow, key: Key) {
     let text: SharedString = key.into();
     window
@@ -118,7 +128,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let window = vcmp_app::create_window()?;
     // The same wiring as the app: the albums, plus music folders and scanning (an
-    // automatic-update library rescans at startup, as the app would).
+    // automatic-update library rescans at startup, as the app would). Playback goes
+    // to a silent stand-in, and the bar shows the shot album's first track as playing.
     let _library = std::env::var_os("VCMP_HOME").map(|home| {
         let home = PathBuf::from(home);
         let paths = LibraryPaths {
@@ -126,9 +137,31 @@ fn main() -> Result<(), slint::PlatformError> {
             cache: home.join("cache"),
         };
         let library = Rc::new(Library::open(&paths.database, &paths.cache).expect("library"));
-        let browser =
-            vcmp_app::library_view::LibraryView::connect(&window, library.clone()).expect("albums");
-        LibraryService::connect(&window, library, paths, browser, Delivery::EventLoop)
+        let view = LibraryView::connect(&window, library.clone()).expect("albums");
+        let player =
+            PlayerService::connect(&window, library.clone(), view.clone(), Box::new(Silent));
+        let album_index = std::env::var("VCMP_SHOT_ALBUM")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        if let Some(album) = view.browser().album(album_index)
+            && let Some(track) = library
+                .album_tracks(album.id)
+                .expect("tracks")
+                .into_iter()
+                .next()
+        {
+            player.handle_event(Event::TrackChanged(Some(NowPlaying {
+                entry: QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref())),
+                duration: Some(track.duration),
+            })));
+            player.handle_event(Event::StateChanged(PlaybackState::Playing));
+            player.handle_event(Event::Position(track.duration / 3));
+        }
+        (
+            LibraryService::connect(&window, library, paths, view, Delivery::EventLoop),
+            player,
+        )
     });
     // Frames are taken without waiting for transitions to finish.
     window.global::<Theme>().set_reduced_motion(true);

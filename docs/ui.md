@@ -22,6 +22,9 @@ dials come from DESIGN.md).
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
+| `ui/player-state.slint` | `PlayerState` global: the current track, position, volume, shuffle, repeat |
+| `ui/player-bar.slint` | `PlayerBar`, its `IconButton`s, the `Slider` and the drawn `Icons` |
+| `src/player_service.rs` | `PlayerService`: commands to the playback engine, its events into `PlayerState` |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
@@ -72,6 +75,7 @@ subtext1 and overlay2 instead.
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
+| Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
@@ -160,6 +164,29 @@ The Albums page tells apart why it is empty:
   folder…";
 - the folders hold no tagged albums.
 
+## Playback
+
+- **The player bar** runs along the bottom of the window:
+  - the current track with its cover;
+  - shuffle, previous, play/pause, next and repeat (off, all, one);
+  - the position with a seek slider, and volume.
+- **On the album page:**
+  - Play starts the album; Shuffle turns shuffle on and starts it;
+  - clicking a track, or pressing Enter on it, plays the album from there;
+  - the track list is one tab stop (Up/Down, Home/End, Enter or Space);
+  - the playing track gets a play mark and an accent title.
+- **Settings → Playback** chooses how shuffle picks: "Fewer repeats" (the engine's
+  less-repeats mode) or "Fully random". Volume, shuffle and repeat are saved in the
+  library's settings.
+- **`PlayerService`** sends `Command`s to the engine. A thread forwards the engine's
+  `Event`s to the UI thread. Tests replace the engine with a recorder through the
+  `PlayerControl` trait.
+- **Problems:** a missing sound output and skipped tracks are shown in the bar.
+
+The icons are simple shapes drawn on a 24-point grid in `Icons`, not taken from an
+icon set. Media controls are the one place in the UI where shapes read faster than
+words. Every icon button still has a spoken label.
+
 ## Accessibility patterns
 
 - Every control is a `FocusScope` with Space or Enter (arrows in `SegmentedChoice`)
@@ -179,6 +206,11 @@ The Albums page tells apart why it is empty:
   the switch knob changes side.
 
 ## Known limits
+
+- There is no queue panel yet, the queue isn't restored after a restart, and the
+  output device can't be chosen. Those are the next playback step.
+- Tracks whose file path isn't valid Unicode can't be queued: the engine names
+  tracks by a string path.
 
 - The Slint attribution (`AboutSlint`) picks its logo from the operating system's
   colour scheme, not VCMP's theme, so it sits on the system palette's background. It

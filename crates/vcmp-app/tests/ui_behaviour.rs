@@ -102,9 +102,9 @@ fn everything_works_from_the_keyboard() {
     press(&window, Key::Space);
     assert_eq!(window.get_current_page(), Page::Settings);
 
-    // From the Settings entry: About, Add folder, Update automatically, then the
-    // theme choice. Without folders there is no Rescan button.
-    for _ in 0..4 {
+    // From the Settings entry: About, Add folder, Update automatically, the shuffle
+    // choice, then the theme choice. Without folders there is no Rescan button.
+    for _ in 0..5 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);
@@ -212,6 +212,7 @@ fn smallest_window_keeps_everything_inside() {
             AccessibleRole::RadioButton,
             AccessibleRole::Switch,
             AccessibleRole::Button,
+            AccessibleRole::Slider,
             AccessibleRole::Text,
         ];
         for role in roles {

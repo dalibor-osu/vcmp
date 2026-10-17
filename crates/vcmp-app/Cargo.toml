@@ -20,6 +20,7 @@ log = "0.4.34"
 rfd = "0.17.2"
 slint.workspace = true
 vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
+vcmp-playback = { version = "0.1.0", path = "../vcmp-playback" }
 
 [build-dependencies]
 slint-build.workspace = true

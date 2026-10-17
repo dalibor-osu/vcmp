@@ -4,6 +4,7 @@
 pub mod albums;
 pub mod library_service;
 pub mod library_view;
+pub mod player_service;
 pub mod preferences;
 pub mod theme;
 

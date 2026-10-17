@@ -87,6 +87,8 @@ export component SegmentedChoice {
     in property <string> label;
     in property <[string]> options;
     in property <int> current-index;
+    // Narrowest a segment may get; raise it for longer option names.
+    in property <length> segment-min: 88px;
     callback selected(int);
 
     private property <length> segment-width: self.width / max(1, root.options.length);
@@ -97,7 +99,7 @@ export component SegmentedChoice {
         }
     }
 
-    min-width: root.options.length * 88px;
+    min-width: root.options.length * root.segment-min;
     height: Theme.target-height;
     accessible-role: radio-group;
     accessible-label: root.label;

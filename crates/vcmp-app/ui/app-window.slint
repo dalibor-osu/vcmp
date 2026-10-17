@@ -7,7 +7,10 @@ import { AlbumTile, ArtworkState } from "album-grid.slint";
 import { AlbumDetail, TrackRow } from "album-page.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
 import { ProgressBar } from "components.slint";
+import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
+import { PlayerBar } from "player-bar.slint";
 
+export { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle, ShuffleKind }
 export { AlbumDetail, AlbumTile, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { albums, settings, about }
@@ -31,6 +34,8 @@ export component AppWindow inherits Window {
     // The album grid's rows in view changed: first album index and how many fit.
     callback album-range-changed(int, int);
     callback album-activated(int);
+    // Plays the open album from a track (-1: from its start), shuffled or not.
+    callback play-album(int, bool);
     out property <Page> current-page: root.nav[root.selected-index].page;
 
     private property <[NavEntry]> nav: [
@@ -58,111 +63,118 @@ export component AppWindow inherits Window {
             reject
         }
 
-        HorizontalLayout {
-            sidebar := Rectangle {
-                width: 220px;
-                background: Theme.colors.mantle;
+        VerticalLayout {
+            HorizontalLayout {
+                sidebar := Rectangle {
+                    width: 220px;
+                    background: Theme.colors.mantle;
 
-                sidebar-layout := VerticalLayout {
-                    padding: Theme.space-l;
-                    spacing: Theme.space-xl;
-                    alignment: start;
+                    sidebar-layout := VerticalLayout {
+                        padding: Theme.space-l;
+                        spacing: Theme.space-xl;
+                        alignment: start;
 
-                    // Wordmark, inset to line up with the navigation labels.
-                    HorizontalLayout {
-                        padding-left: Theme.space-l;
+                        // Wordmark, inset to line up with the navigation labels.
+                        HorizontalLayout {
+                            padding-left: Theme.space-l;
 
-                        Text {
-                            text: "VCMP";
-                            color: Theme.colors.text;
-                            font-size: Theme.font-wordmark;
-                            font-weight: Theme.weight-strong;
+                            Text {
+                                text: "VCMP";
+                                color: Theme.colors.text;
+                                font-size: Theme.font-wordmark;
+                                font-weight: Theme.weight-strong;
+                            }
                         }
-                    }
 
-                    nav-list := VerticalLayout {
-                        spacing: root.nav-spacing;
-                        accessible-role: tab-list;
-                        accessible-label: @tr("Sections");
+                        nav-list := VerticalLayout {
+                            spacing: root.nav-spacing;
+                            accessible-role: tab-list;
+                            accessible-label: @tr("Sections");
 
-                        for entry[index] in root.nav: NavItem {
-                            label: entry.label;
-                            selected: index == root.selected-index;
-                            activated => {
-                                // Choosing Albums again leaves an open album.
-                                if index == root.selected-index && entry.page == Page.albums {
-                                    albums-page.close-album();
+                            for entry[index] in root.nav: NavItem {
+                                label: entry.label;
+                                selected: index == root.selected-index;
+                                activated => {
+                                    // Choosing Albums again leaves an open album.
+                                    if index == root.selected-index && entry.page == Page.albums {
+                                        albums-page.close-album();
+                                    }
+                                    root.selected-index = index;
                                 }
-                                root.selected-index = index;
                             }
                         }
                     }
-                }
 
-                // Current-page marker: the one place the neon glow is used.
-                marker := Rectangle {
-                    x: Theme.space-l - 6px;
-                    y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
-                    width: 3px;
-                    height: root.marker-height;
-                    border-radius: Theme.radius-s;
-                    background: Theme.colors.accent;
-                    drop-shadow-blur: 8px;
-                    drop-shadow-color: Theme.colors.glow;
-                    animate y { duration: Theme.duration-medium; easing: ease-in-out; }
-                }
-
-                // Scan status, visible from every page while albums appear.
-                if LibraryState.scanning: VerticalLayout {
-                    y: parent.height - self.preferred-height;
-                    width: parent.width;
-                    padding: Theme.space-l;
-                    padding-left: Theme.space-xl;
-                    spacing: Theme.space-s;
-
-                    Text {
-                        text: @tr("Scanning your music");
-                        color: Theme.colors.text-muted;
-                        font-size: Theme.font-small;
+                    // Current-page marker: the one place the neon glow is used.
+                    marker := Rectangle {
+                        x: Theme.space-l - 6px;
+                        y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+                        width: 3px;
+                        height: root.marker-height;
+                        border-radius: Theme.radius-s;
+                        background: Theme.colors.accent;
+                        drop-shadow-blur: 8px;
+                        drop-shadow-color: Theme.colors.glow;
+                        animate y { duration: Theme.duration-medium; easing: ease-in-out; }
                     }
 
-                    ProgressBar {
-                        progress: LibraryState.progress;
-                        label: @tr("Scan progress");
+                    // Scan status, visible from every page while albums appear.
+                    if LibraryState.scanning: VerticalLayout {
+                        y: parent.height - self.preferred-height;
+                        width: parent.width;
+                        padding: Theme.space-l;
+                        padding-left: Theme.space-xl;
+                        spacing: Theme.space-s;
+
+                        Text {
+                            text: @tr("Scanning your music");
+                            color: Theme.colors.text-muted;
+                            font-size: Theme.font-small;
+                        }
+
+                        ProgressBar {
+                            progress: LibraryState.progress;
+                            label: @tr("Scan progress");
+                        }
+                    }
+                }
+
+                Rectangle {
+                    accessible-role: tab-panel;
+
+                    albums-page := AlbumsPage {
+                        shown: root.current-page == Page.albums;
+                        albums: root.albums;
+                        album: root.album-detail;
+                        tracks: root.album-tracks;
+                        multi-disc: root.album-multi-disc;
+                        album-open <=> root.album-open;
+                    library-failed: root.library-failed;
+                    play-album(start, shuffle) => {
+                        root.play-album(start, shuffle);
+                    }
+                        range-changed(first, count) => {
+                            root.album-range-changed(first, count);
+                        }
+                        activated(index) => {
+                            root.album-activated(index);
+                        }
+                    }
+                    if root.current-page == Page.settings: ScrollView {
+                        SettingsPage {
+                            width: parent.width;
+                        }
+                    }
+                    if root.current-page == Page.about: ScrollView {
+                        AboutPage {
+                            width: parent.width;
+                            version: root.version;
+                        }
                     }
                 }
             }
 
-            Rectangle {
-                accessible-role: tab-panel;
-
-                albums-page := AlbumsPage {
-                    shown: root.current-page == Page.albums;
-                    albums: root.albums;
-                    album: root.album-detail;
-                    tracks: root.album-tracks;
-                    multi-disc: root.album-multi-disc;
-                    album-open <=> root.album-open;
-                library-failed: root.library-failed;
-                    range-changed(first, count) => {
-                        root.album-range-changed(first, count);
-                    }
-                    activated(index) => {
-                        root.album-activated(index);
-                    }
-                }
-                if root.current-page == Page.settings: ScrollView {
-                    SettingsPage {
-                        width: parent.width;
-                    }
-                }
-                if root.current-page == Page.about: ScrollView {
-                    AboutPage {
-                        width: parent.width;
-                        version: root.version;
-                    }
-                }
-            }
+            PlayerBar { }
         }
     }
 }
