@@ -1,0 +1,86 @@
+import { Theme } from "theme.slint";
+import { Button, TextLink } from "components.slint";
+import { LastfmProblem, LastfmState, LastfmStatus } from "lastfm-state.slint";
+
+// The Last.fm setting: connect an account, wait while the user allows VCMP in the
+// browser, then show who scrobbles. Laid out like SettingRow, with room for the
+// line about plays waiting to be sent and the link back to the browser page.
+export component LastfmRow {
+    private property <bool> connected: LastfmState.status == LastfmStatus.connected;
+    private property <bool> waiting: LastfmState.status == LastfmStatus.waiting;
+    private property <LastfmProblem> problem: LastfmState.problem;
+
+    HorizontalLayout {
+        spacing: Theme.space-xl;
+        padding-top: Theme.space-m;
+        padding-bottom: Theme.space-m;
+
+        VerticalLayout {
+            spacing: Theme.space-xs;
+            alignment: center;
+            horizontal-stretch: 1;
+
+            Text {
+                text: @tr("Scrobble to Last.fm");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: root.connected ? (root.problem == LastfmProblem.keyring
+                    ? @tr("Scrobbling as {0} until VCMP closes: the system keyring couldn't keep the key ({1}).", LastfmState.user, LastfmState.problem-detail)
+                    : @tr("Scrobbling as {}. Last.fm receives the title, artist, album and length of each track you play, and what plays now.", LastfmState.user))
+                    : root.waiting ? (root.problem == LastfmProblem.browser
+                    ? @tr("Your browser didn't open ({}). Open the Last.fm page from here, and allow VCMP there.", LastfmState.problem-detail)
+                    : @tr("Allow VCMP on the Last.fm page in your browser. Scrobbling starts as soon as you do."))
+                    : root.problem == LastfmProblem.connect-failed ? @tr("VCMP couldn't connect to Last.fm: {}", LastfmState.problem-detail)
+                    : root.problem == LastfmProblem.timed-out ? @tr("VCMP stopped waiting for you to allow it on Last.fm. Connect again to try once more.")
+                    : root.problem == LastfmProblem.rejected ? @tr("Last.fm no longer accepts VCMP for {}, so scrobbling stopped. Connect again to send the plays that are waiting.", LastfmState.user)
+                    : root.problem == LastfmProblem.key-missing ? @tr("The system keyring has no Last.fm key for {}. Connect again to keep scrobbling.", LastfmState.user)
+                    : root.problem == LastfmProblem.keyring ? @tr("VCMP couldn't read the Last.fm key from the system keyring: {}", LastfmState.problem-detail)
+                    : @tr("Keeps a record of what you listen to on your Last.fm profile. Last.fm receives the title, artist, album and length of each track you play, and what plays now.");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+            }
+
+            if root.connected && LastfmState.unsent > 0: Text {
+                text: @tr("{n} play waits to be sent; disconnecting drops it." | "{n} plays wait to be sent; disconnecting drops them." % LastfmState.unsent);
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+            }
+
+            if root.waiting: TextLink {
+                text: @tr("Open the Last.fm page again");
+                font-size: Theme.font-small;
+                clicked => {
+                    LastfmState.open-auth-page();
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+
+            // One button for every state, so the focus stays on it as the state
+            // changes.
+            Button {
+                text: root.connected ? @tr("Disconnect") : root.waiting ? @tr("Cancel") : @tr("Connect…");
+                label: root.connected ? @tr("Disconnect from Last.fm") : root.waiting ? @tr("Stop connecting to Last.fm") : @tr("Connect to Last.fm");
+                clicked => {
+                    if root.connected {
+                        LastfmState.disconnect();
+                    } else if root.waiting {
+                        LastfmState.cancel();
+                    } else {
+                        LastfmState.connect();
+                    }
+                }
+            }
+        }
+    }
+}

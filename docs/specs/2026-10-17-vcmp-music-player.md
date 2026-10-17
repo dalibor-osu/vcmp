@@ -511,7 +511,9 @@ dialog).
 - Signing budget (Apple Developer Program, Windows code-signing certificate). Has to
   be decided before the first public release.
 - Last.fm extras beyond scrobbling ("now playing" updates, loving tracks): not
-  discussed. Decide in workstream 7.
+  discussed. Decide in workstream 7. Workstream 7 built "now playing" updates and
+  left loving tracks out; the owner decides on its pull request whether that
+  stays.
 - Favourites, ratings, play counts or "recently added" in the UI: not requested and
   not planned. Play history is stored for scrobbling only.
 - The target library size for performance budgets: needed for the grid spike in

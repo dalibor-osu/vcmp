@@ -21,7 +21,7 @@ use slint::{ComponentHandle, SharedString, Timer, TimerMode};
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
-use vcmp_app::{AppWindow, PlayerState, Theme, ThemeMode};
+use vcmp_app::{AppWindow, LastfmState, LastfmStatus, PlayerState, Theme, ThemeMode};
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
 use vcmp_library::Library;
@@ -40,6 +40,8 @@ struct Shot {
     tabs: usize,
     // The now playing view is open over the page.
     now_playing: bool,
+    // The Last.fm row in Settings, as in a build with an API key, in this state.
+    lastfm: Option<LastfmStatus>,
 }
 
 const fn shot(
@@ -56,6 +58,7 @@ const fn shot(
         album,
         tabs,
         now_playing: false,
+        lastfm: None,
     }
 }
 
@@ -63,6 +66,13 @@ const fn now_playing(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         now_playing: true,
         ..shot(name, mode, 1, None, 0)
+    }
+}
+
+const fn lastfm(name: &'static str, mode: ThemeMode, status: LastfmStatus) -> Shot {
+    Shot {
+        lastfm: Some(status),
+        ..shot(name, mode, 5, None, 0)
     }
 }
 
@@ -88,6 +98,18 @@ const SHOTS: &[Shot] = &[
     now_playing("now-playing-dark", ThemeMode::Dark),
     shot("settings-light", ThemeMode::Light, 5, None, 0),
     shot("settings-dark", ThemeMode::Dark, 5, None, 0),
+    lastfm("lastfm-light", ThemeMode::Light, LastfmStatus::Connected),
+    lastfm("lastfm-dark", ThemeMode::Dark, LastfmStatus::Connected),
+    lastfm(
+        "lastfm-waiting-light",
+        ThemeMode::Light,
+        LastfmStatus::Waiting,
+    ),
+    lastfm(
+        "lastfm-waiting-dark",
+        ThemeMode::Dark,
+        LastfmStatus::Waiting,
+    ),
     shot("about-light", ThemeMode::Light, 6, None, 0),
     shot("about-dark", ThemeMode::Dark, 6, None, 0),
     shot("focus-nav-light", ThemeMode::Light, 5, None, 1),
@@ -137,6 +159,12 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     window.set_selected_index(shot.page);
     let player = window.global::<PlayerState>();
     player.set_now_playing_open(shot.now_playing);
+    // Set directly: the shots connect no account and send nothing to Last.fm.
+    let lastfm = window.global::<LastfmState>();
+    lastfm.set_available(shot.lastfm.is_some());
+    lastfm.set_status(shot.lastfm.unwrap_or(LastfmStatus::Disconnected));
+    lastfm.set_user("listener".into());
+    lastfm.set_unsent(3);
     if shot.now_playing {
         player.invoke_load_large_cover();
     }

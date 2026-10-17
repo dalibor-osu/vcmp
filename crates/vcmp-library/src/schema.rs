@@ -116,6 +116,21 @@ INSERT INTO album_search (rowid, title, artist)
     SELECT albums.id, albums.title, IFNULL(artists.name, '')
     FROM albums LEFT JOIN artists ON artists.id = albums.artist_id;
 "#,
+    r#"
+-- Plays Last.fm has not received yet, oldest first. They hold the tags as they were
+-- when the track played, not track ids: a later rescan or tag edit must not change
+-- what was listened to. played_ms is when the play started (Unix time).
+CREATE TABLE scrobble_queue (
+    id INTEGER PRIMARY KEY,
+    artist TEXT NOT NULL,
+    title TEXT NOT NULL,
+    album TEXT,
+    album_artist TEXT,
+    track_number INTEGER,
+    duration_ms INTEGER,
+    played_ms INTEGER NOT NULL
+) STRICT;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

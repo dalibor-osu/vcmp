@@ -32,10 +32,13 @@ Early development. In place so far:
 - Discord Rich Presence: "Listening to VCMP" with the track, its progress and the
   album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID;
 - OS media controls: media keys and the system's media widget (MPRIS on Linux, the
-  Windows media flyout, Now Playing on macOS) control playback and show the track.
+  Windows media flyout, Now Playing on macOS) control playback and show the track;
+- Last.fm scrobbling, in builds made with VCMP's Last.fm API key: connect an account
+  in Settings, and plays that count by Last.fm's rules are queued and sent in
+  batches, also after time offline; the track playing shows as "now playing".
 
-Playlists, the tag editor's window (writing tags is in the library already), Last.fm
-scrobbling, artist photos and the rest of the
+Playlists, the tag editor's window (writing tags is in the library already), artist
+photos and the rest of the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
 
 ## Build and run
@@ -118,9 +121,23 @@ The Last.fm API key and shared secret and the fanart.tv API key are compiled int
 release builds from the repository secrets `VCMP_LASTFM_API_KEY`,
 `VCMP_LASTFM_SHARED_SECRET` and `VCMP_FANARTTV_API_KEY` (Settings → Secrets and
 variables → Actions), which reach the build as environment variables of the same
-names. A secret that is not set is left out, and the feature that needs it stays off.
-Local builds read the same variables from the environment. The Discord application ID
-is built in (`VCMP_DISCORD_APPLICATION_ID` overrides it).
+names. The CI workflow passes the two Last.fm secrets as well, so it builds what the
+installers ship. A secret that is not set is left out, and the feature that needs it
+stays off: without both Last.fm values, Settings has no Last.fm row and nothing is
+sent. The Discord application ID is built in (`VCMP_DISCORD_APPLICATION_ID`
+overrides it).
+
+Local builds read the same variables from the environment. To try Last.fm, create an
+API account at <https://www.last.fm/api/account/create> and build with its key and
+shared secret (never commit them):
+
+```bash
+VCMP_LASTFM_API_KEY=<api key> VCMP_LASTFM_SHARED_SECRET=<shared secret> cargo run -p vcmp-app
+```
+
+A connected account's session key is kept in the OS keyring (service
+`io.github.dalibor-osu.vcmp`), not in the library database, so builds and `VCMP_HOME`
+directories on the same machine share it.
 
 ## Documentation
 

@@ -22,6 +22,7 @@ Read it before changing anything structural.
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty |
 | OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
+| Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions: Ubuntu, Windows and macOS for pull requests into `main` and pushes to it; Ubuntu only for pull requests between feature branches. A newer push to a pull request cancels its running checks |
 | Packaging | cargo-packager: MSI and NSIS setup exe, dmg, AppImage and .deb (`[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml`, icons in `packaging/icons/`) |
@@ -34,7 +35,7 @@ Workspace layout:
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
 | `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
-| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup; planned: Last.fm, artist photos, update check |
+| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup, Last.fm scrobbling; planned: artist photos, update check |
 
 The core crates must never depend on `vcmp-app` or Slint.
 
@@ -48,6 +49,13 @@ cargo run -p vcmp-app
 instead of the platform data and cache directories. For example,
 `VCMP_HOME=target/scan-example cargo run -p vcmp-app` opens the library that
 `cargo run --example scan` built.
+
+Last.fm exists only in builds made with VCMP's API key: set `VCMP_LASTFM_API_KEY`
+and `VCMP_LASTFM_SHARED_SECRET` when building (read with `option_env!`; without both
+the Settings row is hidden and nothing is sent). Never commit them; CI and the
+release workflow take them from the repository secrets of the same names (README,
+"Integration keys"). The connected account's session key lives in the OS keyring,
+shared by every build and `VCMP_HOME` on the machine.
 
 Debug builds optimise the dependencies (`[profile.dev.package."*"]` in
 `Cargo.toml`): unoptimised Slint, its renderer and image decoding made the album grid

@@ -43,6 +43,22 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The Last.fm key and secret, compiled in with option_env!, so CI builds what
+      # the installers ship. Secrets that are not set stay out of the environment, so
+      # the build sees them as missing rather than empty. No test depends on them.
+      - name: Pass the integration keys to the build
+        shell: bash
+        env:
+          VCMP_LASTFM_API_KEY: ${{ secrets.VCMP_LASTFM_API_KEY }}
+          VCMP_LASTFM_SHARED_SECRET: ${{ secrets.VCMP_LASTFM_SHARED_SECRET }}
+        run: |
+          for name in VCMP_LASTFM_API_KEY VCMP_LASTFM_SHARED_SECRET; do
+            if [ -n "${!name}" ]; then
+              echo "$name=${!name}" >> "$GITHUB_ENV"
+              echo "$name is set"
+            fi
+          done
+
       - name: Format
         run: cargo fmt --all --check
 

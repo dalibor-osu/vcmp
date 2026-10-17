@@ -3,6 +3,8 @@ import { Theme, ThemeMode } from "theme.slint";
 import { Button, Dropdown, FocusRing, SearchField, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
 import { LibraryState } from "library-state.slint";
 import { LibrarySection } from "library-settings.slint";
+import { LastfmRow } from "lastfm-settings.slint";
+import { LastfmState } from "lastfm-state.slint";
 import { PlayerState, ShuffleKind } from "player-state.slint";
 import { AlbumGrid, AlbumTile, CardGrid } from "album-grid.slint";
 import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
@@ -119,6 +121,8 @@ export component SettingsPage inherits Page {
                 }
             }
         }
+
+        if LastfmState.available: LastfmRow { }
     }
 
     VerticalLayout {

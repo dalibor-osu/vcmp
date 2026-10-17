@@ -25,6 +25,8 @@ slint = { workspace = true, features = ["unstable-winit-030"] }
 vcmp-integrations = { version = "0.1.0", path = "../vcmp-integrations" }
 vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
 vcmp-playback = { version = "0.1.0", path = "../vcmp-playback" }
+# Opens Last.fm's page where the user allows VCMP to scrobble.
+webbrowser = "1.2.4"
 
 # The Windows media controls attach to the window, by its native handle.
 [target.'cfg(windows)'.dependencies]

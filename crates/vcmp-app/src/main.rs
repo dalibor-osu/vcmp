@@ -9,6 +9,7 @@ use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_integrations::discord::{self, DiscordPresence};
+use vcmp_integrations::lastfm::Credentials;
 use vcmp_integrations::musicbrainz::CoverFinder;
 use vcmp_library::Library;
 use vcmp_playback::{Player, PlayerOptions};
@@ -27,6 +28,13 @@ fn main() -> Result<(), slint::PlatformError> {
             let library = Rc::new(library);
             match LibraryView::connect(&window, library.clone()) {
                 Ok(view) => {
+                    // Only builds made with VCMP's Last.fm API key have Last.fm.
+                    let lastfm = vcmp_app::lastfm_service::start(
+                        &window,
+                        library.clone(),
+                        &paths,
+                        Credentials::built_in(),
+                    );
                     let library_service = LibraryService::connect(
                         &window,
                         library.clone(),
@@ -68,6 +76,9 @@ fn main() -> Result<(), slint::PlatformError> {
                             );
                             PlayerService::listen(events);
                             vcmp_app::media_keys::start(&window, &service);
+                            if let Some(lastfm) = &lastfm {
+                                service.set_scrobbler(Box::new(lastfm.clone()));
+                            }
                             Some(service)
                         }
                         Err(error) => {
@@ -75,7 +86,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             None
                         }
                     };
-                    services = Some((library_service, player_service));
+                    services = Some((library_service, player_service, lastfm));
                 }
                 Err(error) => {
                     log::error!("could not read albums: {error}");
@@ -92,7 +103,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     let result = window.run();
-    if let Some((_, Some(player_service))) = &services {
+    if let Some((_, Some(player_service), _)) = &services {
         player_service.save_queue();
     }
     result

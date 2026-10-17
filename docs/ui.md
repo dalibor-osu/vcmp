@@ -35,6 +35,9 @@ dials come from DESIGN.md).
 | `src/icons.rs` | `IconArt`: writes the tint into an icon's SVG and keeps the result |
 | `src/player_service.rs` | `PlayerService`: commands to the playback engine, its events into `PlayerState` |
 | `src/saved_queue.rs` | The queue kept across restarts, as versioned JSON in the settings |
+| `ui/lastfm-state.slint` | `LastfmState` global: whether the build has Last.fm, the account, connecting, and what went wrong |
+| `ui/lastfm-settings.slint` | `LastfmRow`: the Last.fm setting and its Connect, Cancel or Disconnect button |
+| `src/lastfm_service.rs` | `LastfmService`: the Last.fm row, the account, and plays into the scrobble queue |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
@@ -97,6 +100,8 @@ subtext1 and overlay2 instead.
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+| Last.fm connects in the browser while the row waits, with Cancel | Last.fm's desktop sign-in happens on last.fm; asking every few seconds spares an "I've allowed it" button |
+| One Last.fm button whose text follows the state (Connect…, Cancel, Disconnect) | The focus stays on it while the state changes under it |
 
 ## Album grid
 
@@ -382,6 +387,40 @@ The Albums page tells apart why it is empty:
     away; it tells `PlayerService` when Discord is reached or lost;
   - the application ID is built in (`APPLICATION_ID`) and can be replaced at build
     time with `VCMP_DISCORD_APPLICATION_ID`.
+- **Last.fm scrobbling** (`vcmp-integrations::lastfm`, under Settings → Playback,
+  only in builds made with VCMP's API key):
+  - Connect… asks Last.fm for a token, opens Last.fm's page where the user allows
+    VCMP, and asks every 3 s whether they have. Meanwhile the row says what to do
+    and offers Cancel and "Open the Last.fm page again"; it names the error when
+    the browser doesn't open. Connecting gives up after 15 minutes.
+  - The session key goes into the OS keyring (service `io.github.dalibor-osu.vcmp`,
+    entry `lastfm:<user>`), only the user name into the settings (`lastfm.user`).
+    At start the scrobbler reads the key back; when it is missing or unreadable,
+    the row asks to connect again.
+  - A play counts by Last.fm's rules: the track is longer than 30 s and has played
+    for half its length or 4 minutes, whichever comes first. `lastfm::Play` adds up
+    the steps between the engine's positions while playing, so pauses and the part
+    a seek jumps over add nothing (a step back, or of more than 2 s, is a jump). A
+    repeated track is a new play; going back within a play does not scrobble it
+    twice. Tracks without an artist tag are not scrobbled.
+  - Counted plays wait in the library's `scrobble_queue` and go out in batches of
+    up to 50, so they survive a restart or a day offline. After a failure the
+    scrobbler waits 30 s, then twice as long each time up to 30 minutes; a "now
+    playing" update that goes through ends the wait. A play Last.fm refuses
+    outright is found by sending one at a time and dropped, so it cannot hold up
+    the rest. When Last.fm stops taking the key (access revoked on last.fm), the
+    key is forgotten, the plays are kept and the row asks to connect again.
+    Disconnecting forgets the key and the plays not sent, which the row says while
+    any wait.
+  - "Now playing" goes out each time a track starts or resumes, and is not retried.
+    Tracks are not loved. Nothing is sent or kept while no account is connected.
+  - Requests, the keyring and the scrobbler's own database connection live on the
+    `vcmp-lastfm` thread; its reports come back to the UI thread. Tests replace it
+    with a recorder (`LastfmWorker`) and the browser with another, and
+    `PlayerService` hands plays over through `ScrobbleSink`.
+  - The API key and shared secret are compiled in from `VCMP_LASTFM_API_KEY` and
+    `VCMP_LASTFM_SHARED_SECRET` (README, "Integration keys"). Without both there is
+    no row and nothing is sent.
 - **OS media controls** (`vcmp-integrations::media_controls`, always on): MPRIS on
   Linux, System Media Transport Controls on Windows, Now Playing on macOS.
   - Media keys and the system's media widget play, pause, stop, skip, seek, set
@@ -466,6 +505,12 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   an AppUserModelID; on Linux the widget's icon needs the installed `vcmp.desktop`.
 - Raising the window from the media widget only un-minimises it: Wayland compositors
   don't let an app take focus without an activation token.
+- Last.fm's API was exercised through scripted answers; connecting a real account
+  is still to be tried.
+- On Linux the Last.fm key needs a Secret Service (GNOME Keyring, KWallet). Without
+  one, an account stays connected until VCMP closes, and the row says so.
+- VCMP doesn't watch for the network coming back: queued plays wait out the backoff,
+  or go as soon as a "now playing" update gets through.
 
 - The Slint attribution (`AboutSlint`) picks its logo from the operating system's
   colour scheme, not VCMP's theme, so it sits on the system palette's background. It

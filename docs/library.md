@@ -22,7 +22,7 @@ path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 3, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 4, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -34,6 +34,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
 | `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
 | `track_search`, `album_search`, `artist_search` | FTS5 trigram indexes, case and diacritics ignored (version 3; version 1 indexed words) |
+| `scrobble_queue` | Plays waiting to be sent to Last.fm: artist, title, album, album artist, track number, length and when the play started, oldest first (version 4). They copy the tags rather than reference tracks, so a rescan or tag edit can't change what was listened to |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.

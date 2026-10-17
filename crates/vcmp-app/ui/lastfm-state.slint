@@ -1,0 +1,41 @@
+// What the UI knows about Last.fm. Rust keeps the properties current and implements
+// the callbacks (src/lastfm_service.rs).
+
+// No account; waiting for the user to allow VCMP on last.fm; scrobbling.
+export enum LastfmStatus { disconnected, waiting, connected }
+
+// The last thing that went wrong; the UI words the sentence so it can be translated.
+export enum LastfmProblem {
+    none,
+    // Last.fm refused or could not be reached while connecting.
+    connect-failed,
+    // The user did not allow VCMP in time.
+    timed-out,
+    // Last.fm no longer takes the account's key (access revoked on last.fm).
+    rejected,
+    // The keyring has no key for the saved account.
+    key-missing,
+    // The system keyring could not keep or give the key.
+    keyring,
+    // The browser did not open the Last.fm page.
+    browser,
+}
+
+export global LastfmState {
+    // Built with VCMP's Last.fm API key; without one, Settings shows no Last.fm row.
+    in property <bool> available;
+    in property <LastfmStatus> status;
+    // The connected account, or the one a problem is about.
+    in property <string> user;
+    // Plays waiting to be sent.
+    in property <int> unsent;
+    in property <LastfmProblem> problem;
+    // The technical detail of the problem, from Last.fm or the system.
+    in property <string> problem-detail;
+
+    callback connect();
+    callback cancel();
+    callback disconnect();
+    // Opens the page where the user allows VCMP again, while waiting.
+    callback open-auth-page();
+}

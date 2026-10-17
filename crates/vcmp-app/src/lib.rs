@@ -4,6 +4,7 @@
 pub mod albums;
 pub mod folders;
 pub mod icons;
+pub mod lastfm_service;
 pub mod library_service;
 pub mod library_view;
 pub mod media_keys;

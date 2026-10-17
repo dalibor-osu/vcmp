@@ -9,7 +9,12 @@ publish = false
 
 [dependencies]
 discord-rich-presence = "1.1.0"
+# The Last.fm session key, in the Keychain, the Credential Manager or the Secret
+# Service (over zbus, so no libdbus to install).
+keyring = "4.2.0"
 log = "0.4.34"
+# Last.fm signs its requests with MD5.
+md5 = "0.8.1"
 playwire = "2.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
