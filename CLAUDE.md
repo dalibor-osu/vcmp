@@ -23,7 +23,7 @@ Read it before changing anything structural.
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty |
 | OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
-| CI | GitHub Actions: Ubuntu, Windows and macOS for pull requests into `main` and pushes to it; Ubuntu only for pull requests between feature branches. A newer push to a pull request cancels its running checks |
+| CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
 | Packaging | cargo-packager: MSI and NSIS setup exe, dmg, AppImage and .deb (`[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml`, icons in `packaging/icons/`) |
 | License | MIT OR Apache-2.0 |
 
@@ -69,6 +69,7 @@ cargo test --workspace
 
 CI also runs `cargo fmt --all --check` and
 `cargo clippy --workspace --all-targets -- -D warnings`; run both before pushing.
+While CI is turned off, run all three and the tests locally before every merge.
 
 UI tests run headless through Slint's testing backend (`i-slint-backend-testing`,
 pinned with `=` to the Slint version; bump both together). To look at the real
