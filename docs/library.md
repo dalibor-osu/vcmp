@@ -36,7 +36,7 @@ migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
 |---|---|
-| `settings` | Key/value preferences: `library.auto_update`, `ui.theme`, `ui.reduced_motion` |
+| `settings` | Key/value preferences: `library.auto_update`, `ui.theme`, `ui.reduced_motion` (`system`, `on` or `off`) |
 | `source_dirs` | Source directories (canonical path) and their `recursive` flag |
 | `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration |
 | `albums` | Album groups, their artist, year and artwork state |

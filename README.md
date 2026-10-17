@@ -7,8 +7,8 @@ macOS. Written in Rust with a [Slint](https://slint.dev) UI.
 
 Early development. In place so far:
 
-- the window with Settings (light/dark/system theme, reduced motion, both saved) and
-  About pages;
+- the window with Settings (light/dark/system theme, reduced motion that follows the
+  OS unless set, both saved) and About pages;
 - the library core: source directories, scanning with tag reading, album and artist
   grouping, moved-file re-linking, artwork caching, search and a file watcher;
 - tag writing in the library core (single and batch, with embedded covers, through a

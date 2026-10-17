@@ -12,7 +12,7 @@ dials come from DESIGN.md).
 
 | File | Holds |
 |---|---|
-| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
+| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
 | `ui/components.slint` | `FocusRing`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
@@ -60,7 +60,7 @@ dials come from DESIGN.md).
 | Durations only in `theme.slint`, so reduced motion turns all motion off in one place | `tests/ui_invariants.rs` |
 | Every user-visible string goes through `@tr()` (exceptions: "VCMP", "Sora", the slint.dev URL) | `tests/ui_invariants.rs` |
 | Every text pairing reaches 4.5:1 and every control boundary 3:1, in both palettes | `src/theme.rs` |
-| Clicking, keyboard-only use, theme choice and reduced motion behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
+| Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
 
 ## Palettes
 
@@ -113,6 +113,7 @@ subtext1 and overlay2 instead.
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+| Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
 | "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
 | The cover picker covers the sidebar and pages like the now playing view | One overlay pattern in the app; the covers get the room, and the player bar stays usable |
 | Artist photo actions sit under the picture, and their picker is the cover picker's twin | The same place and pattern as an album's "Find cover online", so one way of working covers both |
@@ -616,6 +617,17 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - Controls set `accessible-role`, `accessible-label`, the checked or selected state,
   and `accessible-action-default`. Tests find elements through these properties.
 - Interactive targets are at least 40 px tall (`Theme.target-height`).
+- Reduced motion turns every duration in `theme.slint` to 0 ms. Under "System" (the
+  default) it does what the operating system asks: Windows' "Animation effects",
+  macOS' "Reduce motion", and on Linux the settings portal's `reduced-motion` key,
+  or where the portal lacks it GNOME's `enable-animations` or KDE's animation speed
+  set to "Instant" (`vcmp_integrations::reduce_motion`). VCMP asks once at start,
+  on a worker thread (`preferences::read_system_motion`), and sets
+  `Theme.system-reduces-motion`; until the answer arrives, and where the system has
+  no such setting, motion stays on. "On" and "Off" override the system. Saved values
+  are `system`, `on` and `off`; the older switch's `true` reads as On and `false` as
+  System, because `false` was saved with every other appearance change, chosen or
+  not.
 - State is never shown by colour alone: the selected option is bold and filled, and
   the switch knob changes side.
 
@@ -674,7 +686,11 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   can look out of place when VCMP's theme differs from the OS.
 - Theme and reduced-motion choices are saved in the library database's settings
   (`src/preferences.rs`). If the database can't be opened, they last for the session.
-- Reduced motion does not yet follow the OS preference. The spec asks for that where
-  a platform exposes one; it needs per-platform code.
+- The operating system's reduce-motion setting is read at start, so changing it
+  while VCMP runs takes effect at the next start.
+- Reading it was tried on Linux (GNOME's key through the portal, with both portal
+  methods). The Windows and macOS calls and the KDE key are still to be tried on
+  those systems: `cargo run -p vcmp-integrations --example reduce_motion` prints
+  what VCMP reads.
 - `examples/screenshots.rs` cannot force a window size under tiling window managers.
   Layout at the smallest window size is covered by a test instead.

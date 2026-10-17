@@ -28,8 +28,8 @@ use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
     AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
-    LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, TagEditorState, Theme, ThemeMode,
-    UpdateState,
+    LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, TagEditorState, Theme,
+    ThemeMode, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -434,7 +434,7 @@ fn main() -> Result<(), slint::PlatformError> {
         )
     });
     // Frames are taken without waiting for transitions to finish.
-    window.global::<Theme>().set_reduced_motion(true);
+    window.global::<Theme>().set_motion_choice(ReduceMotion::On);
 
     let step = Rc::new(Cell::new(0usize));
     let timer = Timer::default();
