@@ -317,3 +317,45 @@ fn playback_problems_are_shown_and_cleared() {
         "a new track clears a skipped one"
     );
 }
+
+#[test]
+fn seeking_moves_the_bar_at_once_and_ignores_stale_positions() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service
+        .handle_event(Event::Position(Duration::from_millis(100)));
+
+    app.state().invoke_seek(800);
+    assert_eq!(app.state().get_position_ms(), 800, "no wait for the engine");
+    // A position the engine sent before it took the seek would jump the bar back.
+    app.service
+        .handle_event(Event::Position(Duration::from_millis(5000)));
+    assert_eq!(app.state().get_position_ms(), 800);
+    app.service
+        .handle_event(Event::Position(Duration::from_millis(850)));
+    assert_eq!(app.state().get_position_ms(), 850);
+}
+
+#[test]
+fn the_speaker_button_mutes_and_unmutes() {
+    let app = start(|_| {});
+    app.state().invoke_volume_changed(0.6);
+    app.sent.take();
+
+    app.press(AccessibleRole::Button, "Mute");
+    assert!(app.state().get_muted());
+    assert_eq!(app.sent.take(), [Command::SetVolume(0.0)]);
+
+    app.press(AccessibleRole::Button, "Unmute");
+    assert!(!app.state().get_muted());
+    assert_eq!(
+        app.sent.take(),
+        [Command::SetVolume(0.6)],
+        "the volume from before"
+    );
+
+    app.press(AccessibleRole::Button, "Mute");
+    app.state().invoke_volume_changed(0.3);
+    assert!(!app.state().get_muted(), "moving the slider unmutes");
+    assert_eq!(app.sent.take().last(), Some(&Command::SetVolume(0.3)));
+}

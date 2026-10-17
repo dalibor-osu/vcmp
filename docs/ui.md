@@ -23,7 +23,8 @@ dials come from DESIGN.md).
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
 | `ui/player-state.slint` | `PlayerState` global: the current track, position, volume, shuffle, repeat |
-| `ui/player-bar.slint` | `PlayerBar`, its `IconButton`s, the `Slider` and the drawn `Icons` |
+| `ui/player-bar.slint` | `PlayerBar`, its `IconButton`s, the `Slider` and the `Icons` |
+| `ui/icons/*.svg` | The media control icons, tinted by `Icon` (`colorize`) |
 | `src/player_service.rs` | `PlayerService`: commands to the playback engine, its events into `PlayerState` |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
@@ -169,7 +170,12 @@ The Albums page tells apart why it is empty:
 - **The player bar** runs along the bottom of the window:
   - the current track with its cover;
   - shuffle, previous, play/pause, next and repeat (off, all, one);
-  - the position with a seek slider, and volume.
+  - the position with a seek slider, and volume;
+  - the speaker icon mutes and unmutes, coming back to the earlier volume. Moving the
+    volume slider while muted unmutes at the new value.
+- **Seeking** moves the bar to the new position at once. Positions the engine sent
+  before it took the seek are ignored for up to a second, so the bar doesn't jump
+  back.
 - **On the album page:**
   - Play starts the album; Shuffle turns shuffle on and starts it;
   - clicking a track, or pressing Enter on it, plays the album from there;
@@ -183,9 +189,14 @@ The Albums page tells apart why it is empty:
   `PlayerControl` trait.
 - **Problems:** a missing sound output and skipped tracks are shown in the bar.
 
-The icons are simple shapes drawn on a 24-point grid in `Icons`, not taken from an
-icon set. Media controls are the one place in the UI where shapes read faster than
-words. Every icon button still has a spoken label.
+The icons are simple shapes drawn on a 24-point grid (`ui/icons/*.svg`), not taken
+from an icon set. Media controls are the one place in the UI where shapes read
+faster than words. Every icon button still has a spoken label.
+
+They are SVG images rather than Slint `Path`s for a reason. The GPU renderer drops
+the anti-aliasing on the first edge of a filled `Path`, which left a visible speck in
+the play button; every path-only workaround just moved the flaw. SVGs are rasterized
+on the CPU (resvg), and `Image.colorize` tints them to the theme.
 
 ## Accessibility patterns
 

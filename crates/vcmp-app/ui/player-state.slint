@@ -31,8 +31,9 @@ export global PlayerState {
     in property <string> position-text;
     in property <string> duration-text;
 
-    // 0 to 1.
+    // 0 to 1; kept while muted, to come back to.
     in property <float> volume: 1;
+    in property <bool> muted;
     in property <Shuffle> shuffle;
     in property <ShuffleKind> shuffle-kind: ShuffleKind.fewer-repeats;
     in property <Repeat> repeat;
@@ -47,6 +48,7 @@ export global PlayerState {
     // While the volume slider moves; `volume-committed` once it is let go.
     callback volume-changed(float);
     callback volume-committed(float);
+    callback toggle-mute();
     callback set-shuffle(Shuffle);
     callback set-shuffle-kind(ShuffleKind);
     callback set-repeat(Repeat);

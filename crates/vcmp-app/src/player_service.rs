@@ -7,7 +7,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, Image};
 use vcmp_library::{Library, Track};
@@ -41,7 +41,10 @@ pub struct PlayerService {
     library: Rc<Library>,
     view: Rc<LibraryView>,
     player: Box<dyn PlayerControl>,
-    duration: Cell<Duration>,
+    // The position asked for by the last seek and when, until the engine reports it.
+    seek_target: Cell<Option<(Duration, Instant)>>,
+    // Muted keeps the volume to come back to; the engine plays at 0 meanwhile.
+    muted: Cell<bool>,
 }
 
 thread_local! {
@@ -63,7 +66,8 @@ impl PlayerService {
             library,
             view,
             player,
-            duration: Cell::default(),
+            seek_target: Cell::default(),
+            muted: Cell::new(false),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -117,9 +121,15 @@ impl PlayerService {
             let weak = weak.clone();
             move |ms| {
                 if let Some(service) = weak.upgrade() {
-                    service
-                        .player
-                        .send(Command::Seek(Duration::from_millis(ms.max(0) as u64)));
+                    service.seek(Duration::from_millis(ms.max(0) as u64));
+                }
+            }
+        });
+        state.on_toggle_mute({
+            let weak = weak.clone();
+            move || {
+                if let Some(service) = weak.upgrade() {
+                    service.toggle_mute();
                 }
             }
         });
@@ -233,8 +243,15 @@ impl PlayerService {
             }),
             Event::TrackChanged(now) => self.show_track(&state, now),
             Event::Position(position) => {
-                state.set_position_ms(position.as_millis() as i32);
-                state.set_position_text(format_duration(position).into());
+                if let Some((target, asked)) = self.seek_target.get() {
+                    // Positions sent before the engine took the seek would jump the
+                    // bar back for a moment.
+                    if asked.elapsed() < SEEK_SETTLE && position.abs_diff(target) > SEEK_TOLERANCE {
+                        return;
+                    }
+                    self.seek_target.set(None);
+                }
+                show_position(&state, position);
             }
             Event::QueueChanged(queue) => {
                 state.set_shuffle(if queue.shuffle == ShuffleMode::Off {
@@ -311,7 +328,6 @@ impl PlayerService {
             .duration
             .or(track.as_ref().map(|track| track.duration))
             .unwrap_or_default();
-        self.duration.set(duration);
 
         state.set_has_track(true);
         state.set_initial(initial(&title).into());
@@ -327,19 +343,47 @@ impl PlayerService {
         state.set_track_path(path.into());
         state.set_duration_ms(duration.as_millis() as i32);
         state.set_duration_text(format_duration(duration).into());
-        state.set_position_ms(0);
-        state.set_position_text(format_duration(Duration::ZERO).into());
+        self.seek_target.set(None);
+        show_position(state, Duration::ZERO);
     }
 
+    /// Seeks, and shows the new position at once instead of waiting for the engine.
+    fn seek(&self, position: Duration) {
+        self.player.send(Command::Seek(position));
+        self.seek_target.set(Some((position, Instant::now())));
+        if let Some(window) = self.window.upgrade() {
+            show_position(&window.global::<PlayerState>(), position);
+        }
+    }
+
+    /// Moving the slider while muted unmutes at the new volume.
     fn set_volume(&self, volume: f32, save: bool) {
         let volume = volume.clamp(0.0, 1.0);
         self.player.send(Command::SetVolume(volume));
+        self.muted.set(false);
         if let Some(window) = self.window.upgrade() {
-            window.global::<PlayerState>().set_volume(volume);
+            let state = window.global::<PlayerState>();
+            state.set_volume(volume);
+            state.set_muted(false);
         }
         if save {
             self.save(SETTING_VOLUME, &format!("{volume:.2}"));
         }
+    }
+
+    fn toggle_mute(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        let muted = !self.muted.get();
+        self.muted.set(muted);
+        state.set_muted(muted);
+        self.player.send(Command::SetVolume(if muted {
+            0.0
+        } else {
+            state.get_volume()
+        }));
     }
 
     fn set_shuffle(&self, shuffle: Shuffle) {
@@ -425,6 +469,16 @@ fn entry(track: &Track) -> Option<QueueEntry> {
         entry = entry.with_album(album.0.to_string());
     }
     Some(entry)
+}
+
+/// How long after a seek stale positions are ignored, and how far from the target a
+/// position may be and still count as the seek's own.
+const SEEK_SETTLE: Duration = Duration::from_secs(1);
+const SEEK_TOLERANCE: Duration = Duration::from_millis(1500);
+
+fn show_position(state: &PlayerState, position: Duration) {
+    state.set_position_ms(position.as_millis() as i32);
+    state.set_position_text(format_duration(position).into());
 }
 
 fn shuffle_mode(shuffle: Shuffle, kind: ShuffleKind) -> ShuffleMode {

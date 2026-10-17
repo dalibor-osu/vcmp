@@ -111,13 +111,19 @@ fn durations_only_in_theme() {
 }
 
 /// Removes every `@tr(...)` call, including plural forms such as
-/// `@tr("{n} track" | "{n} tracks" % count)`, leaving the rest of the line.
+/// `@tr("{n} track" | "{n} tracks" % count)`, and every `@image-url(...)` (a file
+/// name), leaving the rest of the line.
 fn without_tr_calls(line: &str) -> String {
     let mut out = String::new();
     let mut rest = line;
-    while let Some(start) = rest.find("@tr(") {
+    loop {
+        let next = ["@tr(", "@image-url("]
+            .iter()
+            .filter_map(|call| rest.find(call).map(|start| (start, call.len())))
+            .min();
+        let Some((start, opening)) = next else { break };
         out.push_str(&rest[..start]);
-        let call = &rest[start + 4..];
+        let call = &rest[start + opening..];
         let (mut depth, mut in_string, mut previous, mut end) = (1, false, '\0', call.len());
         for (index, c) in call.char_indices() {
             match c {

@@ -2,39 +2,36 @@ import { Theme } from "theme.slint";
 import { FocusRing } from "components.slint";
 import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle } from "player-state.slint";
 
-// Standard media control glyphs, drawn on a 24 x 24 grid. They are the shapes people
-// read without labels; each button still carries a spoken label.
+// Standard media control glyphs (ui/icons, drawn on a 24 x 24 grid). They are the
+// shapes people read without labels; each button still carries a spoken label. They
+// are SVG images rather than Paths: the GPU renderer drops the anti-aliasing on the
+// first edge of a filled Path, which showed as a speck in the play button.
 export global Icons {
-    out property <string> play: "M 7 4 L 20 12 L 7 20 Z";
-    out property <string> pause: "M 6 4 L 10 4 L 10 20 L 6 20 Z M 14 4 L 18 4 L 18 20 L 14 20 Z";
-    out property <string> previous: "M 5 4 L 8 4 L 8 20 L 5 20 Z M 19 4 L 9 12 L 19 20 Z";
-    out property <string> next: "M 16 4 L 19 4 L 19 20 L 16 20 Z M 5 4 L 15 12 L 5 20 Z";
-    out property <string> shuffle: "M 3 7 L 7 7 L 15 17 L 20 17 M 3 17 L 7 17 L 15 7 L 20 7 M 17 4 L 20 7 L 17 10 M 17 14 L 20 17 L 17 20";
-    out property <string> repeat: "M 4 12 L 4 9 Q 4 6 7 6 L 19 6 M 16 3 L 19 6 L 16 9 M 20 12 L 20 15 Q 20 18 17 18 L 5 18 M 8 15 L 5 18 L 8 21";
-    out property <string> repeat-one: "M 4 12 L 4 9 Q 4 6 7 6 L 19 6 M 16 3 L 19 6 L 16 9 M 20 12 L 20 15 Q 20 18 17 18 L 5 18 M 8 15 L 5 18 L 8 21 M 11 10 L 12.5 9 L 12.5 15";
-    out property <string> volume: "M 3 9 L 7 9 L 12 5 L 12 19 L 7 15 L 3 15 Z M 15 9 Q 17 12 15 15 M 17.5 6.5 Q 21 12 17.5 17.5";
+    out property <image> play: @image-url("icons/play.svg");
+    out property <image> pause: @image-url("icons/pause.svg");
+    out property <image> previous: @image-url("icons/previous.svg");
+    out property <image> next: @image-url("icons/next.svg");
+    out property <image> shuffle: @image-url("icons/shuffle.svg");
+    out property <image> repeat: @image-url("icons/repeat.svg");
+    out property <image> repeat-one: @image-url("icons/repeat-one.svg");
+    out property <image> volume: @image-url("icons/volume.svg");
+    out property <image> muted: @image-url("icons/muted.svg");
 }
 
-export component Icon inherits Path {
-    in property <string> glyph;
+// A glyph from `Icons`, painted in `tint`.
+export component Icon inherits Image {
+    in property <image> glyph;
     in property <color> tint;
-    // Filled shapes (play, pause, skip) or outlined ones (shuffle, repeat).
-    in property <bool> outlined;
 
-    viewbox-width: 24;
-    viewbox-height: 24;
-    commands: root.glyph;
-    fill: root.outlined ? transparent : root.tint;
-    stroke: root.outlined ? root.tint : transparent;
-    stroke-width: root.outlined ? 2px : 0px;
+    source: root.glyph;
+    colorize: root.tint;
     accessible-role: none;
 }
 
 // A round button showing only an icon. `active` paints the icon in the accent, for
 // switches that are on (shuffle, repeat).
 export component IconButton {
-    in property <string> glyph;
-    in property <bool> outlined;
+    in property <image> glyph;
     in property <string> label;
     in property <bool> enabled: true;
     in property <bool> active;
@@ -70,7 +67,6 @@ export component IconButton {
         width: 20px;
         height: 20px;
         glyph: root.glyph;
-        outlined: root.outlined;
         tint: !root.enabled ? Theme.colors.outline : root.active ? Theme.colors.accent : Theme.colors.text;
     }
 
@@ -387,7 +383,6 @@ export component PlayerBar inherits Rectangle {
 
                     IconButton {
                         glyph: Icons.shuffle;
-                        outlined: true;
                         checkable: true;
                         active: PlayerState.shuffle == Shuffle.on;
                         label: @tr("Shuffle");
@@ -434,7 +429,6 @@ export component PlayerBar inherits Rectangle {
 
                     IconButton {
                         glyph: PlayerState.repeat == Repeat.one ? Icons.repeat-one : Icons.repeat;
-                        outlined: true;
                         checkable: true;
                         active: PlayerState.repeat != Repeat.off;
                         label: PlayerState.repeat == Repeat.one ? @tr("Repeat this track") : PlayerState.repeat == Repeat.all ? @tr("Repeat all") : @tr("Repeat");
@@ -489,12 +483,16 @@ export component PlayerBar inherits Rectangle {
             alignment: end;
             spacing: Theme.space-s;
 
-            Icon {
-                width: 20px;
-                height: 20px;
-                y: (parent.height - self.height) / 2;
-                glyph: Icons.volume;
-                tint: Theme.colors.text-muted;
+            VerticalLayout {
+                alignment: center;
+
+                IconButton {
+                    glyph: PlayerState.muted ? Icons.muted : Icons.volume;
+                    label: PlayerState.muted ? @tr("Unmute") : @tr("Mute");
+                    clicked => {
+                        PlayerState.toggle-mute();
+                    }
+                }
             }
 
             VerticalLayout {
@@ -504,9 +502,9 @@ export component PlayerBar inherits Rectangle {
 
                 Slider {
                     accent-fill: false;
-                    value: PlayerState.volume;
+                    value: PlayerState.muted ? 0 : PlayerState.volume;
                     label: @tr("Volume");
-                    value-text: @tr("{}%", round(PlayerState.volume * 100));
+                    value-text: PlayerState.muted ? @tr("Muted") : @tr("{}%", round(PlayerState.volume * 100));
                     moved(volume) => {
                         PlayerState.volume-changed(volume);
                     }
