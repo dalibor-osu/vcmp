@@ -3,35 +3,31 @@ import { FocusRing } from "components.slint";
 import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle } from "player-state.slint";
 
 // Standard media control glyphs (ui/icons, drawn on a 24 x 24 grid). They are the
-// shapes people read without labels; each button still carries a spoken label. They
-// are SVG images rather than Paths: the GPU renderer drops the anti-aliasing on the
-// first edge of a filled Path, which showed as a speck in the play button.
-export global Icons {
-    out property <image> play: @image-url("icons/play.svg");
-    out property <image> pause: @image-url("icons/pause.svg");
-    out property <image> previous: @image-url("icons/previous.svg");
-    out property <image> next: @image-url("icons/next.svg");
-    out property <image> shuffle: @image-url("icons/shuffle.svg");
-    out property <image> repeat: @image-url("icons/repeat.svg");
-    out property <image> repeat-one: @image-url("icons/repeat-one.svg");
-    out property <image> volume: @image-url("icons/volume.svg");
-    out property <image> muted: @image-url("icons/muted.svg");
+// shapes people read without labels; each button still carries a spoken label.
+export enum Glyph { play, pause, previous, next, shuffle, repeat, repeat-one, volume, muted }
+
+// Icon art painted in a colour, by src/icons.rs. The colour is written into the SVG
+// before it is drawn, because both ways of tinting inside Slint misdraw small glyphs
+// with the GPU renderer: a filled Path loses pixels at the corner where it starts,
+// and `colorize` (which paints the image into a texture first) cut pieces out of
+// the next button on the owner's machine.
+export global IconArt {
+    pure callback paint(Glyph, color) -> image;
 }
 
-// A glyph from `Icons`, painted in `tint`.
+// A glyph painted in `tint`.
 export component Icon inherits Image {
-    in property <image> glyph;
+    in property <Glyph> glyph;
     in property <color> tint;
 
-    source: root.glyph;
-    colorize: root.tint;
+    source: IconArt.paint(root.glyph, root.tint);
     accessible-role: none;
 }
 
 // A round button showing only an icon. `active` paints the icon in the accent, for
 // switches that are on (shuffle, repeat).
 export component IconButton {
-    in property <image> glyph;
+    in property <Glyph> glyph;
     in property <string> label;
     in property <bool> enabled: true;
     in property <bool> active;
@@ -132,7 +128,7 @@ component PlayButton {
     Icon {
         width: 22px;
         height: 22px;
-        glyph: root.playing ? Icons.pause : Icons.play;
+        glyph: root.playing ? Glyph.pause : Glyph.play;
         tint: root.enabled ? Theme.colors.on-accent : Theme.colors.outline;
     }
 
@@ -382,7 +378,7 @@ export component PlayerBar inherits Rectangle {
                     alignment: center;
 
                     IconButton {
-                        glyph: Icons.shuffle;
+                        glyph: Glyph.shuffle;
                         checkable: true;
                         active: PlayerState.shuffle == Shuffle.on;
                         label: @tr("Shuffle");
@@ -395,7 +391,7 @@ export component PlayerBar inherits Rectangle {
                     alignment: center;
 
                     IconButton {
-                        glyph: Icons.previous;
+                        glyph: Glyph.previous;
                         label: @tr("Previous track");
                         enabled: PlayerState.has-track;
                         clicked => {
@@ -416,7 +412,7 @@ export component PlayerBar inherits Rectangle {
                     alignment: center;
 
                     IconButton {
-                        glyph: Icons.next;
+                        glyph: Glyph.next;
                         label: @tr("Next track");
                         enabled: PlayerState.has-track;
                         clicked => {
@@ -428,7 +424,7 @@ export component PlayerBar inherits Rectangle {
                     alignment: center;
 
                     IconButton {
-                        glyph: PlayerState.repeat == Repeat.one ? Icons.repeat-one : Icons.repeat;
+                        glyph: PlayerState.repeat == Repeat.one ? Glyph.repeat-one : Glyph.repeat;
                         checkable: true;
                         active: PlayerState.repeat != Repeat.off;
                         label: PlayerState.repeat == Repeat.one ? @tr("Repeat this track") : PlayerState.repeat == Repeat.all ? @tr("Repeat all") : @tr("Repeat");
@@ -487,7 +483,7 @@ export component PlayerBar inherits Rectangle {
                 alignment: center;
 
                 IconButton {
-                    glyph: PlayerState.muted ? Icons.muted : Icons.volume;
+                    glyph: PlayerState.muted ? Glyph.muted : Glyph.volume;
                     label: PlayerState.muted ? @tr("Unmute") : @tr("Mute");
                     clicked => {
                         PlayerState.toggle-mute();

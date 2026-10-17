@@ -1,7 +1,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Button, FocusRing } from "components.slint";
-import { Icon, Icons } from "player-bar.slint";
+import { Glyph, Icon } from "player-bar.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -169,7 +169,7 @@ component TrackLine {
                         x: parent.width - self.width;
                         width: 14px;
                         height: 14px;
-                        glyph: Icons.play;
+                        glyph: Glyph.play;
                         tint: Theme.colors.accent;
                     }
                 }

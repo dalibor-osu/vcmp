@@ -23,8 +23,9 @@ dials come from DESIGN.md).
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
 | `ui/player-state.slint` | `PlayerState` global: the current track, position, volume, shuffle, repeat |
-| `ui/player-bar.slint` | `PlayerBar`, its `IconButton`s, the `Slider` and the `Icons` |
-| `ui/icons/*.svg` | The media control icons, tinted by `Icon` (`colorize`) |
+| `ui/player-bar.slint` | `PlayerBar`, its `IconButton`s, the `Slider`, `Icon` and the `Glyph` names |
+| `ui/icons/*.svg` | The media control icons, painted in `currentColor` |
+| `src/icons.rs` | `IconArt`: writes the tint into an icon's SVG and keeps the result |
 | `src/player_service.rs` | `PlayerService`: commands to the playback engine, its events into `PlayerState` |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
@@ -205,10 +206,15 @@ The icons are simple shapes drawn on a 24-point grid (`ui/icons/*.svg`), not tak
 from an icon set. Media controls are the one place in the UI where shapes read
 faster than words. Every icon button still has a spoken label.
 
-They are SVG images rather than Slint `Path`s for a reason. The GPU renderer drops
-the anti-aliasing on the first edge of a filled `Path`, which left a visible speck in
-the play button; every path-only workaround just moved the flaw. SVGs are rasterized
-on the CPU (resvg), and `Image.colorize` tints them to the theme.
+The colour is written into each SVG in Rust (`IconArt.paint`), and Slint draws the
+result as a plain image, rasterized on the CPU (resvg) at the size it is shown. Both
+ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
+
+- a filled `Path` loses pixels at the corner where its outline starts, which left a
+  speck in the play and pause buttons; moving the start point only moved the flaw;
+- `Image.colorize` paints the image into a texture before drawing it, and on the
+  owner's GPU that step cut a block out of the next button. It did not happen on
+  other machines, so it could not be caught by screenshot tests.
 
 ## Accessibility patterns
 
