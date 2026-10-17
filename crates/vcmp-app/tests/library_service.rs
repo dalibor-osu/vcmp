@@ -69,7 +69,7 @@ fn start(prepare: impl FnOnce(&Library, &Path)) -> App {
     let library = Rc::new(Library::open(&paths(&base).database, &paths(&base).cache).unwrap());
     prepare(&library, &music);
     let window = vcmp_app::create_window().unwrap();
-    let browser = library_view::connect(&window, library.clone()).unwrap();
+    let browser = library_view::LibraryView::connect(&window, library.clone()).unwrap();
     let service =
         LibraryService::connect(&window, library, paths(&base), browser, Delivery::Manual);
     window.show().unwrap();
@@ -204,4 +204,34 @@ fn the_auto_update_choice_is_saved() {
     let base = dunce::canonicalize(app.dir.path()).unwrap();
     let reopened = Library::open(&paths(&base).database, &paths(&base).cache).unwrap();
     assert!(!reopened.auto_update().unwrap());
+}
+
+#[test]
+fn an_open_album_page_follows_changes_to_its_files() {
+    let app = start(|_, _| {});
+    app.service.add_folder(&app.music());
+    app.wait();
+    ElementHandle::find_by_accessible_label(&app.window, "First, Band")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Button))
+        .expect("album card")
+        .invoke_accessible_default_action();
+    assert_eq!(app.window.get_album_tracks().row_count(), 2);
+
+    std::fs::remove_file(app.music().join("1.flac")).unwrap();
+    app.state().invoke_rescan();
+    app.wait();
+    assert!(app.window.get_album_open(), "the page stays open");
+    assert_eq!(app.window.get_album_tracks().row_count(), 1);
+    assert_eq!(app.window.get_album_detail().track_count, 1);
+    assert!(!app.window.get_album_detail().missing);
+
+    std::fs::remove_file(app.music().join("2.flac")).unwrap();
+    app.state().invoke_rescan();
+    app.wait();
+    assert!(app.window.get_album_open());
+    assert!(
+        app.window.get_album_detail().missing,
+        "the page says the album is gone"
+    );
+    assert_eq!(app.window.get_album_tracks().row_count(), 0);
 }

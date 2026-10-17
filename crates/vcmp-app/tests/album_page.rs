@@ -14,11 +14,7 @@ use vcmp_app::{AppWindow, Page, TrackRow, library_view};
 use vcmp_library::Library;
 
 /// A window showing a library with a two-disc compilation and a plain album.
-fn open() -> (
-    tempfile::TempDir,
-    AppWindow,
-    Rc<vcmp_app::albums::AlbumBrowser>,
-) {
+fn open() -> (tempfile::TempDir, AppWindow, Rc<library_view::LibraryView>) {
     i_slint_backend_testing::init_no_event_loop();
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
@@ -56,7 +52,7 @@ fn open() -> (
     library.scan(&AtomicBool::new(false), |_| {}).unwrap();
 
     let window = vcmp_app::create_window().unwrap();
-    let browser = library_view::connect(&window, Rc::new(library)).unwrap();
+    let browser = library_view::LibraryView::connect(&window, Rc::new(library)).unwrap();
     window.show().unwrap();
     (dir, window, browser)
 }

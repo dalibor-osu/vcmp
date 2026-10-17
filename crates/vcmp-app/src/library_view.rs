@@ -1,6 +1,7 @@
 //! Connects the library to the window: the album grid, and the album page that
-//! opens from it.
+//! opens from it. Both are reloaded after every library change.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -10,28 +11,81 @@ use vcmp_library::{Album, Library, Track};
 use crate::albums::{AlbumBrowser, initial};
 use crate::{AlbumDetail, AppWindow, TrackRow};
 
-/// Shows the library's albums. Keep the returned browser alive with the window; it
-/// also serves later updates (`AlbumBrowser::replace`).
-pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<Rc<AlbumBrowser>> {
-    let browser = AlbumBrowser::connect(window, &library.albums()?);
-    let weak_window = window.as_weak();
-    let weak_browser = Rc::downgrade(&browser);
-    window.on_album_activated(move |index| {
-        let (Some(window), Some(browser)) = (weak_window.upgrade(), weak_browser.upgrade()) else {
-            return;
-        };
-        let Some(album) = usize::try_from(index)
-            .ok()
-            .and_then(|index| browser.album(index))
-        else {
-            return;
-        };
-        open_album(&window, &library, &album);
-    });
-    Ok(browser)
+pub struct LibraryView {
+    window: slint::Weak<AppWindow>,
+    library: Rc<Library>,
+    browser: Rc<AlbumBrowser>,
+    // The album the album page shows (or showed last).
+    open: RefCell<Option<Album>>,
 }
 
-fn open_album(window: &AppWindow, library: &Library, album: &Album) {
+impl LibraryView {
+    /// Shows the library's albums. Keep the view alive as long as the window.
+    pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<Rc<Self>> {
+        let browser = AlbumBrowser::connect(window, &library.albums()?);
+        let view = Rc::new(Self {
+            window: window.as_weak(),
+            library,
+            browser,
+            open: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_album_activated(move |index| {
+            let Some(view) = weak.upgrade() else { return };
+            if let Some(album) = usize::try_from(index)
+                .ok()
+                .and_then(|index| view.browser.album(index))
+            {
+                view.open_album(album);
+            }
+        });
+        Ok(view)
+    }
+
+    pub fn browser(&self) -> &Rc<AlbumBrowser> {
+        &self.browser
+    }
+
+    /// Reads the albums again after the library changed: the grid, and the album
+    /// page when one is open. An album that disappeared stays on screen, marked as
+    /// gone, until the user leaves it.
+    pub fn reload(&self) {
+        let albums = match self.library.albums() {
+            Ok(albums) => albums,
+            Err(error) => {
+                log::error!("could not read albums: {error}");
+                return;
+            }
+        };
+        self.browser.replace(&albums);
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let open = self.open.borrow().clone();
+        if let (true, Some(open)) = (window.get_album_open(), open) {
+            match albums.into_iter().find(|album| album.id == open.id) {
+                Some(album) => show_album(&window, &self.library, &album),
+                None => {
+                    let mut detail = window.get_album_detail();
+                    detail.missing = true;
+                    window.set_album_detail(detail);
+                    window.set_album_tracks(ModelRc::default());
+                }
+            }
+        }
+    }
+
+    fn open_album(&self, album: Album) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        show_album(&window, &self.library, &album);
+        *self.open.borrow_mut() = Some(album);
+        window.set_album_open(true);
+    }
+}
+
+fn show_album(window: &AppWindow, library: &Library, album: &Album) {
     let (tracks, failed) = match library.album_tracks(album.id) {
         Ok(tracks) => (tracks, false),
         Err(error) => {
@@ -85,10 +139,10 @@ fn open_album(window: &AppWindow, library: &Library, album: &Album) {
         cover: cover.unwrap_or_default(),
         initial: initial(&album.title).into(),
         failed,
+        missing: false,
     });
     window.set_album_tracks(ModelRc::new(VecModel::from(rows)));
     window.set_album_multi_disc(discs.len() > 1);
-    window.set_album_open(true);
 }
 
 fn disc(track: &Track) -> u32 {

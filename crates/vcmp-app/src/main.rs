@@ -18,7 +18,7 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         Ok((library, paths)) => {
             let library = Rc::new(library);
-            match vcmp_app::library_view::connect(&window, library.clone()) {
+            match vcmp_app::library_view::LibraryView::connect(&window, library.clone()) {
                 Ok(browser) => {
                     _library_service = Some(LibraryService::connect(
                         &window,

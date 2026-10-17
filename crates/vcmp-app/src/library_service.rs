@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use vcmp_library::{Library, LibraryWatcher, ScanPhase as Phase, ScanProgress, ScanReport};
 
-use crate::albums::AlbumBrowser;
+use crate::library_view::LibraryView;
 use crate::{AppWindow, LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile};
 
 /// Where the library's database and cache live; scans open their own connection.
@@ -54,7 +54,7 @@ pub struct LibraryService {
     window: slint::Weak<AppWindow>,
     library: Rc<Library>,
     paths: LibraryPaths,
-    browser: Rc<AlbumBrowser>,
+    view: Rc<LibraryView>,
     sender: Sender<Message>,
     receiver: Receiver<Message>,
     notify: Arc<dyn Fn() + Send + Sync>,
@@ -75,7 +75,7 @@ impl LibraryService {
         window: &AppWindow,
         library: Rc<Library>,
         paths: LibraryPaths,
-        browser: Rc<AlbumBrowser>,
+        view: Rc<LibraryView>,
         delivery: Delivery,
     ) -> Rc<Self> {
         let (sender, receiver) = mpsc::channel();
@@ -93,7 +93,7 @@ impl LibraryService {
             window: window.as_weak(),
             library,
             paths,
-            browser,
+            view,
             sender,
             receiver,
             notify,
@@ -375,10 +375,7 @@ impl LibraryService {
     }
 
     fn refresh_albums(&self) {
-        match self.library.albums() {
-            Ok(albums) => self.browser.replace(&albums),
-            Err(error) => log::error!("could not read albums: {error}"),
-        }
+        self.view.reload();
     }
 
     fn refresh_track_count(&self) {

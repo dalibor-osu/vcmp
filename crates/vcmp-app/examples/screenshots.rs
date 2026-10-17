@@ -126,7 +126,8 @@ fn main() -> Result<(), slint::PlatformError> {
             cache: home.join("cache"),
         };
         let library = Rc::new(Library::open(&paths.database, &paths.cache).expect("library"));
-        let browser = vcmp_app::library_view::connect(&window, library.clone()).expect("albums");
+        let browser =
+            vcmp_app::library_view::LibraryView::connect(&window, library.clone()).expect("albums");
         LibraryService::connect(&window, library, paths, browser, Delivery::EventLoop)
     });
     // Frames are taken without waiting for transitions to finish.

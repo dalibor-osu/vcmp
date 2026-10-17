@@ -15,6 +15,8 @@ export struct AlbumDetail {
     initial: string,
     // The tracks could not be read from the library.
     failed: bool,
+    // The album left the library while its page was open.
+    missing: bool,
 }
 
 export struct TrackRow {
@@ -262,7 +264,7 @@ export component AlbumView {
                             wrap: word-wrap;
                         }
 
-                        HorizontalLayout {
+                        if !root.album.missing: HorizontalLayout {
                             spacing: Theme.space-l;
                             alignment: start;
 
@@ -283,6 +285,13 @@ export component AlbumView {
                             }
                         }
                     }
+                }
+
+                if root.album.missing: Text {
+                    text: @tr("This album is no longer in your library: its files were moved or deleted, or their folder was removed.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
                 }
 
                 if root.album.failed: Text {
