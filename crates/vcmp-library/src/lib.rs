@@ -2,10 +2,11 @@
 //! artwork caching. Must not depend on the UI crate.
 //!
 //! The database is a cache of the files' tags (the files are the source of truth) plus
-//! what only VCMP knows: source directories and settings. Music files are only ever
-//! read by this crate.
+//! what only VCMP knows: source directories and settings. Music files are written
+//! only by [`Library::write_tags`], through a verified copy.
 
 mod artwork;
+mod edit;
 mod error;
 mod lookups;
 mod path_codec;
@@ -16,11 +17,12 @@ mod tags;
 mod watch;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use artwork::{Artwork, THUMBNAIL_SIZE};
+pub use edit::{FieldEdit, InvalidTagEdit, TagEdit, TagField, TagWriteError};
 pub use error::{Error, Result};
 pub use lookups::{CoverArtId, CoverLookup};
 pub use query::{Album, AlbumId, Artist, ArtistId, SearchResults, Track, TrackId};
@@ -34,6 +36,25 @@ use error::io_error;
 /// Setting key: rescan at startup and watch the source directories for changes.
 /// Stored as "true" or "false"; absent means true.
 pub const SETTING_AUTO_UPDATE: &str = "library.auto_update";
+
+/// What [`Library::write_tags`] did.
+#[derive(Debug, Default)]
+pub struct TagWriteReport {
+    /// Tracks whose files now hold the new tags. The database has re-read them.
+    pub written: Vec<TrackId>,
+    /// Tracks whose files were left untouched, with the reason.
+    pub failed: Vec<FailedTagWrite>,
+    /// Whether the cancel flag stopped the batch. Tracks in neither list were not
+    /// attempted.
+    pub cancelled: bool,
+}
+
+#[derive(Debug)]
+pub struct FailedTagWrite {
+    pub track: TrackId,
+    pub path: Option<PathBuf>,
+    pub error: TagWriteError,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceDir {
@@ -230,6 +251,67 @@ impl Library {
     /// A single track, including unavailable ones (playlists show those greyed out).
     pub fn track(&self, id: TrackId) -> Result<Option<Track>> {
         query::track(&self.conn, id)
+    }
+
+    /// Writes tag edits into the tracks' files, then re-reads them into the database
+    /// as a scan would. Each file is written through a copy that is read back and
+    /// checked before it atomically replaces the original, so a failure leaves the
+    /// file untouched and is reported for that track alone.
+    ///
+    /// A batch passes the same edit for many tracks, for example the album artist of
+    /// a whole album. Grouping can change: an album whose artist or title was edited
+    /// may get a new [`AlbumId`]; [`Library::track`] gives the new one.
+    ///
+    /// `cancel` stops before the next file; `progress` gets (files done, total).
+    /// Fails without touching any file when an edit is invalid.
+    pub fn write_tags(
+        &mut self,
+        edits: &[(TrackId, &TagEdit)],
+        cancel: &AtomicBool,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Result<TagWriteReport> {
+        for (_, edit) in edits {
+            edit.validate()?;
+        }
+        let mut report = TagWriteReport::default();
+        let mut written = Vec::new();
+        for (done, &(track, edit)) in edits.iter().enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                report.cancelled = true;
+                break;
+            }
+            progress(done, edits.len());
+            let row = self.track(track)?;
+            let result = match &row {
+                Some(row) if row.available => edit::write(&row.path, edit),
+                _ => Err(TagWriteError::Unavailable),
+            };
+            match result {
+                Ok(()) => {
+                    report.written.push(track);
+                    written.push((track.0, edit));
+                }
+                Err(error) => report.failed.push(FailedTagWrite {
+                    track,
+                    path: row.map(|row| row.path),
+                    error,
+                }),
+            }
+        }
+        progress(report.written.len() + report.failed.len(), edits.len());
+        if !written.is_empty() {
+            scan::reread_edited(&mut self.conn, &self.artwork, &written)?;
+        }
+        Ok(report)
+    }
+
+    /// The picture a track's file holds as its cover (the front cover, or failing
+    /// that the first picture), read from the file. For the tag editor.
+    pub fn embedded_cover(&self, id: TrackId) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .track(id)?
+            .filter(|track| track.available)
+            .and_then(|track| tags::embedded_cover(&track.path)))
     }
 
     /// Prefix search over titles, artists and albums, ignoring case and diacritics.

@@ -20,7 +20,7 @@ Read it before changing anything structural.
 | Language | Rust, edition 2024, minimum Rust 1.92 |
 | UI | Slint 1.18, royalty-free license (the `AboutSlint` widget must stay on the About page) |
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
-| Storage | SQLite (bundled via rusqlite), FTS5 search; tags read with lofty |
+| Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions: Ubuntu, Windows and macOS for pull requests into `main` and pushes to it; Ubuntu only for pull requests between feature branches. A newer push to a pull request cancels its running checks |
 | Packaging | cargo-packager: MSI and NSIS setup exe, dmg, AppImage and .deb (`[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml`, icons in `packaging/icons/`) |
@@ -95,6 +95,10 @@ cargo run --release -p vcmp-library --example scan -- /path/to/music
 `--example scan_profile` breaks a scan down by step (tag reads per format, cover
 read, decode, resize, encode) on Linux. [docs/library.md](docs/library.md#measured)
 has the reference numbers.
+
+To check tag writing against real files, `--example edit_check -- /path/to/music 40`
+copies 40 files per format into `target/edit-check/` and edits only the copies.
+Never point a test or example that writes at the real collection itself.
 
 Playback tests need no sound card: the engine runs against a test device that the
 test pulls audio from. To hear the engine on the real device (or check it silently

@@ -17,6 +17,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use walkdir::WalkDir;
 
 use crate::artwork::{self, ArtworkStore};
+use crate::edit::{FieldEdit, TagEdit};
 use crate::tags::{self, Format, ReadTrack};
 use crate::{Result, path_codec};
 
@@ -223,6 +224,95 @@ pub(crate) fn scan(
     find_artwork(conn, artwork, cancel, progress)?;
     report.cancelled = cancel.load(Ordering::Relaxed);
     Ok(report)
+}
+
+/// Re-reads files whose tags VCMP just wrote, the way a scan reads changed files, so
+/// albums, artists, artwork and search follow the edit. A file that can't be read
+/// now is left to the next scan, which sees its new modification time.
+pub(crate) fn reread_edited(
+    conn: &mut Connection,
+    artwork: &ArtworkStore,
+    edited: &[(i64, &TagEdit)],
+) -> Result<()> {
+    let tx = conn.transaction()?;
+    let mut albums = HashSet::new();
+    for &(id, edit) in edited {
+        let Some((path, source_id, old_album)) = tx
+            .query_row(
+                "SELECT path, source_id, album_id FROM tracks WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok((
+                        path_codec::decode(&row.get::<_, Vec<u8>>(0)?),
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+        else {
+            continue;
+        };
+        let (Some(source_id), Ok(metadata)) = (source_id, std::fs::metadata(&path)) else {
+            continue;
+        };
+        let track = match tags::read(&path, false) {
+            Ok(track) => track,
+            Err(reason) => {
+                log::warn!(
+                    "{}: not re-read after writing tags: {reason}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+        let file = Found {
+            path,
+            source_id,
+            size: metadata.len() as i64,
+            modified_ms: metadata.modified().map(millis).unwrap_or(0),
+        };
+        let new_album = apply(
+            &tx,
+            &file,
+            Some(id),
+            &track,
+            &mut HashSet::new(),
+            &mut ScanReport::default(),
+        )?;
+        albums.extend(old_album);
+        albums.extend(new_album);
+
+        // Albums and artists are matched ignoring case, so a scan keeps the spelling
+        // it met first. An edit is the user's spelling, so it wins.
+        if let (FieldEdit::Set(_), Some(album), Some(title)) =
+            (&edit.album, new_album, &track.tags.album)
+        {
+            tx.execute(
+                "UPDATE albums SET title = ?2 WHERE id = ?1",
+                params![album, title],
+            )?;
+        }
+        for (changed, name) in [
+            (&edit.artist, &track.tags.artist),
+            (&edit.album_artist, &track.tags.album_artist),
+        ] {
+            if let (FieldEdit::Set(_), Some(name)) = (changed, name) {
+                tx.execute(
+                    "UPDATE artists SET name = ?1 WHERE name = ?1 COLLATE NOCASE AND name <> ?1 COLLATE BINARY",
+                    [name],
+                )?;
+            }
+        }
+    }
+    // The cover may have changed, or the album may have lost the track its artwork
+    // came from: look for the artwork of every album involved again.
+    for album in albums {
+        tx.execute("UPDATE albums SET artwork_state = 0 WHERE id = ?1", [album])?;
+    }
+    tx.commit()?;
+    finish_groups(conn)?;
+    find_artwork(conn, artwork, &AtomicBool::new(false), &mut |_| {})
 }
 
 fn discover(
