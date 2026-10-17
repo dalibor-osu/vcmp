@@ -20,6 +20,8 @@ pub enum Error {
     InvalidTagEdit(#[from] crate::edit::InvalidTagEdit),
     #[error("file watcher: {0}")]
     Watch(#[from] notify::Error),
+    #[error("{0} is not an image VCMP can read")]
+    UnreadableImage(PathBuf),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
