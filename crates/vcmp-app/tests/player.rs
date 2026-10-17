@@ -770,7 +770,7 @@ fn the_output_device_is_chosen_and_remembered() {
     // The dropdown in Settings, from the keyboard: Up picks the device above.
     app.service
         .set_device_lister(|| Ok(vec!["Speakers".into(), "Headphones".into()]));
-    app.window.set_selected_index(1);
+    app.press(AccessibleRole::Tab, "Settings");
     let dropdown = ElementHandle::find_by_accessible_label(&app.window, "Output device")
         .find(|element| element.accessible_role() == Some(AccessibleRole::Combobox))
         .expect("the output device choice");

@@ -161,8 +161,8 @@ fn back_button_escape_and_the_sidebar_return_to_the_grid() {
 #[test]
 fn the_grid_works_from_the_keyboard() {
     let (_dir, window, _browser) = open();
-    // Albums, Settings and About in the sidebar, then the grid.
-    for _ in 0..4 {
+    // Albums, Artists, Settings and About in the sidebar, then the grid.
+    for _ in 0..5 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);

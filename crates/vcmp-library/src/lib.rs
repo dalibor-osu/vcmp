@@ -203,8 +203,19 @@ impl Library {
         query::albums(&self.conn, &self.artwork, Some(artist))
     }
 
+    /// Artists with at least one available album or track, by name.
     pub fn artists(&self) -> Result<Vec<Artist>> {
         query::artists(&self.conn)
+    }
+
+    pub fn artist(&self, id: ArtistId) -> Result<Option<Artist>> {
+        query::artist(&self.conn, id)
+    }
+
+    /// Available tracks credited to `artist` that are not on the artist's own
+    /// albums: features, compilations, tracks without an album.
+    pub fn artist_appearances(&self, artist: ArtistId) -> Result<Vec<Track>> {
+        query::tracks(&self.conn, query::TrackFilter::AppearsOn(artist))
     }
 
     /// Every available track, ordered by artist, album, disc and track number.

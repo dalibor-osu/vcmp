@@ -91,10 +91,11 @@ fn everything_works_from_the_keyboard() {
     let window = open_window();
     let theme = window.global::<Theme>();
 
-    // Tab order follows the visual order: Albums, Settings, About, then the page.
-    press(&window, Key::Tab);
-    press(&window, Key::Tab);
-    press(&window, Key::Tab);
+    // Tab order follows the visual order: Albums, Artists, Settings, About, then the
+    // page.
+    for _ in 0..4 {
+        press(&window, Key::Tab);
+    }
     press(&window, Key::Return);
     assert_eq!(window.get_current_page(), Page::About);
 
@@ -207,7 +208,7 @@ fn smallest_window_keeps_everything_inside() {
     window.window().set_size(LogicalSize::new(width, 480.0));
 
     // Every page, with the queue panel closed and open.
-    for (page, queue_open) in [0, 1, 2]
+    for (page, queue_open) in [0, 1, 2, 3]
         .into_iter()
         .flat_map(|page| [(page, false), (page, true)])
     {

@@ -3,26 +3,35 @@ import { FocusRing } from "components.slint";
 
 export enum ArtworkState { none, loading, loaded }
 
+// A card in a grid: an album, or (with round covers) an artist, whose subtitle is
+// its number of albums, or tracks when it has no albums of its own.
 export struct AlbumTile {
     id: int,
     title: string,
     artist: string,
+    album-count: int,
+    track-count: int,
     // First letter of the title, shown while there is no cover.
     initial: string,
     artwork: ArtworkState,
     cover: image,
 }
 
-component AlbumCard {
+export component AlbumCard {
     in property <AlbumTile> album;
     in property <length> cover-size;
+    // An artist: a round picture, and counts below the name.
+    in property <bool> round;
+    private property <string> subtitle: !root.round ? root.album.artist
+        : root.album.album-count > 0 ? @tr("{n} album" | "{n} albums" % root.album.album-count)
+        : @tr("{n} track" | "{n} tracks" % root.album.track-count);
     // Drawn with a focus ring: the grid has keyboard focus and this is its current card.
     in property <bool> focused;
     callback clicked;
 
     accessible-role: button;
     accessible-item-selected: root.focused;
-    accessible-label: root.album.artist == "" ? root.album.title : @tr("{0}, {1}", root.album.title, root.album.artist);
+    accessible-label: root.subtitle == "" ? root.album.title : @tr("{0}, {1}", root.album.title, root.subtitle);
     accessible-action-default => {
         root.clicked();
     }
@@ -34,7 +43,7 @@ component AlbumCard {
         Rectangle {
             width: root.cover-size;
             height: root.cover-size;
-            border-radius: Theme.radius-m;
+            border-radius: root.round ? self.width / 2 : Theme.radius-m;
             clip: true;
             background: Theme.colors.surface;
 
@@ -69,7 +78,7 @@ component AlbumCard {
             }
 
             Text {
-                text: root.album.artist;
+                text: root.subtitle;
                 color: Theme.colors.text-muted;
                 font-size: Theme.font-small;
                 overflow: elide;
@@ -98,6 +107,8 @@ component AlbumCard {
 // Space opens it.
 export component AlbumGrid {
     in property <[AlbumTile]> albums;
+    // Artists rather than albums: round pictures, counts as subtitles.
+    in property <bool> round;
     // The keyboard's current card.
     in-out property <int> current: 0;
     callback visible-range-changed(int, int);
@@ -190,12 +201,86 @@ export component AlbumGrid {
             y: root.edge + floor(self.index / root.columns) * root.row-height;
             width: root.tile-width;
             cover-size: root.tile-width;
+            round: root.round;
             album: root.albums[self.index];
             focused: focus.has-focus && self.index == root.current;
             clicked => {
                 root.current = self.index;
                 root.activated(self.index);
             }
+        }
+    }
+}
+
+// A grid that is as tall as its cards, for a few cards inside a scrolling page (an
+// artist's albums). `available-width` comes from the page, so the height can follow
+// it without a layout loop. One tab stop: arrow keys, Home/End, Enter or Space.
+export component CardGrid {
+    in property <[AlbumTile]> tiles;
+    in property <length> available-width;
+    in property <string> label;
+    in-out property <int> current: 0;
+    callback activated(int);
+
+    // Makes `index` the current card and focuses the grid.
+    public function focus-card(index: int) {
+        root.current = max(0, min(root.tiles.length - 1, index));
+        focus.focus();
+    }
+
+    private property <length> gap: Theme.space-xl;
+    private property <length> min-tile: 160px;
+    private property <length> text-height: 44px;
+    private property <int> columns: max(1, floor((root.available-width + root.gap) / (root.min-tile + root.gap)));
+    private property <length> tile-width: (root.available-width - (root.columns - 1) * root.gap) / root.columns;
+    private property <length> row-height: root.tile-width + Theme.space-s + root.text-height + root.gap;
+
+    width: root.available-width;
+    height: max(0px, ceil(root.tiles.length / root.columns) * root.row-height - root.gap);
+    accessible-role: list;
+    accessible-label: root.label;
+    forward-focus: focus;
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            let last = root.tiles.length - 1;
+            if event.text == Key.RightArrow {
+                root.current = min(last, root.current + 1);
+            } else if event.text == Key.LeftArrow {
+                root.current = max(0, root.current - 1);
+            } else if event.text == Key.DownArrow {
+                root.current = min(last, root.current + root.columns);
+            } else if event.text == Key.UpArrow {
+                root.current = max(0, root.current - root.columns);
+            } else if event.text == Key.Home {
+                root.current = 0;
+            } else if event.text == Key.End {
+                root.current = last;
+            } else if event.text == Key.Return || event.text == Key.Space {
+                root.activated(root.current);
+            } else {
+                return reject;
+            }
+            accept
+        }
+    }
+
+    for tile[index] in root.tiles: AlbumCard {
+        x: mod(index, root.columns) * (root.tile-width + root.gap);
+        y: floor(index / root.columns) * root.row-height;
+        width: root.tile-width;
+        cover-size: root.tile-width;
+        album: tile;
+        focused: focus.has-focus && index == root.current;
+        clicked => {
+            root.current = index;
+            root.activated(index);
         }
     }
 }

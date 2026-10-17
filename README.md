@@ -13,6 +13,8 @@ Early development. In place so far:
   grouping, moved-file re-linking, artwork caching, search and a file watcher;
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
   pages with tracks by disc;
+- the Artists page: album artists (or everyone credited) with their albums and the
+  tracks they appear on elsewhere;
 - music folders in Settings: add and remove folders, scans in the background with
   progress, and automatic updates when the folders change;
 - playback: gapless MP3, FLAC, WAV and Ogg Vorbis, with a player bar (seek, volume and

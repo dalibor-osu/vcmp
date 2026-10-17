@@ -70,6 +70,8 @@ pub struct SearchResults {
 pub(crate) enum TrackFilter {
     All,
     Album(AlbumId),
+    /// Tracks credited to the artist outside the artist's own albums.
+    AppearsOn(ArtistId),
 }
 
 const TRACK_COLUMNS: &str =
@@ -100,6 +102,10 @@ pub(crate) fn tracks(conn: &Connection, filter: TrackFilter) -> Result<Vec<Track
     let (condition, album) = match filter {
         TrackFilter::All => ("", None),
         TrackFilter::Album(AlbumId(id)) => ("AND t.album_id = ?1", Some(id)),
+        TrackFilter::AppearsOn(ArtistId(id)) => (
+            "AND t.artist_id = ?1 AND (a.artist_id IS NULL OR a.artist_id != ?1)",
+            Some(id),
+        ),
     };
     let sql = format!(
         "SELECT {TRACK_COLUMNS} FROM tracks t
@@ -198,6 +204,11 @@ fn artist_from(row: &Row) -> rusqlite::Result<Artist> {
         album_count: row.get(2)?,
         track_count: row.get(3)?,
     })
+}
+
+pub(crate) fn artist(conn: &Connection, ArtistId(id): ArtistId) -> Result<Option<Artist>> {
+    let sql = format!("SELECT ar.id, ar.name, {ARTIST_STATS} FROM artists ar WHERE ar.id = ?1");
+    Ok(conn.query_row(&sql, [id], artist_from).optional()?)
 }
 
 pub(crate) fn artists(conn: &Connection) -> Result<Vec<Artist>> {

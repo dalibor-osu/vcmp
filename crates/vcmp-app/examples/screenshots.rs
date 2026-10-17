@@ -30,9 +30,9 @@ use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, Queue
 struct Shot {
     name: &'static str,
     mode: ThemeMode,
-    // Sidebar position: 0 Albums, 1 Settings, 2 About.
+    // Sidebar position: 0 Albums, 1 Artists, 2 Settings, 3 About.
     page: i32,
-    // Grid position of the album to open, if any.
+    // Grid position of the album (or, on the Artists page, the artist) to open.
     album: Option<i32>,
     // Tab presses before the frame, to show the keyboard focus ring. Focus carries
     // over between shots, so the count continues from the previous shot.
@@ -56,20 +56,28 @@ const fn shot(
 }
 
 const SHOTS: &[Shot] = &[
-    // First, while nothing has focus: Albums, Settings, About, then the grid.
-    shot("focus-grid-dark", ThemeMode::Dark, 0, None, 4),
+    // First, while nothing has focus: Albums, Artists, Settings, About, then the grid.
+    shot("focus-grid-dark", ThemeMode::Dark, 0, None, 5),
     shot("albums-light", ThemeMode::Light, 0, None, 0),
     shot("albums-dark", ThemeMode::Dark, 0, None, 0),
     shot("album-light", ThemeMode::Light, 0, Some(ALBUM), 0),
     shot("album-dark", ThemeMode::Dark, 0, Some(ALBUM), 0),
-    shot("settings-light", ThemeMode::Light, 1, None, 0),
-    shot("settings-dark", ThemeMode::Dark, 1, None, 0),
-    shot("about-light", ThemeMode::Light, 2, None, 0),
-    shot("about-dark", ThemeMode::Dark, 2, None, 0),
-    shot("focus-nav-light", ThemeMode::Light, 1, None, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 1, None, 3),
-    shot("focus-switch-light", ThemeMode::Light, 1, None, 1),
+    shot("artists-light", ThemeMode::Light, 1, None, 0),
+    shot("artists-dark", ThemeMode::Dark, 1, None, 0),
+    shot("artist-light", ThemeMode::Light, 1, Some(ARTIST), 0),
+    shot("artist-dark", ThemeMode::Dark, 1, Some(ARTIST), 0),
+    shot("settings-light", ThemeMode::Light, 2, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 2, None, 0),
+    shot("about-light", ThemeMode::Light, 3, None, 0),
+    shot("about-dark", ThemeMode::Dark, 3, None, 0),
+    shot("focus-nav-light", ThemeMode::Light, 2, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 2, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 2, None, 1),
 ];
+
+/// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
+/// another).
+const ARTIST: i32 = 0;
 
 /// Grid position of the album the album shots open (set `VCMP_SHOT_ALBUM` to pick
 /// another).
@@ -107,15 +115,25 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     let theme = window.global::<Theme>();
     theme.set_mode(shot.mode);
     window.set_selected_index(shot.page);
-    match shot.album {
-        Some(index) => {
+    match (shot.page, shot.album) {
+        (1, Some(index)) => {
+            let index = std::env::var("VCMP_SHOT_ARTIST")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(index);
+            window.invoke_artist_activated(index);
+        }
+        (_, Some(index)) => {
             let index = std::env::var("VCMP_SHOT_ALBUM")
                 .ok()
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(index);
             window.invoke_album_activated(index);
         }
-        None => window.set_album_open(false),
+        (_, None) => {
+            window.set_album_open(false);
+            window.set_artist_open(false);
+        }
     }
     // The album shots show the queue panel too.
     window.set_queue_open(shot.album.is_some());
