@@ -1,7 +1,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Button, FocusRing } from "components.slint";
-import { Glyph, Icon } from "player-bar.slint";
+import { Glyph, Icon } from "icons.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -118,6 +118,8 @@ component TrackLine {
     // The keyboard's current track in a focused list.
     in property <bool> focused;
     callback clicked();
+    // Window position of a right click.
+    callback menu-requested(length, length);
     // Where the row is, so the list can scroll it into view.
     callback shown-focused(length, length);
 
@@ -215,6 +217,11 @@ component TrackLine {
                     Theme.keyboard-navigation = false;
                     root.clicked();
                 }
+                pointer-event(event) => {
+                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                        root.menu-requested(row.absolute-position.x + self.mouse-x, row.absolute-position.y + self.mouse-y);
+                    }
+                }
             }
 
             if root.focused: FocusRing {
@@ -236,12 +243,19 @@ export component AlbumView {
     callback back();
     // Plays the album from track `start` (-1: from its beginning, or shuffled).
     callback play(int, bool);
+    // Puts a track into Up next: at its front (`next`), or at its end.
+    callback queue-track(int, bool);
 
     // The keyboard's current track; the list is one tab stop.
     private property <int> current: 0;
 
     public function focus-back() {
         back-button.focus();
+    }
+
+    function show-menu(index: int, x: length, y: length) {
+        root.current = index;
+        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
     }
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
@@ -401,46 +415,75 @@ export component AlbumView {
                     wrap: word-wrap;
                 }
 
-                // The tracks: one tab stop; Up/Down move, Enter or Space plays.
-                list := FocusScope {
+                // The tracks: one tab stop; Up/Down move, Enter or Space plays, and the
+                // Menu key (or a right click) opens the track's menu.
+                menu := ContextMenuArea {
                     max-width: Theme.content-max-width;
-                    focus-on-click: false;
-                    focus-gained(reason) => {
-                        if reason == FocusReason.tab-navigation {
-                            Theme.keyboard-navigation = true;
-                        }
-                    }
-                    key-pressed(event) => {
-                        if event.text == Key.DownArrow {
-                            root.current = min(root.tracks.length - 1, root.current + 1);
-                        } else if event.text == Key.UpArrow {
-                            root.current = max(0, root.current - 1);
-                        } else if event.text == Key.Home {
-                            root.current = 0;
-                        } else if event.text == Key.End {
-                            root.current = root.tracks.length - 1;
-                        } else if event.text == Key.Return || event.text == Key.Space {
-                            root.play(root.current, false);
-                        } else {
-                            return reject;
-                        }
-                        accept
-                    }
 
-                    VerticalLayout {
-                        accessible-role: AccessibleRole.list;
-
-                        for track[index] in root.tracks: TrackLine {
-                            track: track;
-                            show-disc: root.multi-disc;
-                            playing: track.path == root.playing-path;
-                            focused: list.has-focus && index == root.current;
-                            clicked => {
-                                root.current = index;
-                                root.play(index, false);
+                    Menu {
+                        MenuItem {
+                            title: @tr("Play now");
+                            activated => {
+                                root.play(root.current, false);
                             }
-                            shown-focused(top, height) => {
-                                root.ensure-visible(top, height);
+                        }
+                        MenuItem {
+                            title: @tr("Play next");
+                            activated => {
+                                root.queue-track(root.current, true);
+                            }
+                        }
+                        MenuItem {
+                            title: @tr("Add to queue");
+                            activated => {
+                                root.queue-track(root.current, false);
+                            }
+                        }
+                    }
+
+                    list := FocusScope {
+                        max-width: Theme.content-max-width;
+                        focus-on-click: false;
+                        focus-gained(reason) => {
+                            if reason == FocusReason.tab-navigation {
+                                Theme.keyboard-navigation = true;
+                            }
+                        }
+                        key-pressed(event) => {
+                            if event.text == Key.DownArrow {
+                                root.current = min(root.tracks.length - 1, root.current + 1);
+                            } else if event.text == Key.UpArrow {
+                                root.current = max(0, root.current - 1);
+                            } else if event.text == Key.Home {
+                                root.current = 0;
+                            } else if event.text == Key.End {
+                                root.current = root.tracks.length - 1;
+                            } else if event.text == Key.Return || event.text == Key.Space {
+                                root.play(root.current, false);
+                            } else {
+                                return reject;
+                            }
+                            accept
+                        }
+
+                        VerticalLayout {
+                            accessible-role: AccessibleRole.list;
+
+                            for track[index] in root.tracks: TrackLine {
+                                track: track;
+                                show-disc: root.multi-disc;
+                                playing: track.path == root.playing-path;
+                                focused: list.has-focus && index == root.current;
+                                clicked => {
+                                    root.current = index;
+                                    root.play(index, false);
+                                }
+                                menu-requested(x, y) => {
+                                    root.show-menu(index, x, y);
+                                }
+                                shown-focused(top, height) => {
+                                    root.ensure-visible(top, height);
+                                }
                             }
                         }
                     }

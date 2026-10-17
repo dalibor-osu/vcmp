@@ -7,10 +7,12 @@ import { AlbumTile, ArtworkState } from "album-grid.slint";
 import { AlbumDetail, TrackRow } from "album-page.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
 import { ProgressBar } from "components.slint";
-import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
-import { Glyph, IconArt, PlayerBar } from "player-bar.slint";
+import { PlayerProblem, PlayerState, PlayState, QueueRow, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
+import { PlayerBar } from "player-bar.slint";
+import { QueuePanel } from "queue-panel.slint";
+import { Glyph, IconArt } from "icons.slint";
 
-export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, Repeat, Shuffle, ShuffleKind }
+export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, Repeat, Shuffle, ShuffleKind }
 export { AlbumDetail, AlbumTile, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { albums, settings, about }
@@ -28,6 +30,8 @@ export component AppWindow inherits Window {
     in property <[TrackRow]> album-tracks;
     in property <bool> album-multi-disc;
     in-out property <bool> album-open;
+    // The queue panel is shown beside the page.
+    in-out property <bool> queue-open;
     // The library database could not be opened or read.
     in property <bool> library-failed;
     in-out property <int> selected-index: 0;
@@ -36,6 +40,8 @@ export component AppWindow inherits Window {
     callback album-activated(int);
     // Plays the open album from a track (-1: from its start), shuffled or not.
     callback play-album(int, bool);
+    // Puts a track of the open album into Up next: at its front, or at its end.
+    callback queue-album-track(int, bool);
     out property <Page> current-page: root.nav[root.selected-index].page;
 
     private property <[NavEntry]> nav: [
@@ -156,6 +162,9 @@ export component AppWindow inherits Window {
                     play-album(start, shuffle) => {
                         root.play-album(start, shuffle);
                     }
+                    queue-album-track(index, next) => {
+                        root.queue-album-track(index, next);
+                    }
                         range-changed(first, count) => {
                             root.album-range-changed(first, count);
                         }
@@ -175,9 +184,19 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+
+                // The page takes the room the panel leaves.
+                if root.queue-open: QueuePanel {
+                    min-width: 240px;
+                    preferred-width: 320px;
+                    max-width: 320px;
+                    horizontal-stretch: 0;
+                }
             }
 
-            PlayerBar { }
+            PlayerBar {
+                queue-open <=> root.queue-open;
+            }
         }
     }
 }

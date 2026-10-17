@@ -1,8 +1,9 @@
 //! Playback behind the `PlayerState` global: the player bar's controls, playing an
 //! album from its page, and the engine's events turned into what the bar shows.
-//! Volume, shuffle and repeat are kept in the library's settings. The playing track
-//! also goes to the Discord presence, with a cover looked up on MusicBrainz for
-//! albums whose files carry no release ID.
+//! Volume, shuffle, repeat, the output device and the queue itself are kept in the
+//! library's settings, so they come back after a restart. The queue panel shows Up
+//! next and what follows. The playing track also goes to the Discord presence, with
+//! a cover looked up on MusicBrainz for albums whose files carry no release ID.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -12,11 +13,11 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use slint::{ComponentHandle, Image};
+use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
 use vcmp_library::{Album, AlbumId, CoverArtId, CoverLookup, Library, Track};
 use vcmp_playback::{
-    Command, Event, NowPlaying, PlaybackState, Player, QueueEntry, RepeatMode, ShuffleMode,
-    TrackRef,
+    Command, Event, NowPlaying, PlaybackError, PlaybackSnapshot, PlaybackState, Player, QueueEntry,
+    QueueView, RepeatMode, ShuffleMode, TrackRef,
 };
 
 use vcmp_integrations::discord::{DiscordPresence, Listening};
@@ -24,23 +25,39 @@ use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, CoverFinder, Lookup};
 
 use crate::albums::initial;
 use crate::library_view::{LibraryView, format_duration};
-use crate::{AppWindow, PlayState, PlayerProblem, PlayerState, Repeat, Shuffle, ShuffleKind};
+use crate::saved_queue;
+use crate::{
+    AppWindow, PlayState, PlayerProblem, PlayerState, QueueRow, Repeat, Shuffle, ShuffleKind,
+};
 
 pub const SETTING_VOLUME: &str = "playback.volume";
 pub const SETTING_SHUFFLE: &str = "playback.shuffle";
 pub const SETTING_SHUFFLE_KIND: &str = "playback.shuffle_kind";
 pub const SETTING_REPEAT: &str = "playback.repeat";
+/// The output device by name; absent or empty for the system default.
+pub const SETTING_OUTPUT_DEVICE: &str = "playback.output_device";
 
 /// Where commands go: the engine, or a recorder in tests.
 pub trait PlayerControl {
     fn send(&self, command: Command);
+    /// The queue and position now, for saving.
+    fn snapshot(&self) -> Option<PlaybackSnapshot> {
+        None
+    }
 }
 
 impl PlayerControl for Player {
     fn send(&self, command: Command) {
         Player::send(self, command);
     }
+
+    fn snapshot(&self) -> Option<PlaybackSnapshot> {
+        Player::snapshot(self)
+    }
 }
+
+/// Lists the output devices; slow on some systems, so it runs off the UI thread.
+pub type DeviceLister = fn() -> Result<Vec<String>, PlaybackError>;
 
 /// Where "now listening" goes: Discord, or a recorder in tests.
 pub trait PresenceSink {
@@ -105,6 +122,9 @@ pub struct PlayerService {
     album: Cell<Option<AlbumId>>,
     pending_covers: RefCell<HashSet<AlbumId>>,
     failed_covers: RefCell<HashMap<AlbumId, Instant>>,
+    // Output devices: the listed names, and how to list them.
+    devices: RefCell<Vec<String>>,
+    list_devices: Cell<DeviceLister>,
 }
 
 thread_local! {
@@ -137,6 +157,8 @@ impl PlayerService {
             album: Cell::default(),
             pending_covers: RefCell::default(),
             failed_covers: RefCell::default(),
+            devices: RefCell::default(),
+            list_devices: Cell::new(vcmp_playback::output_devices),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -162,6 +184,8 @@ impl PlayerService {
         };
         state.set_discord_available(service.presence.is_some());
         state.set_discord(service.setting(SETTING_DISCORD).as_deref() != Some("false"));
+        // Until the devices are listed, the chosen one is the only name known.
+        service.set_output_devices(Ok(Vec::new()));
         state.set_volume(volume);
         state.set_shuffle(shuffle);
         state.set_shuffle_kind(kind);
@@ -252,12 +276,222 @@ impl PlayerService {
                 }
             }
         });
+        state.on_play_queue_entry({
+            let weak = weak.clone();
+            move |index| {
+                if let (Some(service), Ok(index)) = (weak.upgrade(), usize::try_from(index)) {
+                    service.player.send(Command::SkipTo(index));
+                }
+            }
+        });
+        state.on_remove_from_up_next({
+            let weak = weak.clone();
+            move |index| {
+                if let (Some(service), Ok(index)) = (weak.upgrade(), usize::try_from(index)) {
+                    service.player.send(Command::RemoveFromUpNext(index));
+                }
+            }
+        });
+        state.on_move_in_up_next({
+            let weak = weak.clone();
+            move |from, to| {
+                if let (Some(service), Ok(from), Ok(to)) =
+                    (weak.upgrade(), usize::try_from(from), usize::try_from(to))
+                {
+                    service.player.send(Command::MoveInUpNext { from, to });
+                }
+            }
+        });
+        state.on_clear_up_next(with(|service| service.player.send(Command::ClearUpNext)));
+        state.on_set_output_device({
+            let weak = weak.clone();
+            move |index| {
+                if let Some(service) = weak.upgrade() {
+                    service.set_output_device(index);
+                }
+            }
+        });
+        state.on_refresh_output_devices(with(|service| service.refresh_output_devices()));
+        window.on_queue_album_track({
+            let weak = weak.clone();
+            move |index, next| {
+                if let Some(service) = weak.upgrade() {
+                    service.queue_album_track(index, next);
+                }
+            }
+        });
         window.on_play_album(move |start, shuffle| {
             if let Some(service) = weak.upgrade() {
                 service.play_album(start, shuffle);
             }
         });
+        service.restore_queue();
         service
+    }
+
+    /// Lists output devices with `lister` instead of asking the system (tests).
+    pub fn set_device_lister(&self, lister: DeviceLister) {
+        self.list_devices.set(lister);
+    }
+
+    /// Saves the queue and position, to come back to after a restart.
+    pub fn save_queue(&self) {
+        let Some(snapshot) = self.player.snapshot() else {
+            return;
+        };
+        if let Err(error) = self
+            .library
+            .set_setting(saved_queue::SETTING, &saved_queue::encode(&snapshot))
+        {
+            log::warn!("could not save the queue: {error}");
+        }
+    }
+
+    /// Loads the saved queue, paused at the saved position.
+    fn restore_queue(&self) {
+        let Some(text) = self.setting(saved_queue::SETTING) else {
+            return;
+        };
+        match saved_queue::decode(&text) {
+            Ok(snapshot) if snapshot.queue.current.is_some() => {
+                self.player.send(Command::Restore(snapshot));
+            }
+            Ok(_) => {}
+            Err(error) => log::warn!("the saved queue could not be read: {error}"),
+        }
+    }
+
+    /// Puts track `index` of the open album into Up next: at its front, or its end.
+    pub fn queue_album_track(&self, index: i32, next: bool) {
+        let Some(album) = self.view.shown_album() else {
+            return;
+        };
+        let track = match self.library.album_tracks(album.id) {
+            Ok(tracks) => usize::try_from(index)
+                .ok()
+                .and_then(|index| tracks.into_iter().nth(index)),
+            Err(error) => {
+                log::error!("could not read the tracks of {:?}: {error}", album.title);
+                return;
+            }
+        };
+        if let Some(entry) = track.as_ref().and_then(entry) {
+            self.player.send(if next {
+                Command::PlayNext(vec![entry])
+            } else {
+                Command::AddToQueue(vec![entry])
+            });
+        }
+    }
+
+    /// Takes a fresh list of output devices.
+    pub fn set_output_devices(&self, devices: Result<Vec<String>, PlaybackError>) {
+        let mut devices = devices.unwrap_or_else(|error| {
+            log::warn!("could not list the output devices: {error}");
+            Vec::new()
+        });
+        // The chosen device stays choosable while it is unplugged.
+        if let Some(chosen) = self.saved_output_device()
+            && !devices.contains(&chosen)
+        {
+            devices.push(chosen);
+        }
+        *self.devices.borrow_mut() = devices;
+        self.show_devices();
+    }
+
+    fn refresh_output_devices(&self) {
+        let lister = self.list_devices.get();
+        thread::Builder::new()
+            .name("vcmp-output-devices".into())
+            .spawn(move || {
+                let devices = lister();
+                Self::post(move |service| service.set_output_devices(devices));
+            })
+            .expect("spawning the device listing thread");
+    }
+
+    fn set_output_device(&self, index: i32) {
+        let device = usize::try_from(index)
+            .ok()
+            .and_then(|index| self.devices.borrow().get(index).cloned());
+        self.save(SETTING_OUTPUT_DEVICE, device.as_deref().unwrap_or(""));
+        self.player.send(Command::SetOutputDevice(device));
+        if let Some(window) = self.window.upgrade() {
+            window
+                .global::<PlayerState>()
+                .set_output_fallback("".into());
+        }
+        self.show_devices();
+    }
+
+    fn saved_output_device(&self) -> Option<String> {
+        self.setting(SETTING_OUTPUT_DEVICE)
+            .filter(|device| !device.is_empty())
+    }
+
+    fn show_devices(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        let devices = self.devices.borrow();
+        let chosen = self.saved_output_device();
+        let index = chosen
+            .and_then(|chosen| devices.iter().position(|device| *device == chosen))
+            .map_or(-1, |index| index as i32);
+        let names: Vec<SharedString> = devices.iter().map(SharedString::from).collect();
+        state.set_output_devices(ModelRc::new(VecModel::from(names)));
+        state.set_output_device(index);
+    }
+
+    /// Fills the queue panel.
+    fn show_queue(&self, state: &PlayerState, view: &QueueView) {
+        let rows = |entries: &[QueueEntry]| -> ModelRc<QueueRow> {
+            ModelRc::new(VecModel::from(
+                entries
+                    .iter()
+                    .map(|entry| self.queue_row(entry))
+                    .collect::<Vec<_>>(),
+            ))
+        };
+        state.set_up_next(rows(&view.up_next));
+        state.set_upcoming(rows(&view.upcoming));
+        let origin = view
+            .origin
+            .as_deref()
+            .and_then(|origin| origin.strip_prefix("album:"))
+            .and_then(|id| id.parse().ok())
+            .and_then(|id| self.library.album(AlbumId(id)).ok().flatten())
+            .map(|album| album.title)
+            .unwrap_or_default();
+        state.set_queue_origin(origin.into());
+    }
+
+    fn queue_row(&self, entry: &QueueEntry) -> QueueRow {
+        let path = Path::new(entry.track.id.as_ref());
+        let track = self
+            .library
+            .track_id_for_path(path)
+            .ok()
+            .flatten()
+            .and_then(|id| self.library.track(id).ok().flatten());
+        match track {
+            Some(track) => QueueRow {
+                title: track.title.into(),
+                artist: track.artist.unwrap_or_default().into(),
+                duration: format_duration(track.duration).into(),
+            },
+            None => QueueRow {
+                title: path
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+                    .into(),
+                artist: SharedString::default(),
+                duration: SharedString::default(),
+            },
+        }
     }
 
     /// Forwards the engine's events to the UI thread for as long as the engine runs.
@@ -372,7 +606,13 @@ impl PlayerService {
                 self.playing.set(playback == PlaybackState::Playing);
                 self.update_presence();
             }
-            Event::TrackChanged(now) => self.show_track(&state, now),
+            Event::TrackChanged(now) => {
+                let playing = now.is_some();
+                self.show_track(&state, now);
+                if playing {
+                    self.save_queue();
+                }
+            }
             Event::Position(position) => {
                 if let Some((target, asked)) = self.seek_target.get() {
                     // Positions sent before the engine took the seek would jump the
@@ -389,6 +629,7 @@ impl PlayerService {
                 show_position(&state, position);
             }
             Event::QueueChanged(queue) => {
+                self.show_queue(&state, &queue);
                 state.set_shuffle(if queue.shuffle == ShuffleMode::Off {
                     Shuffle::Off
                 } else {
@@ -417,6 +658,11 @@ impl PlayerService {
                         info.device
                     );
                 }
+                state.set_output_fallback(if info.fell_back {
+                    info.device.into()
+                } else {
+                    SharedString::default()
+                });
             }
             Event::OutputFailed(error) => {
                 state.set_problem(PlayerProblem::NoOutput);

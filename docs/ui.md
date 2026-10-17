@@ -13,7 +13,8 @@ dials come from DESIGN.md).
 | File | Holds |
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
-| `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow` |
+| `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `ProgressBar` |
+| `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `AlbumsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` and its cards, created only for the rows in view |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc |
@@ -23,10 +24,12 @@ dials come from DESIGN.md).
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
 | `ui/player-state.slint` | `PlayerState` global: the current track, position, volume, shuffle, repeat |
-| `ui/player-bar.slint` | `PlayerBar`, its `IconButton`s, the `Slider`, `Icon` and the `Glyph` names |
-| `ui/icons/*.svg` | The media control icons, painted in `currentColor` |
+| `ui/player-bar.slint` | `PlayerBar`, its play button and the `Slider` |
+| `ui/queue-panel.slint` | `QueuePanel`: the track playing, Up next and what follows |
+| `ui/icons/*.svg` | The control icons, painted in `currentColor` |
 | `src/icons.rs` | `IconArt`: writes the tint into an icon's SVG and keeps the result |
 | `src/player_service.rs` | `PlayerService`: commands to the playback engine, its events into `PlayerState` |
+| `src/saved_queue.rs` | The queue kept across restarts, as versioned JSON in the settings |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
@@ -190,10 +193,33 @@ The Albums page tells apart why it is empty:
   - Play starts the album; Shuffle turns shuffle on and starts it;
   - clicking a track, or pressing Enter on it, plays the album from there;
   - the track list is one tab stop (Up/Down, Home/End, Enter or Space);
+  - a track's menu (right click, or the Menu key on the current track) offers Play
+    now, Play next (front of Up next) and Add to queue (end of Up next);
   - the playing track gets a play mark and an accent title.
+- **The queue panel** opens beside the page from the queue button in the player bar,
+  and stays open or closed across restarts (`ui.queue_open`). It shows the track
+  playing, Up next (with Clear, and a remove button per track), then "Next from" the
+  album being played, at most 100 tracks ahead, as the engine reports them.
+  - Clicking a track, or Enter or Space on it, plays it; the tracks before it are
+    dropped, as the engine's `SkipTo` does.
+  - The tracks are one tab stop: Up/Down and Home/End move, Delete removes from Up
+    next, Alt+Up/Alt+Down reorder it, and the Menu key opens the track's menu (Play,
+    Remove from queue, Move up, Move down). The remove buttons are not tab stops,
+    since Delete does the same.
+- **The queue comes back after a restart**, paused at the saved position: context,
+  Up next, history, shuffle and repeat. `PlayerService` saves the engine's snapshot
+  in the settings (`playback.queue`, `src/saved_queue.rs`) whenever a track starts
+  and when the window closes, and restores it at start. A save from another version
+  is ignored with a warning.
+- **Settings → Playback → Output device** lists "System default" and the devices,
+  listed off the UI thread each time Settings opens and when the list opens. Up and
+  Down change the choice directly; a click, Enter or Space opens the list. The
+  choice is saved by name (`playback.output_device`) and used when the engine
+  starts. A chosen device that is unplugged stays in the list, and the description
+  names the device playing instead.
 - **Settings → Playback** chooses how shuffle picks: "Fewer repeats" (the engine's
-  less-repeats mode) or "Fully random". Volume, shuffle and repeat are saved in the
-  library's settings.
+  less-repeats mode) or "Fully random". Volume, shuffle, repeat and the output
+  device are saved in the library's settings.
 - **`PlayerService`** sends `Command`s to the engine. A thread forwards the engine's
   `Event`s to the UI thread. Tests replace the engine with a recorder through the
   `PlayerControl` trait.
@@ -250,8 +276,11 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 
 ## Known limits
 
-- There is no queue panel yet, the queue isn't restored after a restart, and the
-  output device can't be chosen. Those are the next playback step.
+- Up next can be filled from album pages only, and reordered by keyboard or menu,
+  not by dragging.
+- The track menus are Slint's own, styled by the operating system's colour scheme
+  like `AboutSlint` below, so they can look out of place when VCMP's theme differs
+  from the OS.
 - Tracks whose file path isn't valid Unicode can't be queued: the engine names
   tracks by a string path.
 

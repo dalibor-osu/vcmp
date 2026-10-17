@@ -30,7 +30,8 @@ export enum ThemeMode { system, light, dark }
 export global Theme {
     in-out property <ThemeMode> mode: ThemeMode.system;
     in-out property <bool> reduced-motion: false;
-    // Called after the user changes `mode` or `reduced-motion`, so they can be saved.
+    // Called after the user changes `mode`, `reduced-motion` or opens or closes the
+    // queue panel, so they can be saved.
     callback preferences-changed();
     // The last input was the keyboard. Focus rings show only then, so clicking with
     // the mouse leaves no ring behind (like :focus-visible on the web).

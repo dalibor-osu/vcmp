@@ -1,102 +1,7 @@
 import { Theme } from "theme.slint";
-import { FocusRing } from "components.slint";
+import { FocusRing, IconButton } from "components.slint";
+import { Glyph, Icon } from "icons.slint";
 import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle } from "player-state.slint";
-
-// Standard media control glyphs (ui/icons, drawn on a 24 x 24 grid). They are the
-// shapes people read without labels; each button still carries a spoken label.
-export enum Glyph { play, pause, previous, next, shuffle, repeat, repeat-one, volume, muted }
-
-// Icon art painted in a colour, by src/icons.rs. The colour is written into the SVG
-// before it is drawn, because both ways of tinting inside Slint misdraw small glyphs
-// with the GPU renderer: a filled Path loses pixels at the corner where it starts,
-// and `colorize` (which paints the image into a texture first) cut pieces out of
-// the next button on the owner's machine.
-export global IconArt {
-    pure callback paint(Glyph, color) -> image;
-}
-
-// A glyph painted in `tint`.
-export component Icon inherits Image {
-    in property <Glyph> glyph;
-    in property <color> tint;
-
-    source: IconArt.paint(root.glyph, root.tint);
-    accessible-role: none;
-}
-
-// A round button showing only an icon. `active` paints the icon in the accent, for
-// switches that are on (shuffle, repeat).
-export component IconButton {
-    in property <Glyph> glyph;
-    in property <string> label;
-    in property <bool> enabled: true;
-    in property <bool> active;
-    // Switch-like buttons report their state to assistive technology.
-    in property <bool> checkable;
-    callback clicked;
-
-    function press() {
-        if root.enabled {
-            root.clicked();
-        }
-    }
-
-    width: Theme.target-height;
-    height: Theme.target-height;
-    accessible-role: button;
-    accessible-label: root.label;
-    accessible-enabled: root.enabled;
-    accessible-checkable: root.checkable;
-    accessible-checked: root.active;
-    accessible-action-default => {
-        root.press();
-    }
-    forward-focus: focus;
-
-    Rectangle {
-        border-radius: self.height / 2;
-        background: touch.has-hover && root.enabled ? Theme.colors.surface : transparent;
-        animate background { duration: Theme.duration-fast; }
-    }
-
-    Icon {
-        width: 20px;
-        height: 20px;
-        glyph: root.glyph;
-        tint: !root.enabled ? Theme.colors.outline : root.active ? Theme.colors.accent : Theme.colors.text;
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        clicked => {
-            Theme.keyboard-navigation = false;
-            root.press();
-        }
-    }
-
-    focus := FocusScope {
-        enabled: root.enabled;
-        focus-on-click: false;
-        focus-gained(reason) => {
-            if reason == FocusReason.tab-navigation {
-                Theme.keyboard-navigation = true;
-            }
-        }
-        key-pressed(event) => {
-            if event.text == Key.Space || event.text == Key.Return {
-                root.press();
-                return accept;
-            }
-            reject
-        }
-    }
-
-    if focus.has-focus: FocusRing {
-        around-width: root.width;
-        around-height: root.height;
-        radius: root.height / 2;
-    }
-}
 
 // The play/pause button: the focal point of the bar, filled with the accent.
 component PlayButton {
@@ -283,6 +188,8 @@ export component Slider {
 // The bar along the bottom of the window: what is playing, the controls and the
 // volume.
 export component PlayerBar inherits Rectangle {
+    in-out property <bool> queue-open;
+
     background: Theme.colors.mantle;
     height: 88px;
 
@@ -471,13 +378,28 @@ export component PlayerBar inherits Rectangle {
             }
         }
 
-        // Volume.
+        // The queue panel's switch, and the volume.
         HorizontalLayout {
-            min-width: 120px;
-            preferred-width: 200px;
+            min-width: 160px;
+            preferred-width: 240px;
             horizontal-stretch: 1;
             alignment: end;
             spacing: Theme.space-s;
+
+            VerticalLayout {
+                alignment: center;
+
+                IconButton {
+                    glyph: Glyph.queue;
+                    checkable: true;
+                    active: root.queue-open;
+                    label: @tr("Queue");
+                    clicked => {
+                        root.queue-open = !root.queue-open;
+                        Theme.preferences-changed();
+                    }
+                }
+            }
 
             VerticalLayout {
                 alignment: center;

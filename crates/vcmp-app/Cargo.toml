@@ -18,6 +18,8 @@ env_logger = "0.11.11"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 log = "0.4.34"
 rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 slint.workspace = true
 vcmp-integrations = { version = "0.1.0", path = "../vcmp-integrations" }
 vcmp-library = { version = "0.1.0", path = "../vcmp-library" }

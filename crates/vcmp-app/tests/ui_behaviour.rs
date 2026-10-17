@@ -103,8 +103,9 @@ fn everything_works_from_the_keyboard() {
     assert_eq!(window.get_current_page(), Page::Settings);
 
     // From the Settings entry: About, Add folder, Update automatically, the shuffle
-    // choice, then the theme choice. Without folders there is no Rescan button.
-    for _ in 0..5 {
+    // choice, the output device, then the theme choice. Without folders there is no
+    // Rescan button, and without a player service no Discord switch.
+    for _ in 0..6 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);
@@ -205,9 +206,15 @@ fn smallest_window_keeps_everything_inside() {
     let width = 720.0;
     window.window().set_size(LogicalSize::new(width, 480.0));
 
-    for page in [0, 1, 2] {
+    // Every page, with the queue panel closed and open.
+    for (page, queue_open) in [0, 1, 2]
+        .into_iter()
+        .flat_map(|page| [(page, false), (page, true)])
+    {
         window.set_selected_index(page);
+        window.set_queue_open(queue_open);
         let roles = [
+            AccessibleRole::Combobox,
             AccessibleRole::Tab,
             AccessibleRole::RadioButton,
             AccessibleRole::Switch,
@@ -227,7 +234,7 @@ fn smallest_window_keeps_everything_inside() {
                 let label = element.accessible_label().unwrap_or_default();
                 assert!(
                     left >= 0.0 && right <= width + 0.5,
-                    "page {page}: {role:?} {label:?} spans x {left}..{right} in a {width}px window",
+                    "page {page} (queue open: {queue_open}): {role:?} {label:?} spans x {left}..{right} in a {width}px window",
                 );
             }
         }

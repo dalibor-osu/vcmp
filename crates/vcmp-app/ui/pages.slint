@@ -1,6 +1,6 @@
 import { AboutSlint, Palette } from "std-widgets.slint";
 import { Theme, ThemeMode } from "theme.slint";
-import { Button, FocusRing, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { Button, Dropdown, FocusRing, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
 import { LibraryState } from "library-state.slint";
 import { LibrarySection } from "library-settings.slint";
 import { PlayerState, ShuffleKind } from "player-state.slint";
@@ -34,6 +34,11 @@ component Page inherits VerticalLayout {
 
 export component SettingsPage inherits Page {
     title: @tr("Settings");
+
+    // Devices come and go; list them each time the page opens.
+    init => {
+        PlayerState.refresh-output-devices();
+    }
 
     LibrarySection {
         max-width: Theme.content-max-width;
@@ -80,9 +85,28 @@ export component SettingsPage inherits Page {
             }
         }
 
+        SettingRow {
+            title: @tr("Output device");
+            description: PlayerState.output-fallback != "" ? @tr("The chosen device isn't connected, so sound plays through {} until it is.", PlayerState.output-fallback)
+                : @tr("Where VCMP plays its sound. The system default follows your operating system's choice.");
+
+            Dropdown {
+                label: @tr("Output device");
+                first-option: @tr("System default");
+                options: PlayerState.output-devices;
+                current-index: PlayerState.output-device;
+                selected(index) => {
+                    PlayerState.set-output-device(index);
+                }
+                opening => {
+                    PlayerState.refresh-output-devices();
+                }
+            }
+        }
+
         if PlayerState.discord-available: SettingRow {
             title: @tr("Show on Discord");
-            description: @tr("While Discord runs, your status shows the track you're listening to, with the album cover when the album is tagged with a MusicBrainz ID.");
+            description: @tr("While Discord runs, your status shows the track you're listening to and its album cover. For albums without a MusicBrainz ID, the cover is looked up on musicbrainz.org, which receives the album title and artist.");
 
             Toggle {
                 label: @tr("Show on Discord");
@@ -242,6 +266,7 @@ export component AlbumsPage inherits Rectangle {
     in-out property <bool> album-open;
     // Plays the open album from a track (-1: from its start), shuffled or not.
     callback play-album(int, bool);
+    callback queue-album-track(int, bool);
     // The library database could not be opened or read.
     in property <bool> library-failed;
     callback range-changed(int, int);
@@ -330,6 +355,9 @@ export component AlbumsPage inherits Rectangle {
         playing-path: PlayerState.track-path;
         play(start, shuffle) => {
             root.play-album(start, shuffle);
+        }
+        queue-track(index, next) => {
+            root.queue-album-track(index, next);
         }
         album: root.album;
         tracks: root.tracks;

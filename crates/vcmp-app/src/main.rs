@@ -7,7 +7,7 @@ use std::rc::Rc;
 use slint::ComponentHandle;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
-use vcmp_app::player_service::{PlayerService, Presence};
+use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_integrations::musicbrainz::CoverFinder;
 use vcmp_library::Library;
@@ -18,7 +18,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let window = vcmp_app::create_window()?;
     // Without a database VCMP still runs; preferences then last for this session only.
     // The services stay alive until the window closes.
-    let mut _services = None;
+    let mut services = None;
     match library_paths()
         .and_then(|paths| Ok((Library::open(&paths.database, &paths.cache)?, paths)))
     {
@@ -33,7 +33,15 @@ fn main() -> Result<(), slint::PlatformError> {
                         view.clone(),
                         Delivery::EventLoop,
                     );
-                    let player_service = match Player::new(PlayerOptions::default()) {
+                    let options = PlayerOptions {
+                        output_device: library
+                            .setting(SETTING_OUTPUT_DEVICE)
+                            .ok()
+                            .flatten()
+                            .filter(|device| !device.is_empty()),
+                        ..PlayerOptions::default()
+                    };
+                    let player_service = match Player::new(options) {
                         Ok((player, events)) => {
                             let presence = Presence {
                                 sink: Box::new(DiscordPresence::start(
@@ -65,7 +73,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             None
                         }
                     };
-                    _services = Some((library_service, player_service));
+                    services = Some((library_service, player_service));
                 }
                 Err(error) => {
                     log::error!("could not read albums: {error}");
@@ -81,7 +89,11 @@ fn main() -> Result<(), slint::PlatformError> {
             window.set_library_failed(true);
         }
     }
-    window.run()
+    let result = window.run();
+    if let Some((_, Some(player_service))) = &services {
+        player_service.save_queue();
+    }
+    result
 }
 
 /// The platform's data and cache directories, or `$VCMP_HOME` (holding

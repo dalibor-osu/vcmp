@@ -16,11 +16,13 @@ Early development. In place so far:
 - music folders in Settings: add and remove folders, scans in the background with
   progress, and automatic updates when the folders change;
 - playback: gapless MP3, FLAC, WAV and Ogg Vorbis, with a player bar (seek, volume and
-  mute, shuffle, repeat) and Play, Shuffle and play-from-track on album pages;
+  mute, shuffle, repeat), Play, Shuffle and play-from-track on album pages, a queue
+  panel with Up next, the queue restored after a restart, and a choice of output
+  device;
 - Discord Rich Presence: "Listening to VCMP" with the track, its progress and the
   album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID.
 
-The queue panel, the other library views and everything else in the
+The other library views and everything else in the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
 
 ## Build and run

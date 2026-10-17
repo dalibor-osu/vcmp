@@ -13,6 +13,13 @@ export enum Repeat { off, all, one }
 // The last playback problem; the UI words the sentence so it can be translated.
 export enum PlayerProblem { none, no-output, track-failed }
 
+// One track in the queue panel.
+export struct QueueRow {
+    title: string,
+    artist: string,
+    duration: string,
+}
+
 export global PlayerState {
     in property <PlayState> state;
     // A track is loaded (playing, paused, or stopped at its start).
@@ -45,6 +52,20 @@ export global PlayerState {
     in property <PlayerProblem> problem;
     in property <string> problem-detail;
 
+    // The queue panel: Up next (played first), then what follows from the context,
+    // in play order. `queue-origin` names the context, such as its album title.
+    in property <[QueueRow]> up-next;
+    in property <[QueueRow]> upcoming;
+    in property <string> queue-origin;
+
+    // Output devices by name, the chosen one included even while it is missing; the
+    // system default is not among them. `output-device` indexes the chosen one (-1
+    // for the default); `output-fallback` names the device playing instead while the
+    // chosen one is missing ("" otherwise).
+    in property <[string]> output-devices;
+    in property <int> output-device: -1;
+    in property <string> output-fallback;
+
     callback toggle-play();
     callback next();
     callback previous();
@@ -57,4 +78,13 @@ export global PlayerState {
     callback set-shuffle-kind(ShuffleKind);
     callback set-repeat(Repeat);
     callback set-discord(bool);
+    // Plays a queue panel entry, counted over Up next followed by the context tracks.
+    callback play-queue-entry(int);
+    callback remove-from-up-next(int);
+    callback move-in-up-next(int, int);
+    callback clear-up-next();
+    // An index into `output-devices`, or -1 for the system default.
+    callback set-output-device(int);
+    // Lists the devices again; the answer arrives in `output-devices`.
+    callback refresh-output-devices();
 }

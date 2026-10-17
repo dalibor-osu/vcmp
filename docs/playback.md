@@ -201,7 +201,8 @@ paused.
 
 - **Saving.** `Player::snapshot()` returns a `PlaybackSnapshot`: the context, order,
   history, Up next, shuffle and repeat modes, and the position. It is plain data.
-  Storing it on exit is the app's job (workstream 4, with storage from workstream 2).
+  The app stores it as versioned JSON in the library's settings
+  (`crates/vcmp-app/src/saved_queue.rs`) whenever a track starts and on exit.
 - **Restoring.** `Command::Restore(snapshot)` loads it paused at the saved position.
   - A snapshot whose indices do not fit is rejected with `RestoreFailed`.
   - A saved track whose file has gone is skipped like any unplayable track.

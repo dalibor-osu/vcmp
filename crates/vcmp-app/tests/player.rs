@@ -11,28 +11,39 @@ use std::time::{Duration, SystemTime};
 
 use common::{Song, add};
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
-use slint::{ComponentHandle, Model};
+use slint::platform::{Key, WindowEvent};
+use slint::{ComponentHandle, Model, SharedString};
 use tempfile::TempDir;
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{
     CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink, RETRY_NOT_FOUND,
-    SETTING_DISCORD, SETTING_REPEAT, SETTING_SHUFFLE, SETTING_VOLUME,
+    SETTING_DISCORD, SETTING_OUTPUT_DEVICE, SETTING_REPEAT, SETTING_SHUFFLE, SETTING_VOLUME,
 };
+use vcmp_app::saved_queue;
 use vcmp_app::{AppWindow, PlayState, PlayerProblem, PlayerState, Repeat, Shuffle, ShuffleKind};
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, Lookup};
 use vcmp_library::{AlbumId, CoverArtId, Library};
 use vcmp_playback::{
-    Command, Event, NowPlaying, PlaybackError, PlaybackState, QueueEntry, RepeatMode, ShuffleMode,
+    AudioFormat, Command, Event, NowPlaying, OutputInfo, PlaybackError, PlaybackSnapshot,
+    PlaybackState, QueueEntry, QueueSlot, QueueSnapshot, QueueView, RepeatMode, ShuffleMode,
     TrackRef,
 };
 
+/// The commands sent, and the snapshot the engine would give when asked.
 #[derive(Clone, Default)]
-struct Recorder(Rc<RefCell<Vec<Command>>>);
+struct Recorder(
+    Rc<RefCell<Vec<Command>>>,
+    Rc<RefCell<Option<PlaybackSnapshot>>>,
+);
 
 impl PlayerControl for Recorder {
     fn send(&self, command: Command) {
         self.0.borrow_mut().push(command);
+    }
+
+    fn snapshot(&self) -> Option<PlaybackSnapshot> {
+        self.1.borrow().clone()
     }
 }
 
@@ -185,6 +196,17 @@ impl App {
         self.service.handle_event(self.now_playing(name));
         self.service
             .handle_event(Event::StateChanged(PlaybackState::Playing));
+    }
+
+    fn entry(&self, name: &str) -> QueueEntry {
+        QueueEntry::new(TrackRef::local(self.path(name)))
+    }
+
+    fn key(&self, key: Key) {
+        let text: SharedString = key.into();
+        let window = self.window.window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
     }
 
     fn now_playing(&self, name: &str) -> Event {
@@ -561,4 +583,225 @@ fn a_failed_lookup_is_not_kept() {
 
     app.service.handle_event(app.now_playing("2.flac"));
     assert_eq!(app.lookups.take(), [], "not right away");
+}
+
+#[test]
+fn the_queue_panel_lists_up_next_and_the_rest_of_the_album() {
+    let app = start(|_| {});
+    app.window.set_queue_open(true);
+    let album = app.album();
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        current: Some(app.entry("1.flac")),
+        up_next: vec![app.entry("2.flac")],
+        upcoming: vec![app.entry("2.flac")],
+        origin: Some(format!("album:{}", album.0)),
+        ..QueueView::default()
+    }));
+    let row = app.state().get_up_next().row_data(0).unwrap();
+    assert_eq!(
+        (
+            row.title.as_str(),
+            row.artist.as_str(),
+            row.duration.as_str()
+        ),
+        ("Closing", "Band", "0:01")
+    );
+    assert_eq!(app.state().get_upcoming().row_count(), 1);
+    assert_eq!(app.state().get_queue_origin(), "Record");
+
+    app.sent.take();
+    let rows: Vec<_> = ElementHandle::find_by_accessible_label(&app.window, "Closing, Band")
+        .filter(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+        .collect();
+    assert_eq!(rows.len(), 2, "one in Up next, one from the album");
+    rows[1].invoke_accessible_default_action();
+    assert_eq!(
+        app.sent.take(),
+        [Command::SkipTo(1)],
+        "counted after Up next"
+    );
+
+    app.press(AccessibleRole::Button, "Remove Closing from the queue");
+    app.press(AccessibleRole::Button, "Clear the queue");
+    assert_eq!(
+        app.sent.take(),
+        [Command::RemoveFromUpNext(0), Command::ClearUpNext]
+    );
+}
+
+#[test]
+fn the_queue_list_works_from_the_keyboard() {
+    let app = start(|_| {});
+    app.window.set_queue_open(true);
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        up_next: vec![app.entry("1.flac"), app.entry("2.flac")],
+        upcoming: vec![app.entry("1.flac")],
+        ..QueueView::default()
+    }));
+    let selected = |app: &App| -> Vec<String> {
+        ["Opening, Band", "Closing, Band"]
+            .iter()
+            .flat_map(|label| ElementHandle::find_by_accessible_label(&app.window, label))
+            .filter(|row| row.accessible_item_selected() == Some(true))
+            .filter_map(|row| row.accessible_label().map(|label| label.to_string()))
+            .collect()
+    };
+    // Tab until the list has focus: its first track becomes the current one.
+    let reached = (0..30).any(|_| {
+        app.key(Key::Tab);
+        !selected(&app).is_empty()
+    });
+    assert!(reached, "the queue list is a tab stop");
+    assert_eq!(selected(&app), ["Opening, Band"]);
+
+    app.sent.take();
+    app.key(Key::DownArrow);
+    assert_eq!(selected(&app), ["Closing, Band"]);
+    app.key(Key::Return);
+    app.key(Key::Delete);
+    app.window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Alt.into(),
+    });
+    app.key(Key::UpArrow);
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased {
+            text: Key::Alt.into(),
+        });
+    assert_eq!(
+        app.sent.take(),
+        [
+            Command::SkipTo(1),
+            Command::RemoveFromUpNext(1),
+            Command::MoveInUpNext { from: 1, to: 0 },
+        ]
+    );
+}
+
+#[test]
+fn album_tracks_go_into_up_next() {
+    let app = start(|_| {});
+    app.open_album();
+    app.sent.take();
+    app.window.invoke_queue_album_track(1, true);
+    app.window.invoke_queue_album_track(0, false);
+    let sent = app.sent.take();
+    assert!(
+        matches!(&sent[0], Command::PlayNext(entries) if entries.len() == 1 && *entries[0].track.id == *app.path("2.flac")),
+        "{sent:?}"
+    );
+    assert!(
+        matches!(&sent[1], Command::AddToQueue(entries) if *entries[0].track.id == *app.path("1.flac")),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn the_queue_is_saved_and_comes_back_paused() {
+    let snapshot = PlaybackSnapshot {
+        queue: QueueSnapshot {
+            context: vec![QueueEntry::new(TrackRef::local("/music/a.flac"))],
+            order: vec![0],
+            current: Some(QueueSlot::Context(0)),
+            ..QueueSnapshot::default()
+        },
+        position: Duration::from_secs(42),
+    };
+    let saved = saved_queue::encode(&snapshot);
+    let app = start(|library| {
+        library.set_setting(saved_queue::SETTING, &saved).unwrap();
+    });
+    assert!(
+        app.sent
+            .take()
+            .contains(&Command::Restore(snapshot.clone())),
+        "restored at start"
+    );
+
+    let later = PlaybackSnapshot {
+        position: Duration::from_secs(7),
+        ..snapshot
+    };
+    *app.sent.1.borrow_mut() = Some(later.clone());
+    app.service.handle_event(app.now_playing("1.flac"));
+    let stored = app.library.setting(saved_queue::SETTING).unwrap().unwrap();
+    assert_eq!(
+        saved_queue::decode(&stored),
+        Ok(later),
+        "saved as tracks change"
+    );
+}
+
+#[test]
+fn the_output_device_is_chosen_and_remembered() {
+    let app = start(|library| {
+        library
+            .set_setting(SETTING_OUTPUT_DEVICE, "USB DAC")
+            .unwrap();
+    });
+    let devices = |app: &App| -> Vec<String> {
+        app.state()
+            .get_output_devices()
+            .iter()
+            .map(|name| name.to_string())
+            .collect()
+    };
+    assert_eq!(devices(&app), ["USB DAC"], "known before the list arrives");
+    assert_eq!(app.state().get_output_device(), 0);
+
+    app.service
+        .set_output_devices(Ok(vec!["Speakers".into(), "Headphones".into()]));
+    assert_eq!(
+        devices(&app),
+        ["Speakers", "Headphones", "USB DAC"],
+        "a missing choice stays in the list"
+    );
+    assert_eq!(app.state().get_output_device(), 2);
+    app.service.handle_event(Event::OutputChanged(OutputInfo {
+        device: "Speakers".into(),
+        format: AudioFormat {
+            sample_rate: 48_000,
+            channels: 2,
+        },
+        fell_back: true,
+    }));
+    assert_eq!(app.state().get_output_fallback(), "Speakers");
+
+    // The dropdown in Settings, from the keyboard: Up picks the device above.
+    app.service
+        .set_device_lister(|| Ok(vec!["Speakers".into(), "Headphones".into()]));
+    app.window.set_selected_index(1);
+    let dropdown = ElementHandle::find_by_accessible_label(&app.window, "Output device")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Combobox))
+        .expect("the output device choice");
+    assert_eq!(dropdown.accessible_value().as_deref(), Some("USB DAC"));
+    app.sent.take();
+    let chosen = (0..30).find_map(|_| {
+        app.key(Key::Tab);
+        app.key(Key::UpArrow);
+        app.sent
+            .take()
+            .into_iter()
+            .find(|command| matches!(command, Command::SetOutputDevice(_)))
+    });
+    assert_eq!(
+        chosen,
+        Some(Command::SetOutputDevice(Some("Headphones".into())))
+    );
+    assert_eq!(
+        app.library
+            .setting(SETTING_OUTPUT_DEVICE)
+            .unwrap()
+            .as_deref(),
+        Some("Headphones")
+    );
+    assert_eq!(
+        app.state().get_output_fallback(),
+        "",
+        "a new choice clears the note"
+    );
+
+    app.state().invoke_set_output_device(-1);
+    assert_eq!(app.sent.take(), [Command::SetOutputDevice(None)]);
+    assert_eq!(app.state().get_output_device(), -1, "the system default");
 }

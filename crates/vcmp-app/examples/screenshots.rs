@@ -25,7 +25,7 @@ use vcmp_app::{AppWindow, Theme, ThemeMode};
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
 use vcmp_library::Library;
-use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, TrackRef};
+use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, QueueView, TrackRef};
 
 struct Shot {
     name: &'static str,
@@ -117,6 +117,8 @@ fn prepare(window: &AppWindow, shot: &Shot) {
         }
         None => window.set_album_open(false),
     }
+    // The album shots show the queue panel too.
+    window.set_queue_open(shot.album.is_some());
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
@@ -165,13 +167,26 @@ fn main() -> Result<(), slint::PlatformError> {
             .ok()
             .and_then(|n| n.parse().ok())
             .unwrap_or(0);
+        // Made-up devices, so the shots never list the real ones.
+        player.set_device_lister(|| {
+            Ok(vec![
+                "Built-in Audio Analog Stereo".into(),
+                "USB DAC".into(),
+            ])
+        });
         if let Some(album) = view.browser().album(album_index)
-            && let Some(track) = library
-                .album_tracks(album.id)
-                .expect("tracks")
-                .into_iter()
-                .next()
+            && let tracks = library.album_tracks(album.id).expect("tracks")
+            && let Some(track) = tracks.first()
         {
+            let entry = |track: &vcmp_library::Track| {
+                QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref()))
+            };
+            player.handle_event(Event::QueueChanged(QueueView {
+                up_next: tracks.iter().rev().take(1).map(entry).collect(),
+                upcoming: tracks.iter().skip(1).map(entry).collect(),
+                origin: Some(format!("album:{}", album.id.0)),
+                ..QueueView::default()
+            }));
             player.handle_event(Event::TrackChanged(Some(NowPlaying {
                 entry: QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref())),
                 duration: Some(track.duration),
