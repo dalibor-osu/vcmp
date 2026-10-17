@@ -13,11 +13,12 @@ Early development. In place so far:
   grouping, moved-file re-linking, artwork caching, search and a file watcher;
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
   pages with tracks by disc;
+- music folders in Settings: add and remove folders, scans in the background with
+  progress, and automatic updates when the folders change;
 - the playback engine: gapless MP3, FLAC, WAV and Ogg Vorbis, queue and shuffle, so
   far not wired to the window.
 
-Adding music folders from the app, the other library views, the player controls and
-everything else in the
+The other library views, the player controls and everything else in the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
 
 ## Build and run

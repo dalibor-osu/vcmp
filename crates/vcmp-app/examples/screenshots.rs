@@ -6,7 +6,8 @@
 //!     cargo run -p vcmp-app --example screenshots
 //!
 //! With `VCMP_HOME` pointing at a library (for example `target/scan-example`), the
-//! album shots show that library; without it they show the empty state.
+//! shots show that library and its music folders; point it at an empty directory to
+//! see the empty states.
 
 use std::cell::Cell;
 use std::fs::File;
@@ -17,6 +18,7 @@ use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, SharedString, Timer, TimerMode};
+use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::{AppWindow, Theme, ThemeMode};
 use vcmp_library::Library;
 
@@ -115,11 +117,17 @@ fn main() -> Result<(), slint::PlatformError> {
     std::fs::create_dir_all(&out_dir).expect("output directory");
 
     let window = vcmp_app::create_window()?;
-    let _albums = std::env::var_os("VCMP_HOME").map(|home| {
+    // The same wiring as the app: the albums, plus music folders and scanning (an
+    // automatic-update library rescans at startup, as the app would).
+    let _library = std::env::var_os("VCMP_HOME").map(|home| {
         let home = PathBuf::from(home);
-        let library =
-            Library::open(&home.join("library.sqlite3"), &home.join("cache")).expect("library");
-        vcmp_app::library_view::connect(&window, std::rc::Rc::new(library)).expect("albums")
+        let paths = LibraryPaths {
+            database: home.join("library.sqlite3"),
+            cache: home.join("cache"),
+        };
+        let library = Rc::new(Library::open(&paths.database, &paths.cache).expect("library"));
+        let browser = vcmp_app::library_view::connect(&window, library.clone()).expect("albums");
+        LibraryService::connect(&window, library, paths, browser, Delivery::EventLoop)
     });
     // Frames are taken without waiting for transitions to finish.
     window.global::<Theme>().set_reduced_motion(true);

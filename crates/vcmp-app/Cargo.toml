@@ -17,6 +17,7 @@ directories = "6.0.0"
 env_logger = "0.11.11"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 log = "0.4.34"
+rfd = "0.17.2"
 slint.workspace = true
 vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
 
@@ -24,6 +25,7 @@ vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
 slint-build.workspace = true
 
 [dev-dependencies]
+dunce = "1.0.5"
 i-slint-backend-testing = "=1.18.1"
 lofty = "0.25.4"
 png = "0.18.1"

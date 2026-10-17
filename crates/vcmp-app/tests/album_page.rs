@@ -1,48 +1,17 @@
 //! Opening an album from the grid, its page, and every way back, with a real library
 //! built from the library crate's silent fixtures.
 
-use std::path::Path;
+mod common;
+
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 
+use common::{Song, add};
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
-use lofty::config::WriteOptions;
-use lofty::file::TaggedFileExt;
-use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, Model, SharedString};
 use vcmp_app::{AppWindow, Page, TrackRow, library_view};
 use vcmp_library::Library;
-
-const FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../vcmp-library/tests/fixtures/silence.flac"
-);
-
-struct Song<'a> {
-    title: &'a str,
-    artist: &'a str,
-    album: &'a str,
-    album_artist: Option<&'a str>,
-    track: u32,
-    disc: u32,
-}
-
-fn add(dir: &Path, name: &str, song: Song) {
-    let path = dir.join(name);
-    std::fs::copy(FIXTURE, &path).unwrap();
-    let file = lofty::read_from_path(&path).unwrap();
-    let mut tag = Tag::new(file.primary_tag_type());
-    tag.set_title(song.title.into());
-    tag.set_artist(song.artist.into());
-    tag.set_album(song.album.into());
-    tag.set_track(song.track);
-    tag.set_disk(song.disc);
-    if let Some(album_artist) = song.album_artist {
-        tag.insert_text(ItemKey::AlbumArtist, album_artist.into());
-    }
-    tag.save_to_path(&path, WriteOptions::default()).unwrap();
-}
 
 /// A window showing a library with a two-disc compilation and a plain album.
 fn open() -> (

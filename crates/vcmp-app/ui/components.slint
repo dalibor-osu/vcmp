@@ -182,16 +182,20 @@ export component SegmentedChoice {
 export component Toggle {
     in property <string> label;
     in property <bool> checked;
+    in property <bool> enabled: true;
     callback toggled(bool);
 
     function flip() {
-        root.toggled(!root.checked);
+        if root.enabled {
+            root.toggled(!root.checked);
+        }
     }
 
     width: 48px;
     height: 28px;
     accessible-role: switch;
     accessible-label: root.label;
+    accessible-enabled: root.enabled;
     accessible-checkable: true;
     accessible-checked: root.checked;
     accessible-action-default => {
@@ -216,6 +220,9 @@ export component Toggle {
         background: root.checked ? Theme.colors.on-accent : Theme.colors.text-muted;
         animate x { duration: Theme.duration-fast; easing: ease-out; }
     }
+
+    // Disabled: drawn faded; the state stays readable from the knob position.
+    opacity: root.enabled ? 1 : 0.5;
 
     TouchArea {
         clicked => {
@@ -284,4 +291,114 @@ export component SettingRow {
             @children
         }
     }
+}
+
+// A push button. `primary` fills it with the accent: reserved for the one action a
+// screen exists for, such as adding music to an empty library.
+export component Button {
+    in property <string> text;
+    // Spoken label when the visible text alone is ambiguous, e.g. several Remove buttons.
+    in property <string> label: root.text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    function press() {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    min-height: Theme.target-height;
+    min-width: caption.preferred-width + 2 * Theme.space-l;
+    horizontal-stretch: 0;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        root.press();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: root.primary ? Theme.colors.accent : touch.has-hover && root.enabled ? Theme.colors.surface : Theme.colors.base;
+        border-width: root.primary ? 0px : 1px;
+        border-color: Theme.colors.outline;
+        animate background { duration: Theme.duration-fast; }
+    }
+
+    caption := Text {
+        text: root.text;
+        color: !root.enabled ? Theme.colors.text-muted : root.primary ? Theme.colors.on-accent : Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: root.primary ? Theme.weight-strong : Theme.weight-regular;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.press();
+        }
+    }
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.press();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// Progress of a running task, 0 to 1. The fill is the accent: it marks something
+// happening now.
+export component ProgressBar {
+    in property <float> progress;
+    in property <string> label;
+
+    height: 4px;
+    accessible-role: progress-indicator;
+    accessible-label: root.label;
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-value: round(root.progress * 100);
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: Theme.colors.surface;
+    }
+
+    Rectangle {
+        x: 0;
+        width: parent.width * clamp(root.progress, 0, 1);
+        border-radius: self.height / 2;
+        background: Theme.colors.accent;
+        animate width { duration: Theme.duration-fast; }
+    }
+}
+
+export component SectionHeading inherits Text {
+    color: Theme.colors.text;
+    font-size: Theme.font-heading;
+    font-weight: Theme.weight-strong;
 }

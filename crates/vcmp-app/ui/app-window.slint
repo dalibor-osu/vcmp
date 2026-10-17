@@ -5,8 +5,10 @@ import { NavItem } from "components.slint";
 import { AboutPage, AlbumsPage, SettingsPage } from "pages.slint";
 import { AlbumTile, ArtworkState } from "album-grid.slint";
 import { AlbumDetail, TrackRow } from "album-page.slint";
+import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
+import { ProgressBar } from "components.slint";
 
-export { AlbumDetail, AlbumTile, ArtworkState, Theme, ThemeMode, ThemePalette, TrackRow }
+export { AlbumDetail, AlbumTile, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { albums, settings, about }
 
@@ -108,6 +110,26 @@ export component AppWindow inherits Window {
                     drop-shadow-blur: 8px;
                     drop-shadow-color: Theme.colors.glow;
                     animate y { duration: Theme.duration-medium; easing: ease-in-out; }
+                }
+
+                // Scan status, visible from every page while albums appear.
+                if LibraryState.scanning: VerticalLayout {
+                    y: parent.height - self.preferred-height;
+                    width: parent.width;
+                    padding: Theme.space-l;
+                    padding-left: Theme.space-xl;
+                    spacing: Theme.space-s;
+
+                    Text {
+                        text: @tr("Scanning your music");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                    }
+
+                    ProgressBar {
+                        progress: LibraryState.progress;
+                        label: @tr("Scan progress");
+                    }
                 }
             }
 

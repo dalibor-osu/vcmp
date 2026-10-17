@@ -17,8 +17,9 @@ use crate::{AlbumTile, AppWindow, ArtworkState};
 
 /// Owns the grid's model and its cover loading. Keep it alive as long as the window.
 pub struct AlbumBrowser {
+    window: slint::Weak<AppWindow>,
     model: Rc<VecModel<AlbumTile>>,
-    thumbnails: Vec<Option<PathBuf>>,
+    albums: RefCell<Vec<Album>>,
     state: RefCell<CoverState>,
     loader: Loader,
 }
@@ -28,6 +29,7 @@ struct CoverState {
     loaded: HashSet<usize>,
     queued: HashSet<usize>,
     first_visible: usize,
+    visible_count: usize,
 }
 
 /// Counters for benchmarks and diagnostics.
@@ -58,11 +60,9 @@ impl AlbumBrowser {
             });
         };
         let browser = Rc::new(Self {
+            window: window.as_weak(),
             model,
-            thumbnails: albums
-                .iter()
-                .map(|album| album.artwork.as_ref().map(|art| art.thumbnail.clone()))
-                .collect(),
+            albums: RefCell::new(albums.to_vec()),
             state: RefCell::default(),
             loader: Loader::start(Box::new(deliver)),
         });
@@ -78,6 +78,32 @@ impl AlbumBrowser {
         browser
     }
 
+    /// The album at a grid position.
+    pub fn album(&self, index: usize) -> Option<Album> {
+        self.albums.borrow().get(index).cloned()
+    }
+
+    pub fn album_count(&self) -> usize {
+        self.albums.borrow().len()
+    }
+
+    /// Shows a new album list, for example after a scan. The grid keeps its scroll
+    /// position; covers are loaded again for the rows in view.
+    pub fn replace(&self, albums: &[Album]) {
+        let tiles: Vec<AlbumTile> = albums.iter().map(tile).collect();
+        *self.albums.borrow_mut() = albums.to_vec();
+        let (first, count) = {
+            let mut state = self.state.borrow_mut();
+            state.loaded.clear();
+            state.queued.clear();
+            (state.first_visible, state.visible_count)
+        };
+        self.model.set_vec(tiles);
+        if let Some(window) = self.window.upgrade() {
+            self.show_range(&window, first, count);
+        }
+    }
+
     /// Queues covers around the rows in view, nearest first, and releases covers far
     /// away so memory stays bounded however long the list is.
     fn show_range(&self, window: &AppWindow, first: usize, count: usize) {
@@ -86,6 +112,7 @@ impl AlbumBrowser {
         let keep = first.saturating_sub(3 * count)..(first + 4 * count).min(len);
         let mut state = self.state.borrow_mut();
         state.first_visible = first;
+        state.visible_count = count;
 
         let far: Vec<usize> = state
             .loaded
@@ -111,11 +138,16 @@ impl AlbumBrowser {
             if state.loaded.contains(&index) {
                 continue;
             }
-            if let (Some(path), Some(row)) = (&self.thumbnails[index], self.model.row_data(index)) {
+            let path = self
+                .albums
+                .borrow()
+                .get(index)
+                .and_then(|album| album.artwork.as_ref().map(|art| art.thumbnail.clone()));
+            if let (Some(path), Some(row)) = (path, self.model.row_data(index)) {
                 jobs.push(Job {
                     index,
                     id: row.id,
-                    path: path.clone(),
+                    path,
                     size_px,
                 });
             }

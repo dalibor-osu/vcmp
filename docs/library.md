@@ -91,9 +91,8 @@ translated.
 
 `LibraryWatcher` watches the reachable sources and calls back once no change has
 arrived for a quiet period, so copying an album produces one notification. It never
-scans by itself. The app isn't wired to it yet: starting the watcher and scanning at
-startup while `library.auto_update` is on (the default) comes with the library views
-in workstream 4.
+scans by itself. The app's `LibraryService` (see [ui.md](ui.md#music-folders-and-scanning))
+starts it, and scans at startup, while `library.auto_update` is on (the default).
 
 ## Search
 

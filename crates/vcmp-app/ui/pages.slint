@@ -1,6 +1,8 @@
 import { AboutSlint, Palette } from "std-widgets.slint";
 import { Theme, ThemeMode } from "theme.slint";
-import { FocusRing, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { Button, FocusRing, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { LibraryState } from "library-state.slint";
+import { LibrarySection } from "library-settings.slint";
 import { AlbumGrid, AlbumTile } from "album-grid.slint";
 import { AlbumDetail, AlbumView, TrackRow } from "album-page.slint";
 
@@ -28,14 +30,31 @@ component Page inherits VerticalLayout {
     @children
 }
 
-component SectionHeading inherits Text {
-    color: Theme.colors.text;
-    font-size: Theme.font-heading;
-    font-weight: Theme.weight-strong;
-}
 
 export component SettingsPage inherits Page {
     title: @tr("Settings");
+
+    LibrarySection {
+        max-width: Theme.content-max-width;
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-xs;
+        max-width: Theme.content-max-width;
+
+        SettingRow {
+            title: @tr("Update automatically");
+            description: @tr("Scan the music folders when VCMP starts, and whenever their contents change.");
+
+            Toggle {
+                label: @tr("Update automatically");
+                checked: LibraryState.auto-update;
+                toggled(on) => {
+                    LibraryState.set-auto-update(on);
+                }
+            }
+        }
+    }
 
     VerticalLayout {
         spacing: Theme.space-xs;
@@ -220,15 +239,33 @@ export component AlbumsPage inherits Rectangle {
             }
         }
 
+        // Empty states: why there is nothing to show, and what fills the page.
         if root.albums.length == 0: VerticalLayout {
             padding: Theme.space-xxl;
+            spacing: Theme.space-l;
             alignment: start;
 
             Text {
-                text: root.library-failed ? @tr("The music library could not be opened, so no albums can be shown.") : @tr("No albums in the library yet.");
-                color: Theme.colors.text-muted;
+                text: root.library-failed ? @tr("The music library could not be opened, so no albums can be shown.")
+                    : LibraryState.scanning ? @tr("Looking for albums in your music folders. They appear here as they are found.")
+                    : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in, and VCMP finds your albums.")
+                    : @tr("No albums found in your music folders. Tracks without an album tag don't appear here.");
+                color: Theme.colors.text;
                 font-size: Theme.font-body;
                 wrap: word-wrap;
+                max-width: Theme.content-max-width;
+            }
+
+            if !root.library-failed && !LibraryState.scanning && LibraryState.folders.length == 0: HorizontalLayout {
+                alignment: start;
+
+                Button {
+                    text: @tr("Add music folder…");
+                    primary: true;
+                    clicked => {
+                        LibraryState.add-folder();
+                    }
+                }
             }
         }
 

@@ -102,8 +102,11 @@ fn everything_works_from_the_keyboard() {
     press(&window, Key::Space);
     assert_eq!(window.get_current_page(), Page::Settings);
 
-    press(&window, Key::Tab);
-    press(&window, Key::Tab);
+    // From the Settings entry: About, Add folder, Update automatically, then the
+    // theme choice. Without folders there is no Rescan button.
+    for _ in 0..4 {
+        press(&window, Key::Tab);
+    }
     press(&window, Key::RightArrow);
     assert_eq!(theme.get_mode(), ThemeMode::Light);
     press(&window, Key::RightArrow);

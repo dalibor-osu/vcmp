@@ -10,20 +10,23 @@ use vcmp_library::{Album, Library, Track};
 use crate::albums::{AlbumBrowser, initial};
 use crate::{AlbumDetail, AppWindow, TrackRow};
 
-/// Shows the library's albums. Keep the returned browser alive with the window.
+/// Shows the library's albums. Keep the returned browser alive with the window; it
+/// also serves later updates (`AlbumBrowser::replace`).
 pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<Rc<AlbumBrowser>> {
-    let albums = Rc::new(library.albums()?);
-    let browser = AlbumBrowser::connect(window, &albums);
-    let weak = window.as_weak();
+    let browser = AlbumBrowser::connect(window, &library.albums()?);
+    let weak_window = window.as_weak();
+    let weak_browser = Rc::downgrade(&browser);
     window.on_album_activated(move |index| {
-        let Some(window) = weak.upgrade() else { return };
+        let (Some(window), Some(browser)) = (weak_window.upgrade(), weak_browser.upgrade()) else {
+            return;
+        };
         let Some(album) = usize::try_from(index)
             .ok()
-            .and_then(|index| albums.get(index))
+            .and_then(|index| browser.album(index))
         else {
             return;
         };
-        open_album(&window, &library, album);
+        open_album(&window, &library, &album);
     });
     Ok(browser)
 }

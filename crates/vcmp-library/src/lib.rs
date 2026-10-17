@@ -144,8 +144,10 @@ impl Library {
 
     /// Removes a source. Its tracks stay in the database as unavailable, so playlist
     /// entries survive and come back if the directory is added again.
-    pub fn remove_source(&mut self, id: i64) -> Result<()> {
-        let tx = self.conn.transaction()?;
+    pub fn remove_source(&self, id: i64) -> Result<()> {
+        // A shared reference is enough: the connection is never used from two places
+        // at once, and the transaction ends before this returns.
+        let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "UPDATE tracks SET available = 0, source_id = NULL WHERE source_id = ?1",
             [id],
@@ -174,6 +176,16 @@ impl Library {
             _ => path.to_path_buf(),
         };
         Ok(scan::track_id_for_path(&self.conn, &resolved)?.map(TrackId))
+    }
+
+    /// How many tracks are available (their files were found by the last scan).
+    pub fn available_track_count(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM tracks WHERE available = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
     }
 
     pub fn albums(&self) -> Result<Vec<Album>> {

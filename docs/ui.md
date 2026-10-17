@@ -19,6 +19,9 @@ dials come from DESIGN.md).
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc |
 | `src/albums.rs` | `AlbumBrowser`: the grid's model and background cover loading |
 | `src/library_view.rs` | Connects the library to the grid and opens album pages |
+| `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
+| `ui/library-settings.slint` | The Music folders section of Settings |
+| `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
@@ -67,6 +70,8 @@ subtext1 and overlay2 instead.
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
 | Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Albums, Settings, About) |
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
+| Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
+| Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
@@ -120,6 +125,40 @@ its scroll position and current card survive.
 
 The Albums page fades in through a `FadeCurtain`, created each time the page is
 shown, because the page itself stays alive while hidden.
+
+## Music folders and scanning
+
+`LibraryState` is the UI's view of the folders and of scanning. `LibraryService`
+keeps it current and implements its callbacks.
+
+- **Folders:**
+  - **Adding** opens the system folder picker (`rfd`: the desktop portal on Linux,
+    native dialogs on Windows and macOS), then scans.
+  - **Changing "Include subfolders"** rescans.
+  - **Removing** needs no confirmation: tracks become unavailable, and re-adding the
+    folder brings them back with playlists intact.
+  - **Locked during a scan:** the subfolder switch and Remove can't be used while a
+    scan runs, since the change would race it.
+- **Scans:**
+  - **Where they run:** a background thread with its own database connection.
+  - **Progress:** reported to the UI thread at most every 100 ms.
+  - **Albums appear as found:** the grid refreshes every 3 s while tags are read.
+  - **One at a time:** a scan requested during another runs once it is done.
+- **Automatic updates** (on by default): a scan at startup, plus a watcher that
+  triggers one 2 s after the folders stop changing.
+- **Where the status shows:**
+  - Settings shows the phase and count while scanning, then the number of tracks.
+  - Unreadable files can be expanded into a list with the reason for each.
+  - While a scan runs, the bottom of the sidebar shows a progress bar on every page.
+- **Errors** reach the UI as a kind plus the system's detail. Slint words the
+  sentence, so it can be translated.
+
+The Albums page tells apart why it is empty:
+- the library could not be opened;
+- a scan is running;
+- there are no folders yet, with the one primary button in the UI, "Add music
+  folder…";
+- the folders hold no tagged albums.
 
 ## Accessibility patterns
 
