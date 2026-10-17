@@ -50,7 +50,10 @@ instead of the platform data and cache directories. For example,
 Debug builds optimise the dependencies (`[profile.dev.package."*"]` in
 `Cargo.toml`): unoptimised Slint, its renderer and image decoding made the album grid
 take 46 ms a frame. The first debug build is slower for it; later ones only rebuild
-VCMP's crates. Measure performance with `--release`.
+VCMP's crates. Dependencies carry line tables only, and CI strips debug info from
+test binaries (`CARGO_PROFILE_DEV_*` in the workflow): with full debug info each test
+binary was 400 to 660 MB and filled the runner's disk. Measure performance with
+`--release`.
 
 On Linux, building needs the fontconfig, xkbcommon and ALSA development packages
 (`libfontconfig1-dev libxkbcommon-dev libasound2-dev` on Debian/Ubuntu;

@@ -2,7 +2,8 @@ import { ScrollView } from "std-widgets.slint";
 import "../../../assets/fonts/sora/Sora[wght].ttf";
 import { Theme, ThemeMode, ThemePalette } from "theme.slint";
 import { NavItem } from "components.slint";
-import { AboutPage, AlbumsPage, SettingsPage } from "pages.slint";
+import { AboutPage, AlbumsPage, ArtistsPage, SettingsPage } from "pages.slint";
+import { ArtistDetail } from "artist-page.slint";
 import { AlbumTile, ArtworkState } from "album-grid.slint";
 import { AlbumDetail, TrackRow } from "album-page.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
@@ -13,9 +14,9 @@ import { QueuePanel } from "queue-panel.slint";
 import { Glyph, IconArt } from "icons.slint";
 
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, Repeat, Shuffle, ShuffleKind }
-export { AlbumDetail, AlbumTile, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
+export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
-export enum Page { albums, settings, about }
+export enum Page { albums, artists, settings, about }
 
 struct NavEntry {
     page: Page,
@@ -30,6 +31,23 @@ export component AppWindow inherits Window {
     in property <[TrackRow]> album-tracks;
     in property <bool> album-multi-disc;
     in-out property <bool> album-open;
+    // The Artists page: its grid, the open artist and an album opened from there.
+    in property <[AlbumTile]> artists;
+    in-out property <bool> artists-show-all;
+    in-out property <bool> artist-open;
+    in-out property <bool> artist-album-open;
+    in property <ArtistDetail> artist-detail;
+    in property <[AlbumTile]> artist-albums;
+    in property <[TrackRow]> artist-appearances;
+    callback artist-activated(int);
+    callback artist-range-changed(int, int);
+    // The grid switched between album artists and everyone.
+    callback artists-filter-changed();
+    callback artist-album-activated(int);
+    // Plays everything by the open artist, shuffled or not, or from an appearance.
+    callback play-artist(bool);
+    callback play-artist-appearance(int);
+    callback queue-artist-appearance(int, bool);
     // The queue panel is shown beside the page.
     in-out property <bool> queue-open;
     // The library database could not be opened or read.
@@ -46,10 +64,17 @@ export component AppWindow inherits Window {
 
     private property <[NavEntry]> nav: [
         { page: Page.albums, label: @tr("Albums") },
+        { page: Page.artists, label: @tr("Artists") },
         { page: Page.settings, label: @tr("Settings") },
         { page: Page.about, label: @tr("About") },
     ];
     private property <length> nav-spacing: Theme.space-xs;
+    // Wide enough for the queue panel beside the page, the page narrows to make
+    // room; in a narrower window the panel lies over the page's right edge, so the
+    // page keeps the width its controls need. Only page widths depend on this, never
+    // the window's layout.
+    private property <length> queue-width: 320px;
+    private property <length> page-width: pages.width - (root.queue-open && root.width >= 1000px ? root.queue-width : 0px);
     private property <length> marker-height: 20px;
 
     title: "VCMP";
@@ -101,9 +126,12 @@ export component AppWindow inherits Window {
                                 label: entry.label;
                                 selected: index == root.selected-index;
                                 activated => {
-                                    // Choosing Albums again leaves an open album.
+                                    // Choosing Albums or Artists again goes back to the grid.
                                     if index == root.selected-index && entry.page == Page.albums {
                                         albums-page.close-album();
+                                    }
+                                    if index == root.selected-index && entry.page == Page.artists {
+                                        artists-page.show-grid();
                                     }
                                     root.selected-index = index;
                                 }
@@ -148,10 +176,12 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Rectangle {
+                pages := Rectangle {
                     accessible-role: tab-panel;
 
                     albums-page := AlbumsPage {
+                        x: 0;
+                        width: root.page-width;
                         shown: root.current-page == Page.albums;
                         albums: root.albums;
                         album: root.album-detail;
@@ -172,26 +202,73 @@ export component AppWindow inherits Window {
                             root.album-activated(index);
                         }
                     }
+                    artists-page := ArtistsPage {
+                        x: 0;
+                        width: root.page-width;
+                        shown: root.current-page == Page.artists;
+                        artists: root.artists;
+                        show-all <=> root.artists-show-all;
+                        library-failed: root.library-failed;
+                        artist-open <=> root.artist-open;
+                        album-open <=> root.artist-album-open;
+                        artist: root.artist-detail;
+                        artist-albums: root.artist-albums;
+                        appearances: root.artist-appearances;
+                        album: root.album-detail;
+                        tracks: root.album-tracks;
+                        multi-disc: root.album-multi-disc;
+                        activated(index) => {
+                            root.artist-activated(index);
+                        }
+                        range-changed(first, count) => {
+                            root.artist-range-changed(first, count);
+                        }
+                        filter-changed => {
+                            root.artists-filter-changed();
+                        }
+                        album-activated(index) => {
+                            root.artist-album-activated(index);
+                        }
+                        play-artist(shuffle) => {
+                            root.play-artist(shuffle);
+                        }
+                        play-appearance(index) => {
+                            root.play-artist-appearance(index);
+                        }
+                        queue-appearance(index, next) => {
+                            root.queue-artist-appearance(index, next);
+                        }
+                        play-album(start, shuffle) => {
+                            root.play-album(start, shuffle);
+                        }
+                        queue-album-track(index, next) => {
+                            root.queue-album-track(index, next);
+                        }
+                    }
                     if root.current-page == Page.settings: ScrollView {
+                        x: 0;
+                        width: root.page-width;
                         SettingsPage {
                             width: parent.width;
                         }
                     }
                     if root.current-page == Page.about: ScrollView {
+                        x: 0;
+                        width: root.page-width;
                         AboutPage {
                             width: parent.width;
                             version: root.version;
                         }
                     }
+
+                    if root.queue-open: QueuePanel {
+                        x: parent.width - self.width;
+                        width: root.queue-width;
+                        height: parent.height;
+                    }
                 }
 
-                // The page takes the room the panel leaves.
-                if root.queue-open: QueuePanel {
-                    min-width: 240px;
-                    preferred-width: 320px;
-                    max-width: 320px;
-                    horizontal-stretch: 0;
-                }
+
             }
 
             PlayerBar {

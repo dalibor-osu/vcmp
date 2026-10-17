@@ -1,5 +1,6 @@
-//! Feeds the album grid: one model row per album, with covers decoded on background
-//! threads for the rows in view and released again when they scroll far away.
+//! Feeds the card grids (albums, artists, an artist's albums): one model row per
+//! card, with pictures decoded on background threads for the cards in view and
+//! released again when they scroll far away.
 
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
@@ -15,11 +16,49 @@ use vcmp_library::Album;
 
 use crate::{AlbumTile, AppWindow, ArtworkState};
 
-/// Owns the grid's model and its cover loading. Keep it alive as long as the window.
-pub struct AlbumBrowser {
+/// Which of the window's card grids a `CoverGrid` feeds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grid {
+    /// The Albums page.
+    Albums,
+    /// The Artists page.
+    Artists,
+    /// The albums on an artist's page.
+    ArtistAlbums,
+}
+
+impl Grid {
+    fn model(self, window: &AppWindow) -> ModelRc<AlbumTile> {
+        match self {
+            Grid::Albums => window.get_albums(),
+            Grid::Artists => window.get_artists(),
+            Grid::ArtistAlbums => window.get_artist_albums(),
+        }
+    }
+
+    fn set_model(self, window: &AppWindow, model: ModelRc<AlbumTile>) {
+        match self {
+            Grid::Albums => window.set_albums(model),
+            Grid::Artists => window.set_artists(model),
+            Grid::ArtistAlbums => window.set_artist_albums(model),
+        }
+    }
+
+    fn slot(self) -> usize {
+        self as usize
+    }
+}
+
+/// A card and the thumbnail its picture comes from, if it has one.
+pub type Card = (AlbumTile, Option<PathBuf>);
+
+/// One card grid's model, with pictures decoded on background threads for the cards
+/// in view and released again when they scroll far away. Keep it alive as long as
+/// the window.
+pub struct CoverGrid {
     window: slint::Weak<AppWindow>,
     model: Rc<VecModel<AlbumTile>>,
-    albums: RefCell<Vec<Album>>,
+    thumbnails: RefCell<Vec<Option<PathBuf>>>,
     state: RefCell<CoverState>,
     loader: Loader,
 }
@@ -39,59 +78,43 @@ pub struct CoverStats {
     pub decode_time: Duration,
     pub in_memory: usize,
     pub queued: usize,
-    /// Index of the first album in view.
+    /// Index of the first card in view.
     pub first_visible: usize,
 }
 
-impl AlbumBrowser {
-    /// Shows `albums` in the window's album grid.
-    pub fn connect(window: &AppWindow, albums: &[Album]) -> Rc<Self> {
-        let tiles: Vec<AlbumTile> = albums.iter().map(tile).collect();
+impl CoverGrid {
+    /// Shows `cards` in `grid`. `threads` decode pictures; the big album grid wants
+    /// more than the others.
+    pub fn connect(window: &AppWindow, grid: Grid, cards: Vec<Card>, threads: usize) -> Rc<Self> {
+        let (tiles, thumbnails) = split(cards);
         let model = Rc::new(VecModel::from(tiles));
-        window.set_albums(ModelRc::from(model.clone()));
+        grid.set_model(window, ModelRc::from(model.clone()));
 
         let weak = window.as_weak();
         let deliver = move |index: usize, id: i32, buffer: SharedPixelBuffer<Rgba8Pixel>| {
             let weak = weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(window) = weak.upgrade() {
-                    show_cover(&window, index, id, buffer);
+                    show_cover(&window, grid, index, id, buffer);
                 }
             });
         };
-        let browser = Rc::new(Self {
+        let cover_grid = Rc::new(Self {
             window: window.as_weak(),
             model,
-            albums: RefCell::new(albums.to_vec()),
+            thumbnails: RefCell::new(thumbnails),
             state: RefCell::default(),
-            loader: Loader::start(Box::new(deliver)),
+            loader: Loader::start(Box::new(deliver), threads),
         });
-
-        let weak_window = window.as_weak();
-        let weak_browser = Rc::downgrade(&browser);
-        window.on_album_range_changed(move |first, count| {
-            if let (Some(window), Some(browser)) = (weak_window.upgrade(), weak_browser.upgrade()) {
-                browser.show_range(&window, first.max(0) as usize, count.max(0) as usize);
-            }
-        });
-        BROWSER.with(|current| *current.borrow_mut() = Rc::downgrade(&browser));
-        browser
+        GRIDS.with(|grids| grids.borrow_mut()[grid.slot()] = Rc::downgrade(&cover_grid));
+        cover_grid
     }
 
-    /// The album at a grid position.
-    pub fn album(&self, index: usize) -> Option<Album> {
-        self.albums.borrow().get(index).cloned()
-    }
-
-    pub fn album_count(&self) -> usize {
-        self.albums.borrow().len()
-    }
-
-    /// Shows a new album list, for example after a scan. The grid keeps its scroll
-    /// position; covers are loaded again for the rows in view.
-    pub fn replace(&self, albums: &[Album]) {
-        let tiles: Vec<AlbumTile> = albums.iter().map(tile).collect();
-        *self.albums.borrow_mut() = albums.to_vec();
+    /// Shows new cards, for example after a scan. The grid keeps its scroll position;
+    /// pictures are loaded again for the cards in view.
+    pub fn replace(&self, cards: Vec<Card>) {
+        let (tiles, thumbnails) = split(cards);
+        *self.thumbnails.borrow_mut() = thumbnails;
         let (first, count) = {
             let mut state = self.state.borrow_mut();
             state.loaded.clear();
@@ -99,14 +122,15 @@ impl AlbumBrowser {
             (state.first_visible, state.visible_count)
         };
         self.model.set_vec(tiles);
-        if let Some(window) = self.window.upgrade() {
-            self.show_range(&window, first, count);
-        }
+        self.show_range(first, count);
     }
 
-    /// Queues covers around the rows in view, nearest first, and releases covers far
-    /// away so memory stays bounded however long the list is.
-    fn show_range(&self, window: &AppWindow, first: usize, count: usize) {
+    /// Queues pictures around the cards in view, nearest first, and releases those
+    /// far away so memory stays bounded however long the list is.
+    pub fn show_range(&self, first: usize, count: usize) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
         let len = self.model.row_count();
         let size_px = (TILE_PIXELS as f32 * window.window().scale_factor()).ceil() as u32;
         let keep = first.saturating_sub(3 * count)..(first + 4 * count).min(len);
@@ -129,7 +153,7 @@ impl AlbumBrowser {
             }
         }
 
-        // Visible rows first, then a screen below, then a screen above.
+        // Visible cards first, then a screen below, then a screen above.
         let visible = first..(first + count).min(len);
         let below = visible.end..(visible.end + count).min(len);
         let above = first.saturating_sub(count)..first;
@@ -138,11 +162,7 @@ impl AlbumBrowser {
             if state.loaded.contains(&index) {
                 continue;
             }
-            let path = self
-                .albums
-                .borrow()
-                .get(index)
-                .and_then(|album| album.artwork.as_ref().map(|art| art.thumbnail.clone()));
+            let path = self.thumbnails.borrow().get(index).cloned().flatten();
             if let (Some(path), Some(row)) = (path, self.model.row_data(index)) {
                 jobs.push(Job {
                     index,
@@ -176,49 +196,118 @@ impl AlbumBrowser {
     }
 }
 
-thread_local! {
-    /// The browser decoded covers are delivered to, on the UI thread.
-    static BROWSER: RefCell<std::rc::Weak<AlbumBrowser>> = RefCell::default();
+/// Tiles and thumbnails, with each tile waiting for its picture if it has one.
+fn split(cards: Vec<Card>) -> (Vec<AlbumTile>, Vec<Option<PathBuf>>) {
+    cards
+        .into_iter()
+        .map(|(mut tile, thumbnail)| {
+            tile.artwork = if thumbnail.is_some() {
+                ArtworkState::Loading
+            } else {
+                ArtworkState::None
+            };
+            (tile, thumbnail)
+        })
+        .unzip()
 }
 
-/// Logical size the grid shows covers at, at most; covers are decoded for this times
+/// Feeds the album grid: one card per album. Keep it alive as long as the window.
+pub struct AlbumBrowser {
+    grid: Rc<CoverGrid>,
+    albums: RefCell<Vec<Album>>,
+}
+
+impl AlbumBrowser {
+    /// Shows `albums` in the window's album grid.
+    pub fn connect(window: &AppWindow, albums: &[Album]) -> Rc<Self> {
+        let threads = thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4));
+        let grid = CoverGrid::connect(window, Grid::Albums, cards(albums), threads);
+        let weak = Rc::downgrade(&grid);
+        window.on_album_range_changed(move |first, count| {
+            if let Some(grid) = weak.upgrade() {
+                grid.show_range(first.max(0) as usize, count.max(0) as usize);
+            }
+        });
+        Rc::new(Self {
+            grid,
+            albums: RefCell::new(albums.to_vec()),
+        })
+    }
+
+    /// The album at a grid position.
+    pub fn album(&self, index: usize) -> Option<Album> {
+        self.albums.borrow().get(index).cloned()
+    }
+
+    pub fn album_count(&self) -> usize {
+        self.albums.borrow().len()
+    }
+
+    /// Shows a new album list, for example after a scan.
+    pub fn replace(&self, albums: &[Album]) {
+        *self.albums.borrow_mut() = albums.to_vec();
+        self.grid.replace(cards(albums));
+    }
+
+    pub fn stats(&self) -> CoverStats {
+        self.grid.stats()
+    }
+}
+
+thread_local! {
+    /// The grids decoded pictures are delivered to, on the UI thread.
+    static GRIDS: RefCell<[std::rc::Weak<CoverGrid>; 3]> = RefCell::default();
+}
+
+/// Logical size the grids show pictures at, at most; they are decoded for this times
 /// the window's scale factor.
 pub const TILE_PIXELS: u32 = 240;
 
-fn show_cover(window: &AppWindow, index: usize, id: i32, buffer: SharedPixelBuffer<Rgba8Pixel>) {
-    let model = window.get_albums();
+fn show_cover(
+    window: &AppWindow,
+    grid: Grid,
+    index: usize,
+    id: i32,
+    buffer: SharedPixelBuffer<Rgba8Pixel>,
+) {
+    let model = grid.model(window);
     let Some(mut row) = model.row_data(index) else {
         return;
     };
     if row.id != id {
         return;
     }
-    let Some(browser) = BROWSER.with(|current| current.borrow().upgrade()) else {
+    let Some(cover_grid) = GRIDS.with(|grids| grids.borrow()[grid.slot()].upgrade()) else {
         return;
     };
-    if !browser.state.borrow().queued.contains(&index) {
-        // Scrolled away before the cover arrived.
+    if !cover_grid.state.borrow().queued.contains(&index) {
+        // Scrolled away before the picture arrived.
         return;
     }
     row.cover = Image::from_rgba8(buffer);
     row.artwork = ArtworkState::Loaded;
     model.set_row_data(index, row);
-    browser.mark_loaded(index);
+    cover_grid.mark_loaded(index);
 }
 
-fn tile(album: &Album) -> AlbumTile {
-    AlbumTile {
-        id: album.id.0 as i32,
-        title: album.title.as_str().into(),
-        artist: album.artist.clone().unwrap_or_default().into(),
-        initial: initial(&album.title).into(),
-        artwork: if album.artwork.is_some() {
-            ArtworkState::Loading
-        } else {
-            ArtworkState::None
-        },
-        cover: Image::default(),
-    }
+/// One card per album, with its cover thumbnail.
+pub fn cards(albums: &[Album]) -> Vec<Card> {
+    albums
+        .iter()
+        .map(|album| {
+            let tile = AlbumTile {
+                id: album.id.0 as i32,
+                title: album.title.as_str().into(),
+                artist: album.artist.clone().unwrap_or_default().into(),
+                initial: initial(&album.title).into(),
+                ..AlbumTile::default()
+            };
+            (
+                tile,
+                album.artwork.as_ref().map(|art| art.thumbnail.clone()),
+            )
+        })
+        .collect()
 }
 
 struct Job {
@@ -245,7 +334,7 @@ struct Loader {
 }
 
 impl Loader {
-    fn start(deliver: Deliver) -> Self {
+    fn start(deliver: Deliver, threads: usize) -> Self {
         let shared = Arc::new(Shared {
             queue: Mutex::default(),
             wake: Condvar::new(),
@@ -254,8 +343,7 @@ impl Loader {
             decode_micros: AtomicUsize::new(0),
             deliver,
         });
-        let threads = thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4));
-        for _ in 0..threads {
+        for _ in 0..threads.max(1) {
             let shared = shared.clone();
             thread::Builder::new()
                 .name("vcmp-covers".into())
@@ -313,11 +401,27 @@ fn decode_loop(shared: &Shared) {
     }
 }
 
-/// The first letter of a title, shown where there is no cover.
+/// The first letter or digit of a title, shown where there is no picture: "(G)I-DLE"
+/// shows "G". A title without any shows its first character.
 pub(crate) fn initial(title: &str) -> String {
     title
         .chars()
-        .next()
+        .find(|c| c.is_alphanumeric())
+        .or_else(|| title.chars().next())
         .map(|c| c.to_uppercase().to_string())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initials_skip_leading_punctuation() {
+        assert_eq!(initial("(G)I-DLE"), "G");
+        assert_eq!(initial("765 MILLION ALLSTARS"), "7");
+        assert_eq!(initial("μ's"), "Μ");
+        assert_eq!(initial("??????"), "?");
+        assert_eq!(initial(""), "");
+    }
 }
