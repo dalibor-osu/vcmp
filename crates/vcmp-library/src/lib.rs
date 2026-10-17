@@ -112,10 +112,11 @@ impl Library {
         Ok(sources)
     }
 
-    /// Adds a source directory (stored in canonical form). Adding the same directory
-    /// twice returns the existing entry with the new `recursive` value.
+    /// Adds a source directory, stored with symlinks and short names resolved (and on
+    /// Windows without the `\\?\` prefix). Adding the same directory twice returns the
+    /// existing entry with the new `recursive` value.
     pub fn add_source(&self, path: &Path, recursive: bool) -> Result<SourceDir> {
-        let path = path.canonicalize().map_err(io_error(path))?;
+        let path = dunce::canonicalize(path).map_err(io_error(path))?;
         if !path.is_dir() {
             return Err(Error::NotADirectory(path));
         }
@@ -166,7 +167,13 @@ impl Library {
 
     /// The id of the track stored for a file path, available or not.
     pub fn track_id_for_path(&self, path: &Path) -> Result<Option<TrackId>> {
-        Ok(scan::track_id_for_path(&self.conn, path)?.map(TrackId))
+        // Stored paths lie under canonical source directories, so the folder is
+        // resolved the same way; the file name is kept, in case the file is a symlink.
+        let resolved = match (path.parent().map(dunce::canonicalize), path.file_name()) {
+            (Some(Ok(folder)), Some(name)) => folder.join(name),
+            _ => path.to_path_buf(),
+        };
+        Ok(scan::track_id_for_path(&self.conn, &resolved)?.map(TrackId))
     }
 
     pub fn albums(&self) -> Result<Vec<Album>> {

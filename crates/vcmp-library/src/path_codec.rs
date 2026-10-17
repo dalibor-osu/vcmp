@@ -27,10 +27,8 @@ pub(crate) fn encode(path: &Path) -> Vec<u8> {
 #[cfg(windows)]
 pub(crate) fn decode(bytes: &[u8]) -> PathBuf {
     use std::os::windows::ffi::OsStringExt;
-    let wide: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-        .collect();
+    let (pairs, _) = bytes.as_chunks::<2>();
+    let wide: Vec<u16> = pairs.iter().map(|pair| u16::from_le_bytes(*pair)).collect();
     PathBuf::from(std::ffi::OsString::from_wide(&wide))
 }
 

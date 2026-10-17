@@ -17,28 +17,36 @@ use vcmp_library::{Artwork, Error, Format, Library, LibraryWatcher, ScanReport};
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
 struct Setup {
-    root: TempDir,
+    // Fields drop in order: the database closes before the directory is deleted,
+    // which Windows requires.
     library: Library,
+    // The temporary directory with symlinks resolved (macOS keeps temporary files
+    // under a symlink, Windows may hand out short 8.3 names), matching how sources
+    // are stored.
+    base: PathBuf,
+    _root: TempDir,
 }
 
 impl Setup {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        fs::create_dir(root.path().join("music")).unwrap();
-        let library = Library::open(
-            &root.path().join("data/library.sqlite3"),
-            &root.path().join("cache"),
-        )
-        .unwrap();
-        Self { root, library }
+        let base = dunce::canonicalize(root.path()).unwrap();
+        fs::create_dir(base.join("music")).unwrap();
+        let library =
+            Library::open(&base.join("data/library.sqlite3"), &base.join("cache")).unwrap();
+        Self {
+            _root: root,
+            base,
+            library,
+        }
     }
 
     fn music(&self) -> PathBuf {
-        self.root.path().join("music")
+        self.base.as_path().join("music")
     }
 
     fn cache(&self) -> PathBuf {
-        self.root.path().join("cache")
+        self.base.as_path().join("cache")
     }
 
     fn add_music_source(&self) {
@@ -339,7 +347,7 @@ fn deleted_file_becomes_unavailable_and_returns() {
     setup.scan();
     let id = setup.library.track_id_for_path(&path).unwrap().unwrap();
 
-    let parked = setup.root.path().join("parked.ogg");
+    let parked = setup.base.as_path().join("parked.ogg");
     fs::rename(&path, &parked).unwrap();
     assert_eq!(setup.scan().became_unavailable, 1);
     assert!(setup.library.tracks().unwrap().is_empty());
@@ -373,12 +381,12 @@ fn removing_a_source_keeps_its_tracks_as_unavailable() {
 #[test]
 fn unreachable_source_is_reported_and_its_tracks_go_unavailable() {
     let mut setup = Setup::new();
-    let drive = setup.root.path().join("drive");
+    let drive = setup.base.as_path().join("drive");
     add_file(&drive, "a.mp3", "silence.mp3", song("A", "X", "Y"));
     setup.library.add_source(&drive, true).unwrap();
     setup.scan();
 
-    let unplugged = setup.root.path().join("unplugged");
+    let unplugged = setup.base.as_path().join("unplugged");
     fs::rename(&drive, &unplugged).unwrap();
     let report = setup.scan();
     assert_eq!(report.unreachable_sources.len(), 1);
@@ -626,7 +634,7 @@ fn settings_persist_and_auto_update_defaults_on() {
     setup.library.set_setting("ui.theme", "light").unwrap();
 
     let reopened = Library::open(
-        &setup.root.path().join("data/library.sqlite3"),
+        &setup.base.as_path().join("data/library.sqlite3"),
         &setup.cache(),
     )
     .unwrap();
@@ -651,13 +659,13 @@ fn cancelled_scan_stops_without_adding() {
 #[test]
 fn database_from_a_newer_build_is_refused() {
     let setup = Setup::new();
-    let db = setup.root.path().join("data/library.sqlite3");
+    let db = setup.base.as_path().join("data/library.sqlite3");
     drop(setup.library);
     rusqlite::Connection::open(&db)
         .unwrap()
         .pragma_update(None, "user_version", 99)
         .unwrap();
-    match Library::open(&db, &setup.root.path().join("cache")) {
+    match Library::open(&db, &setup.base.as_path().join("cache")) {
         Err(Error::SchemaTooNew { found: 99, .. }) => {}
         other => panic!("expected SchemaTooNew, got {:?}", other.err()),
     }
@@ -669,10 +677,10 @@ fn adding_a_missing_directory_fails() {
     assert!(
         setup
             .library
-            .add_source(&setup.root.path().join("nope"), true)
+            .add_source(&setup.base.as_path().join("nope"), true)
             .is_err()
     );
-    let file = setup.root.path().join("file");
+    let file = setup.base.as_path().join("file");
     fs::write(&file, "x").unwrap();
     assert!(matches!(
         setup.library.add_source(&file, true),
@@ -680,7 +688,8 @@ fn adding_a_missing_directory_fails() {
     ));
 }
 
-#[cfg(unix)]
+// macOS (APFS) and Windows only allow file names that are valid Unicode.
+#[cfg(target_os = "linux")]
 #[test]
 fn file_names_that_are_not_utf8_survive() {
     use std::os::unix::ffi::OsStrExt;
