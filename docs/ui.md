@@ -27,6 +27,8 @@ dials come from DESIGN.md).
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
 | `ui/cover-picker.slint` | `CoverSearch` global and `CoverPicker`: "Find cover online" and the covers to pick from |
 | `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
+| `ui/tag-editor.slint` | `TagEditorState` global and `TagEditorView`: one track's or an album's tags and cover |
+| `src/tag_editor.rs` | `TagEditor`: fills the editor, works out what changed, writes it in the background and refreshes the views |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist and playlist grids, an artist's albums and search |
 | `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages; owns the folder and playlist browsers |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
@@ -111,6 +113,8 @@ subtext1 and overlay2 instead.
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
 | "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
 | The cover picker covers the sidebar and pages like the now playing view | One overlay pattern in the app; the covers get the room, and the player bar stays usable |
+| The tag editor is the same kind of overlay, not a separate window | One overlay pattern again. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
+| An album's differing values show as empty fields saying "Several values" | Writing only the fields the user changed is the safe default for a batch: a field left alone can't flatten twelve track numbers into one |
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 | Last.fm connects in the browser while the row waits, with Cancel | Last.fm's desktop sign-in happens on last.fm; asking every few seconds spares an "I've allowed it" button |
 | One Last.fm button whose text follows the state (Connect…, Cancel, Disconnect) | The focus stays on it while the state changes under it |
@@ -252,6 +256,27 @@ shown, because the page itself stays alive while hidden.
   page.
 - **Getting back:** the back button, Escape, or the Playlists sidebar entry. A
   playlist opened from search goes back to Search.
+
+## Tag editor
+
+- **Opening it:** "Edit tags…" in every track menu (album, artist, search, folder and
+  playlist lists, and the songs table) edits that track. "Edit tags…" under the
+  cover on an album page edits every track of the album at once.
+- **The form:** the cover, with Choose image… (JPEG or PNG) and Remove cover, then
+  Artist, Album, Album artist, Disc, Year and Genre, plus Title and Track for one
+  track. The focus starts in the first field.
+- **What gets written:** only the fields the user changed. An emptied field removes
+  its tag. For an album, a field whose value differs between tracks starts empty
+  with "Several values" as its placeholder, and keeps each track's own value unless
+  something is typed in it. The cover works the same way ("Several covers").
+- **Saving:** Save or Enter in a field. A wrong value (a track number that isn't a
+  whole number, a year outside 1 to 9999, a line break) writes nothing and says
+  which field is wrong. Escape or Cancel closes without writing.
+- **Writing** runs on its own library connection in the background, through the
+  library's verified copy-and-replace (see `docs/library.md`), with a progress bar.
+  When every file was written the editor closes, and the library pages, the queue
+  and the player bar show the new tags. Files that kept their old tags are listed
+  with the reason; "Try again" writes only those.
 
 ## Search
 
@@ -577,6 +602,18 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   the switch knob changes side.
 
 ## Known limits
+
+- The tag editor can't empty a field that differs between an album's tracks in one
+  go: an empty "Several values" field keeps the values. Type a value, or edit the
+  tracks one by one.
+- Batch editing covers an album; other groups of tracks (a playlist, a selection)
+  are edited one track at a time, as lists have no multiple selection yet.
+- On Windows, the file of the track that is playing can't be replaced while it plays,
+  so the editor reports it ("Another program, or VCMP playing it, may be using it")
+  and "Try again" works once another track plays. The spec's plan to hold the edit
+  until the file is released is not built yet.
+- A play that started before its tags were edited is scrobbled to Last.fm with the
+  tags it started with.
 
 - Up next can be filled from album and artist pages and search, and reordered by
   keyboard or menu, not by dragging. Playlist entries likewise move one step at a

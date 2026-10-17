@@ -3,6 +3,7 @@ import { FocusRing } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
+import { TagEditorState } from "tag-editor.slint";
 
 export enum SongColumn { title, artist, album, year, duration }
 
@@ -336,6 +337,12 @@ export component SongTable {
                         activated => {
                             Playlists.add-track(index, root.songs[root.current].path);
                         }
+                    }
+                }
+                MenuItem {
+                    title: @tr("Edit tags…");
+                    activated => {
+                        TagEditorState.edit-track(root.songs[root.current].path);
                     }
                 }
             }

@@ -24,10 +24,11 @@ use slint::{
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
+use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
     AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
-    LastfmStatus, PlayerState, Theme, ThemeMode, UpdateState,
+    LastfmStatus, PlayerState, TagEditorState, Theme, ThemeMode, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -55,6 +56,8 @@ struct Shot {
     update: bool,
     // The cover picker is open, with stand-in covers.
     cover_picker: bool,
+    // The tag editor is open for the album (a library is needed).
+    tags: bool,
 }
 
 const fn shot(
@@ -74,6 +77,14 @@ const fn shot(
         lastfm: None,
         update: false,
         cover_picker: false,
+        tags: false,
+    }
+}
+
+const fn tags(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        tags: true,
+        ..shot(name, mode, 1, Some(ALBUM), 0)
     }
 }
 
@@ -132,6 +143,8 @@ const SHOTS: &[Shot] = &[
     now_playing("now-playing-dark", ThemeMode::Dark),
     cover_picker("cover-picker-light", ThemeMode::Light),
     cover_picker("cover-picker-dark", ThemeMode::Dark),
+    tags("tags-light", ThemeMode::Light),
+    tags("tags-dark", ThemeMode::Dark),
     shot("settings-light", ThemeMode::Light, 6, None, 0),
     shot("settings-dark", ThemeMode::Dark, 6, None, 0),
     lastfm("lastfm-light", ThemeMode::Light, LastfmStatus::Connected),
@@ -255,8 +268,14 @@ fn prepare(window: &AppWindow, shot: &Shot) {
             window.set_playlist_open(false);
         }
     }
+    let editor = window.global::<TagEditorState>();
+    if shot.tags {
+        editor.invoke_edit_album();
+    } else {
+        editor.invoke_cancel();
+    }
     // The album shots show the queue panel too.
-    window.set_queue_open(shot.album.is_some());
+    window.set_queue_open(shot.album.is_some() && !shot.tags);
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
@@ -359,9 +378,17 @@ fn main() -> Result<(), slint::PlatformError> {
             player.handle_event(Event::StateChanged(PlaybackState::Playing));
             player.handle_event(Event::Position(track.duration / 3));
         }
+        let editor = TagEditor::connect(
+            &window,
+            library.clone(),
+            paths.clone(),
+            view.clone(),
+            Delivery::EventLoop,
+        );
         (
             LibraryService::connect(&window, library, paths, view, Delivery::EventLoop),
             player,
+            editor,
         )
     });
     // Frames are taken without waiting for transitions to finish.

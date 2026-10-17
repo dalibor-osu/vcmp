@@ -4,6 +4,7 @@ import { Button, FocusRing } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { CoverSearch } from "cover-picker.slint";
 import { Playlists } from "playlist-state.slint";
+import { TagEditorState } from "tag-editor.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -318,6 +319,12 @@ export component TrackList {
                     }
                 }
             }
+            MenuItem {
+                title: @tr("Edit tags…");
+                activated => {
+                    TagEditorState.edit-track(root.tracks[root.current].path);
+                }
+            }
             if root.editable: MenuSeparator { }
             if root.editable && root.current > 0: MenuItem {
                 title: @tr("Move up");
@@ -425,6 +432,15 @@ export component AlbumView {
             back-button.focus();
         }
     }
+    // The same for the tag editor.
+    private property <bool> asked-for-tags;
+    private property <bool> editor-open: TagEditorState.open;
+    changed editor-open => {
+        if !self.editor-open && self.asked-for-tags {
+            self.asked-for-tags = false;
+            back-button.focus();
+        }
+    }
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
     function ensure-visible(top: length, height: length) {
@@ -514,6 +530,15 @@ export component AlbumView {
                             clicked => {
                                 root.asked-for-cover = true;
                                 CoverSearch.find();
+                            }
+                        }
+                        // Under the cover too: the album's tags, its cover among them.
+                        if root.tracks.length > 0 && !root.album.missing: Button {
+                            text: @tr("Edit tags…");
+                            label: @tr("Edit the tags of {}", root.album.title);
+                            clicked => {
+                                root.asked-for-tags = true;
+                                TagEditorState.edit-album();
                             }
                         }
                     }

@@ -39,13 +39,14 @@ Early development. In place so far:
   Windows media flyout, Now Playing on macOS) control playback and show the track;
 - Last.fm scrobbling, in builds made with VCMP's Last.fm API key: connect an account
   in Settings, and plays that count by Last.fm's rules are queued and sent in
-  batches, also after time offline; the track playing shows as "now playing".
+  batches, also after time offline; the track playing shows as "now playing";
 - an update check: when VCMP starts, it asks GitHub Releases for a newer version and
   links to its release page from the sidebar and the About page (it can be switched
-  off in Settings).
+  off in Settings);
+- a tag editor for one track or a whole album, cover included, writing only what was
+  changed through a verified copy of each file.
 
-The tag editor's window (writing tags is in the library already), artist photos and
-the rest of the
+Artist photos and the rest of the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
 
 ## Build and run
