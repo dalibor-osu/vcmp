@@ -20,11 +20,12 @@ import { Glyph, IconArt } from "icons.slint";
 import { LastfmProblem, LastfmState, LastfmStatus } from "lastfm-state.slint";
 import { SidebarUpdateNote, UpdateState } from "updates.slint";
 import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint";
+import { PhotoPicker, PhotoSearch, PhotoSearchStatus } from "photo-picker.slint";
 import { TagEditorState, TagEditorStatus, TagEditorView, TagFailure, TagFailureReason, TagMixed, TagProblem, TagValues } from "tag-editor.slint";
 
 export { LastfmProblem, LastfmState, LastfmStatus }
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
-export { CoverSearch, CoverSearchStatus }
+export { CoverSearch, CoverSearchStatus, PhotoSearch, PhotoSearchStatus }
 export { TagEditorState, TagEditorStatus, TagFailure, TagFailureReason, TagMixed, TagProblem, TagValues }
 export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow }
 export { UpdateState }
@@ -664,6 +665,12 @@ export component AppWindow inherits Window {
 
                 // "Find cover online" from an album page, over everything but the bar.
                 if CoverSearch.open: CoverPicker {
+                    width: parent.width;
+                    height: parent.height;
+                }
+
+                // "Find photo online" from an artist page, the same way.
+                if PhotoSearch.open: PhotoPicker {
                     width: parent.width;
                     height: parent.height;
                 }

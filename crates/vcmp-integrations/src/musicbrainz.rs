@@ -95,6 +95,15 @@ pub struct Candidate {
     pub preview: Vec<u8>,
 }
 
+/// An artist MusicBrainz knows under a name, with what tells it apart from others
+/// of the same name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArtistMatch {
+    pub id: String,
+    pub name: String,
+    pub disambiguation: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Lookup {
     Found(Cover),
@@ -372,6 +381,43 @@ impl<T: Transport> Searcher<T> {
             )?;
         }
         picker.finish()
+    }
+
+    /// The artists MusicBrainz finds under `name`, best first: only sure hits whose
+    /// name is the one asked for, once normalised, and at most three.
+    pub fn artists(&mut self, name: &str) -> Result<Vec<ArtistMatch>, String> {
+        let wanted = normalize(name);
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let found: ArtistSearch =
+            self.ask("artist", &format!(r#"artist:"{}""#, escape(name.trim())))?;
+        Ok(found
+            .artists
+            .into_iter()
+            .filter(|artist| artist.score >= MIN_SCORE && normalize(&artist.name) == wanted)
+            .take(CANDIDATES)
+            .map(|artist| ArtistMatch {
+                id: artist.id,
+                name: artist.name,
+                disambiguation: artist.disambiguation.filter(|text| !text.is_empty()),
+            })
+            .collect())
+    }
+
+    /// A GET to another service through the same transport, not paced like
+    /// MusicBrainz's requests.
+    pub(crate) fn fetch(
+        &mut self,
+        url: &str,
+        query: &[(&str, &str)],
+    ) -> Result<(u16, String), String> {
+        self.transport.get(url, query)
+    }
+
+    /// An image from another service through the same transport, not paced.
+    pub(crate) fn fetch_bytes(&mut self, url: &str) -> Result<(u16, Vec<u8>), String> {
+        self.transport.get_bytes(url)
     }
 
     /// Downloads a picked cover at up to 1200 pixels, the most the now playing view
@@ -675,6 +721,21 @@ struct Release {
 }
 
 #[derive(Deserialize)]
+struct ArtistSearch {
+    #[serde(default)]
+    artists: Vec<FoundArtist>,
+}
+
+#[derive(Deserialize)]
+struct FoundArtist {
+    id: String,
+    name: String,
+    #[serde(default)]
+    score: u32,
+    disambiguation: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct GroupRef {
     id: String,
     title: Option<String>,
@@ -787,23 +848,24 @@ fn main_artist(artist: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
     use super::*;
 
     /// Each request made, and when.
-    type Requests = Arc<Mutex<Vec<(String, Instant)>>>;
+    pub(crate) type Requests = Arc<Mutex<Vec<(String, Instant)>>>;
 
-    /// Answers requests from a script, in order, and records them.
-    struct Scripted {
+    /// Answers requests from a script, in order, and records them. The fanart.tv
+    /// tests use it too.
+    pub(crate) struct Scripted {
         answers: VecDeque<Result<(u16, String), String>>,
         requests: Requests,
     }
 
     impl Scripted {
-        fn new(
+        pub(crate) fn new(
             answers: impl IntoIterator<Item = Result<(u16, String), String>>,
         ) -> (Self, Requests) {
             let requests = Arc::default();

@@ -44,10 +44,12 @@ Early development. In place so far:
   links to its release page from the sidebar and the About page (it can be switched
   off in Settings);
 - a tag editor for one track or a whole album, cover included, writing only what was
-  changed through a verified copy of each file.
+  changed through a verified copy of each file;
+- artist photos: your own image, or one found on fanart.tv through MusicBrainz when
+  you ask (in builds made with VCMP's fanart.tv API key).
 
-Artist photos and the rest of the
-[v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.
+The rest of the [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) is
+still to be built.
 
 ## Build and run
 
@@ -137,7 +139,7 @@ variables → Actions), which reach the build as environment variables of the sa
 names. The CI workflow passes the two Last.fm secrets as well, so it builds what the
 installers ship. A secret that is not set is left out, and the feature that needs it
 stays off: without both Last.fm values, Settings has no Last.fm row and nothing is
-sent. The Discord application ID is built in (`VCMP_DISCORD_APPLICATION_ID`
+sent; without the fanart.tv key, artist pages offer no "Find photo online". The Discord application ID is built in (`VCMP_DISCORD_APPLICATION_ID`
 overrides it).
 
 Local builds read the same variables from the environment. To try Last.fm, create an
@@ -146,6 +148,13 @@ shared secret (never commit them):
 
 ```bash
 VCMP_LASTFM_API_KEY=<api key> VCMP_LASTFM_SHARED_SECRET=<shared secret> cargo run -p vcmp-app
+```
+
+To try artist photos, get a project API key at <https://fanart.tv/get-an-api-key/>
+and build with it:
+
+```bash
+VCMP_FANARTTV_API_KEY=<api key> cargo run -p vcmp-app
 ```
 
 A connected account's session key is kept in the OS keyring (service
