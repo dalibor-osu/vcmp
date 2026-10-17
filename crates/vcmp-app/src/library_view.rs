@@ -1,5 +1,6 @@
 //! Connects the library to the window: the album grid and the album page that
-//! opens from it, the artist grid with the artist page and its albums, and search.
+//! opens from it, the artist grid with the artist page and its albums, search, and
+//! the songs table.
 //! All of them are reloaded after every library change.
 
 use std::cell::RefCell;
@@ -11,7 +12,7 @@ use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
 use vcmp_library::{Album, Artist, Library, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
-use crate::{AlbumDetail, AlbumTile, AppWindow, ArtistDetail, TrackRow};
+use crate::{AlbumDetail, AlbumTile, AppWindow, ArtistDetail, SongColumn, SongRow, TrackRow};
 
 pub struct LibraryView {
     window: slint::Weak<AppWindow>,
@@ -31,7 +32,12 @@ pub struct LibraryView {
     search_artists_grid: Rc<CoverGrid>,
     search_albums_grid: Rc<CoverGrid>,
     search_timer: Timer,
+    // Every track in the Songs page's order, once the page was shown.
+    songs: RefCell<Option<Vec<Track>>>,
 }
+
+/// Setting key: the Songs page's sort, as "<column>" or "<column>:reverse".
+pub const SETTING_SONGS_SORT: &str = "ui.songs_sort";
 
 #[derive(Default)]
 struct Found {
@@ -88,7 +94,18 @@ impl LibraryView {
             search_artists_grid: CoverGrid::connect(window, Grid::SearchArtists, Vec::new(), 2),
             search_albums_grid: CoverGrid::connect(window, Grid::SearchAlbums, Vec::new(), 2),
             search_timer: Timer::default(),
+            songs: RefCell::default(),
         });
+        if let Some((column, descending)) = view
+            .library
+            .setting(SETTING_SONGS_SORT)
+            .ok()
+            .flatten()
+            .and_then(|value| parse_sort(&value))
+        {
+            window.set_songs_sort_column(column);
+            window.set_songs_sort_descending(descending);
+        }
         view.show_artists();
         let weak = Rc::downgrade(&view);
         window.on_album_activated(move |index| {
@@ -148,6 +165,34 @@ impl LibraryView {
             }
         });
         let weak = Rc::downgrade(&view);
+        window.on_songs_needed(move || {
+            let Some(view) = weak.upgrade() else { return };
+            if view.songs.borrow().is_none() {
+                view.show_songs();
+            }
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_sort_songs(move |column| {
+            let Some(view) = weak.upgrade() else { return };
+            let Some(window) = view.window.upgrade() else {
+                return;
+            };
+            // The same column again reverses the order; another starts A to Z.
+            let descending =
+                window.get_songs_sort_column() == column && !window.get_songs_sort_descending();
+            window.set_songs_sort_column(column);
+            window.set_songs_sort_descending(descending);
+            let value = format!(
+                "{}{}",
+                column_name(column),
+                if descending { ":reverse" } else { "" }
+            );
+            if let Err(error) = view.library.set_setting(SETTING_SONGS_SORT, &value) {
+                log::warn!("could not save the songs order: {error}");
+            }
+            view.show_songs();
+        });
+        let weak = Rc::downgrade(&view);
         window.on_artist_album_activated(move |index| {
             let Some(view) = weak.upgrade() else { return };
             let album = view.artist.borrow().as_ref().and_then(|open| {
@@ -193,6 +238,9 @@ impl LibraryView {
         self.browser.replace(&albums);
         self.show_artists();
         self.search();
+        if self.songs.borrow().is_some() {
+            self.show_songs();
+        }
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -337,6 +385,49 @@ impl LibraryView {
         *self.found.borrow_mut() = found;
     }
 
+    /// Reads every track and shows it in the Songs page's order.
+    fn show_songs(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let mut tracks = self.library.tracks().unwrap_or_else(|error| {
+            log::error!("could not read the tracks: {error}");
+            Vec::new()
+        });
+        sort_songs(
+            &mut tracks,
+            window.get_songs_sort_column(),
+            window.get_songs_sort_descending(),
+        );
+        let rows: Vec<SongRow> = tracks
+            .iter()
+            .map(|track| SongRow {
+                title: track.title.as_str().into(),
+                artist: track.artist.clone().unwrap_or_default().into(),
+                album: track.album.clone().unwrap_or_default().into(),
+                year: track
+                    .year
+                    .map(|year| year.to_string())
+                    .unwrap_or_default()
+                    .into(),
+                duration: format_duration(track.duration).into(),
+                path: track.path.to_string_lossy().as_ref().into(),
+            })
+            .collect();
+        window.set_songs(ModelRc::new(VecModel::from(rows)));
+        *self.songs.borrow_mut() = Some(tracks);
+    }
+
+    /// Every track in the Songs page's order (empty until the page was shown).
+    pub fn songs(&self) -> Vec<Track> {
+        self.songs.borrow().clone().unwrap_or_default()
+    }
+
+    /// One track of the Songs page.
+    pub fn song(&self, index: usize) -> Option<Track> {
+        self.songs.borrow().as_ref()?.get(index).cloned()
+    }
+
     /// The tracks the last search found, in the order shown.
     pub fn found_tracks(&self) -> Vec<Track> {
         self.found.borrow().tracks.clone()
@@ -401,6 +492,70 @@ impl LibraryView {
             }
         }
     }
+}
+
+/// Sorts the Songs page. Missing values (untagged artist, album or year) go after
+/// the rest, and ties fall back to the album order, so an artist's songs stay in
+/// album and track order. Reversing turns the whole order around.
+fn sort_songs(tracks: &mut [Track], column: SongColumn, descending: bool) {
+    let text = |value: &Option<String>| {
+        let value = value.as_deref().unwrap_or_default();
+        (value.is_empty(), value.to_lowercase())
+    };
+    let year = |track: &Track| (track.year.is_none(), track.year);
+    let album_order = |track: &Track| {
+        (
+            year(track),
+            text(&track.album),
+            track.disc_number,
+            track.track_number,
+        )
+    };
+    match column {
+        SongColumn::Title => {
+            tracks.sort_by_cached_key(|t| (t.title.to_lowercase(), text(&t.artist)))
+        }
+        SongColumn::Artist => tracks.sort_by_cached_key(|t| (text(&t.artist), album_order(t))),
+        SongColumn::Album => tracks.sort_by_cached_key(|t| {
+            (
+                text(&t.album),
+                t.disc_number,
+                t.track_number,
+                t.title.to_lowercase(),
+            )
+        }),
+        SongColumn::Year => tracks.sort_by_cached_key(album_order),
+        SongColumn::Duration => tracks.sort_by_key(|t| t.duration),
+    }
+    if descending {
+        tracks.reverse();
+    }
+}
+
+fn column_name(column: SongColumn) -> &'static str {
+    match column {
+        SongColumn::Title => "title",
+        SongColumn::Artist => "artist",
+        SongColumn::Album => "album",
+        SongColumn::Year => "year",
+        SongColumn::Duration => "duration",
+    }
+}
+
+fn parse_sort(value: &str) -> Option<(SongColumn, bool)> {
+    let (name, descending) = match value.strip_suffix(":reverse") {
+        Some(name) => (name, true),
+        None => (value, false),
+    };
+    let column = match name {
+        "title" => SongColumn::Title,
+        "artist" => SongColumn::Artist,
+        "album" => SongColumn::Album,
+        "year" => SongColumn::Year,
+        "duration" => SongColumn::Duration,
+        _ => return None,
+    };
+    Some((column, descending))
 }
 
 fn artist_tile(artist: &Artist) -> AlbumTile {
@@ -556,6 +711,83 @@ pub(crate) fn format_duration(duration: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn track(title: &str, artist: &str, year: i32, seconds: u64) -> Track {
+        Track {
+            id: vcmp_library::TrackId(0),
+            path: std::path::PathBuf::from(title),
+            available: true,
+            format: None,
+            title: title.into(),
+            artist: Some(artist.into()),
+            artist_id: None,
+            album: Some(format!("{artist} album")),
+            album_id: None,
+            album_artist: None,
+            track_number: None,
+            disc_number: None,
+            year: Some(year),
+            genre: None,
+            duration: Duration::from_secs(seconds),
+        }
+    }
+
+    #[test]
+    fn songs_sort_by_each_column_and_reverse() {
+        let mut tracks = vec![
+            track("b", "Zed", 2001, 300),
+            track("A", "alpha", 1999, 100),
+            track("c", "Mid", 2020, 200),
+        ];
+        let titles =
+            |tracks: &[Track]| -> Vec<String> { tracks.iter().map(|t| t.title.clone()).collect() };
+        sort_songs(&mut tracks, SongColumn::Title, false);
+        assert_eq!(titles(&tracks), ["A", "b", "c"], "ignoring case");
+        sort_songs(&mut tracks, SongColumn::Artist, false);
+        assert_eq!(titles(&tracks), ["A", "c", "b"]);
+        sort_songs(&mut tracks, SongColumn::Year, true);
+        assert_eq!(titles(&tracks), ["c", "b", "A"]);
+        sort_songs(&mut tracks, SongColumn::Duration, false);
+        assert_eq!(titles(&tracks), ["A", "c", "b"]);
+
+        let mut untagged = track("0 untagged", "", 0, 10);
+        untagged.artist = None;
+        untagged.year = None;
+        tracks.push(untagged);
+        sort_songs(&mut tracks, SongColumn::Artist, false);
+        assert_eq!(
+            titles(&tracks).last().unwrap(),
+            "0 untagged",
+            "unknown artists last"
+        );
+        sort_songs(&mut tracks, SongColumn::Year, false);
+        assert_eq!(
+            titles(&tracks).last().unwrap(),
+            "0 untagged",
+            "unknown years last"
+        );
+    }
+
+    #[test]
+    fn the_songs_order_reads_back() {
+        for column in [
+            SongColumn::Title,
+            SongColumn::Artist,
+            SongColumn::Album,
+            SongColumn::Year,
+            SongColumn::Duration,
+        ] {
+            for descending in [false, true] {
+                let value = format!(
+                    "{}{}",
+                    column_name(column),
+                    if descending { ":reverse" } else { "" }
+                );
+                assert_eq!(parse_sort(&value), Some((column, descending)));
+            }
+        }
+        assert_eq!(parse_sort("colour"), None);
+    }
 
     #[test]
     fn formats_durations() {

@@ -2,21 +2,23 @@ import { ScrollView } from "std-widgets.slint";
 import "../../../assets/fonts/sora/Sora[wght].ttf";
 import { Theme, ThemeMode, ThemePalette } from "theme.slint";
 import { NavItem } from "components.slint";
-import { AboutPage, AlbumsPage, ArtistsPage, SearchPage, SettingsPage } from "pages.slint";
+import { AboutPage, AlbumsPage, ArtistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
+import { SongColumn, SongRow } from "songs-page.slint";
 import { ArtistDetail } from "artist-page.slint";
 import { AlbumTile, ArtworkState } from "album-grid.slint";
 import { AlbumDetail, TrackRow } from "album-page.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
 import { ProgressBar } from "components.slint";
-import { PlayerProblem, PlayerState, PlayState, QueueRow, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
+import { PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
 import { PlayerBar } from "player-bar.slint";
 import { QueuePanel } from "queue-panel.slint";
 import { Glyph, IconArt } from "icons.slint";
 
-export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, Repeat, Shuffle, ShuffleKind }
+export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
+export { SongColumn, SongRow }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
-export enum Page { search, albums, artists, settings, about }
+export enum Page { search, albums, artists, songs, settings, about }
 
 struct NavEntry {
     page: Page,
@@ -74,12 +76,23 @@ export component AppWindow inherits Window {
     // Plays the found tracks from one of them, or puts one into Up next.
     callback play-search-track(int);
     callback queue-search-track(int, bool);
+    // The Songs page: every track, sorted by a column.
+    in property <[SongRow]> songs;
+    in property <SongColumn> songs-sort-column: SongColumn.artist;
+    in property <bool> songs-sort-descending;
+    // The Songs page is shown and wants its tracks loaded.
+    callback songs-needed();
+    // A column header was chosen: sort by it, or reverse the order.
+    callback sort-songs(SongColumn);
+    callback play-song(int);
+    callback queue-song(int, bool);
     out property <Page> current-page: root.nav[root.selected-index].page;
 
     private property <[NavEntry]> nav: [
         { page: Page.search, label: @tr("Search") },
         { page: Page.albums, label: @tr("Albums") },
         { page: Page.artists, label: @tr("Artists") },
+        { page: Page.songs, label: @tr("Songs") },
         { page: Page.settings, label: @tr("Settings") },
         { page: Page.about, label: @tr("About") },
     ];
@@ -315,6 +328,27 @@ export component AppWindow inherits Window {
                         }
                         queue-album-track(index, next) => {
                             root.queue-album-track(index, next);
+                        }
+                    }
+                    SongsPage {
+                        x: 0;
+                        width: root.page-width;
+                        shown: root.current-page == Page.songs;
+                        songs: root.songs;
+                        sort-column: root.songs-sort-column;
+                        sort-descending: root.songs-sort-descending;
+                        library-failed: root.library-failed;
+                        needed => {
+                            root.songs-needed();
+                        }
+                        sort(column) => {
+                            root.sort-songs(column);
+                        }
+                        play(index) => {
+                            root.play-song(index);
+                        }
+                        queue(index, next) => {
+                            root.queue-song(index, next);
                         }
                     }
                     if root.current-page == Page.settings: ScrollView {

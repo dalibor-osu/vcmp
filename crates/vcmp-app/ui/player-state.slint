@@ -13,6 +13,10 @@ export enum Repeat { off, all, one }
 // The last playback problem; the UI words the sentence so it can be translated.
 export enum PlayerProblem { none, no-output, track-failed }
 
+// What the queue's context is: an album or artist (named in `queue-origin`), the
+// tracks a search found, or every song.
+export enum QueueSource { named, search, songs }
+
 // One track in the queue panel.
 export struct QueueRow {
     title: string,
@@ -57,8 +61,7 @@ export global PlayerState {
     in property <[QueueRow]> up-next;
     in property <[QueueRow]> upcoming;
     in property <string> queue-origin;
-    // The context is the tracks a search found.
-    in property <bool> queue-from-search;
+    in property <QueueSource> queue-source;
 
     // Output devices by name, the chosen one included even while it is missing; the
     // system default is not among them. `output-device` indexes the chosen one (-1

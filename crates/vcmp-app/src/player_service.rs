@@ -27,15 +27,17 @@ use crate::albums::initial;
 use crate::library_view::{LibraryView, format_duration};
 use crate::saved_queue;
 use crate::{
-    AppWindow, PlayState, PlayerProblem, PlayerState, QueueRow, Repeat, Shuffle, ShuffleKind,
+    AppWindow, PlayState, PlayerProblem, PlayerState, QueueRow, QueueSource, Repeat, Shuffle,
+    ShuffleKind,
 };
 
 pub const SETTING_VOLUME: &str = "playback.volume";
 pub const SETTING_SHUFFLE: &str = "playback.shuffle";
 pub const SETTING_SHUFFLE_KIND: &str = "playback.shuffle_kind";
 pub const SETTING_REPEAT: &str = "playback.repeat";
-/// The context origin of tracks played from search results.
+/// The context origins of tracks played from search results and from the Songs page.
 const SEARCH_ORIGIN: &str = "search";
+const SONGS_ORIGIN: &str = "songs";
 
 /// The output device by name; absent or empty for the system default.
 pub const SETTING_OUTPUT_DEVICE: &str = "playback.output_device";
@@ -366,6 +368,32 @@ impl PlayerService {
                 }
             }
         });
+        window.on_play_song({
+            let weak = weak.clone();
+            move |index| {
+                if let (Some(service), Ok(index)) = (weak.upgrade(), usize::try_from(index)) {
+                    service.play_songs(index);
+                }
+            }
+        });
+        window.on_queue_song({
+            let weak = weak.clone();
+            move |index, next| {
+                let Some(service) = weak.upgrade() else {
+                    return;
+                };
+                let track = usize::try_from(index)
+                    .ok()
+                    .and_then(|index| service.view.song(index));
+                if let Some(entry) = track.as_ref().and_then(entry) {
+                    service.player.send(if next {
+                        Command::PlayNext(vec![entry])
+                    } else {
+                        Command::AddToQueue(vec![entry])
+                    });
+                }
+            }
+        });
         window.on_queue_album_track({
             let weak = weak.clone();
             move |index, next| {
@@ -439,6 +467,16 @@ impl PlayerService {
         self.player.send(Command::PlayContext {
             entries,
             origin: Some(SEARCH_ORIGIN.to_string()),
+            start: Some(start),
+        });
+    }
+
+    /// Plays every song in the Songs page's order, from song `start`.
+    pub fn play_songs(&self, start: usize) {
+        let entries: Vec<QueueEntry> = self.view.songs().iter().filter_map(entry).collect();
+        self.player.send(Command::PlayContext {
+            entries,
+            origin: Some(SONGS_ORIGIN.to_string()),
             start: Some(start),
         });
     }
@@ -578,7 +616,11 @@ impl PlayerService {
             })
             .unwrap_or_default();
         state.set_queue_origin(origin.into());
-        state.set_queue_from_search(view.origin.as_deref() == Some(SEARCH_ORIGIN));
+        state.set_queue_source(match view.origin.as_deref() {
+            Some(SEARCH_ORIGIN) => QueueSource::Search,
+            Some(SONGS_ORIGIN) => QueueSource::Songs,
+            _ => QueueSource::Named,
+        });
     }
 
     fn queue_row(&self, entry: &QueueEntry) -> QueueRow {

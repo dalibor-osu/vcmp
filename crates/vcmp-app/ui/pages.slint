@@ -7,6 +7,7 @@ import { PlayerState, ShuffleKind } from "player-state.slint";
 import { AlbumGrid, AlbumTile, CardGrid } from "album-grid.slint";
 import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
 import { ArtistDetail, ArtistView } from "artist-page.slint";
+import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -685,6 +686,87 @@ export component SearchPage inherits Rectangle {
                         root.ensure-visible(top, height);
                     }
                 }
+            }
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
+// Every track in a sortable table. The tracks are loaded the first time the page
+// is shown, so a large library does not slow the start.
+export component SongsPage inherits Rectangle {
+    in property <bool> shown;
+    in property <[SongRow]> songs;
+    in property <SongColumn> sort-column;
+    in property <bool> sort-descending;
+    in property <bool> library-failed;
+    // The page is shown and wants its tracks.
+    callback needed();
+    callback sort(SongColumn);
+    callback play(int);
+    callback queue(int, bool);
+
+    changed shown => {
+        if self.shown {
+            root.needed();
+        }
+    }
+    init => {
+        if self.shown {
+            root.needed();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        padding: Theme.space-xxl;
+        padding-bottom: 0;
+        spacing: Theme.space-xl;
+
+        HorizontalLayout {
+            spacing: Theme.space-l;
+            alignment: start;
+
+            Text {
+                text: @tr("Songs");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+            }
+            if root.songs.length > 0: Text {
+                text: @tr("{n} song" | "{n} songs" % root.songs.length);
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.songs.length == 0: Text {
+            text: root.library-failed ? @tr("The music library could not be opened, so no songs can be shown.")
+                : LibraryState.scanning ? @tr("Looking for songs in your music folders. They appear here as they are found.")
+                : @tr("No songs yet. Add the folder your music is in in Settings.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            max-width: Theme.content-max-width;
+        }
+
+        SongTable {
+            vertical-stretch: 1;
+            visible: root.songs.length > 0;
+            songs: root.songs;
+            sort-column: root.sort-column;
+            sort-descending: root.sort-descending;
+            sort(column) => {
+                root.sort(column);
+            }
+            play(index) => {
+                root.play(index);
+            }
+            queue(index, next) => {
+                root.queue(index, next);
             }
         }
     }

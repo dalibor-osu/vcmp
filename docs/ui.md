@@ -15,12 +15,13 @@ dials come from DESIGN.md).
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
 | `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SongsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
+| `ui/songs-page.slint` | `SongTable`: every track with sortable columns, only the rows in view created |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist grid and an artist's albums |
-| `src/library_view.rs` | Connects the library to the album and artist grids and search, and opens album and artist pages |
+| `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
@@ -77,7 +78,8 @@ subtext1 and overlay2 instead.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Settings, About) |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Songs, Settings, About) |
+| Songs table without a track-number column, missing values sorted last | Numbers only mean something within an album, which the Album column already orders; untagged files at the top would hide the library behind them |
 | Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
 | Artists in round frames, albums in rounded squares | The shape tells the two grids apart at a glance, as people know it from other players |
 | An artist's picture is their newest album's cover until there are artist photos | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists keep the initial |
@@ -192,6 +194,22 @@ shown, because the page itself stays alive while hidden.
 - **`TrackList`** is the track list on album pages, artist pages and search: one tab
   stop, Up/Down, Home/End, Enter or Space, and the Menu key or a right click for the
   track menu.
+
+## Songs page
+
+- **The table** (`SongTable`) lists every available track: Title, Artist, Album,
+  Year and Time. Like the album grid, it only creates the rows in view (a test
+  checks that 5,000 songs create fewer than 60 rows).
+- **Sorting:** a header sorts by its column; the same header again reverses the
+  order. Ties keep album and track order, and missing artists, albums and years
+  go last. The order is saved (`ui.songs_sort`), and starts by artist.
+- **Loading:** the tracks are read the first time the page is shown, not at
+  startup, and again after library changes once they were loaded.
+- **Keyboard:** the headers are buttons; the rows are one tab stop with Up/Down,
+  Page Up/Down, Home/End and Enter or Space. The Menu key or a right click opens
+  the track menu.
+- **Playing:** a click or Enter plays every song in the table's order from that one;
+  the queue panel says "Next from all songs".
 
 ## Music folders and scanning
 

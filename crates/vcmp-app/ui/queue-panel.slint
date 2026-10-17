@@ -2,7 +2,7 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Button, FocusRing, IconButton } from "components.slint";
 import { Glyph } from "icons.slint";
-import { PlayerState, QueueRow } from "player-state.slint";
+import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
 
 // One track in the queue. A right click asks the panel for the track's menu.
 component QueueLine {
@@ -314,7 +314,8 @@ export component QueuePanel inherits Rectangle {
                         }
 
                         if PlayerState.upcoming.length > 0: SectionLabel {
-                            text: PlayerState.queue-from-search ? @tr("Next from your search")
+                            text: PlayerState.queue-source == QueueSource.search ? @tr("Next from your search")
+                                : PlayerState.queue-source == QueueSource.songs ? @tr("Next from all songs")
                                 : PlayerState.queue-origin != "" ? @tr("Next from {}", PlayerState.queue-origin) : @tr("Next up");
                             height: Theme.target-height;
                             vertical-alignment: bottom;

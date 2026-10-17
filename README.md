@@ -16,6 +16,7 @@ Early development. In place so far:
 - the Artists page: album artists (or everyone credited) with their albums and the
   tracks they appear on elsewhere;
 - search over artists, albums and tracks, by any part of a name (Ctrl+F);
+- the Songs page: every track in a sortable table;
 - music folders in Settings: add and remove folders, scans in the background with
   progress, and automatic updates when the folders change;
 - playback: gapless MP3, FLAC, WAV and Ogg Vorbis, with a player bar (seek, volume and

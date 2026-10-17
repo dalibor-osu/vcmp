@@ -30,7 +30,7 @@ use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, Queue
 struct Shot {
     name: &'static str,
     mode: ThemeMode,
-    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Settings, 4 About.
+    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Songs, 4 Settings, 5 About.
     page: i32,
     // Grid position of the album (or, on the Artists page, the artist) to open.
     album: Option<i32>,
@@ -56,9 +56,9 @@ const fn shot(
 }
 
 const SHOTS: &[Shot] = &[
-    // First, while nothing has focus: Search, Albums, Artists, Settings, About, then
+    // First, from the start: Search, Albums, Artists, Songs, Settings, About, then
     // the grid.
-    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 6),
+    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 7),
     shot("albums-light", ThemeMode::Light, 1, None, 0),
     shot("albums-dark", ThemeMode::Dark, 1, None, 0),
     shot("album-light", ThemeMode::Light, 1, Some(ALBUM), 0),
@@ -69,13 +69,15 @@ const SHOTS: &[Shot] = &[
     shot("artist-dark", ThemeMode::Dark, 2, Some(ARTIST), 0),
     shot("search-light", ThemeMode::Light, 0, None, 0),
     shot("search-dark", ThemeMode::Dark, 0, None, 0),
-    shot("settings-light", ThemeMode::Light, 3, None, 0),
-    shot("settings-dark", ThemeMode::Dark, 3, None, 0),
-    shot("about-light", ThemeMode::Light, 4, None, 0),
-    shot("about-dark", ThemeMode::Dark, 4, None, 0),
-    shot("focus-nav-light", ThemeMode::Light, 3, None, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 3, None, 3),
-    shot("focus-switch-light", ThemeMode::Light, 3, None, 1),
+    shot("songs-light", ThemeMode::Light, 3, None, 0),
+    shot("songs-dark", ThemeMode::Dark, 3, None, 0),
+    shot("settings-light", ThemeMode::Light, 4, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 4, None, 0),
+    shot("about-light", ThemeMode::Light, 5, None, 0),
+    shot("about-dark", ThemeMode::Dark, 5, None, 0),
+    shot("focus-nav-light", ThemeMode::Light, 4, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 4, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 4, None, 1),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick

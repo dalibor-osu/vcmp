@@ -14,7 +14,7 @@ use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, Model, SharedString};
 use vcmp_app::library_view::{LibraryView, SEARCH_DELAY};
 use vcmp_app::player_service::{PlayerControl, PlayerService};
-use vcmp_app::{AppWindow, Page, PlayerState};
+use vcmp_app::{AppWindow, Page, PlayerState, QueueSource};
 use vcmp_library::Library;
 use vcmp_playback::{Command, Event, QueueView};
 
@@ -266,5 +266,8 @@ fn a_found_track_plays_the_results_from_there() {
         origin: Some("search".into()),
         ..QueueView::default()
     }));
-    assert!(app.window.global::<PlayerState>().get_queue_from_search());
+    assert_eq!(
+        app.window.global::<PlayerState>().get_queue_source(),
+        QueueSource::Search
+    );
 }
