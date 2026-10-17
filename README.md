@@ -28,7 +28,9 @@ Early development. In place so far:
 - installers for Windows, macOS and Linux, built and attached to a draft GitHub
   Release when a version tag is pushed (see [Releases](#releases));
 - Discord Rich Presence: "Listening to VCMP" with the track, its progress and the
-  album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID.
+  album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID;
+- OS media controls: media keys and the system's media widget (MPRIS on Linux, the
+  Windows media flyout, Now Playing on macOS) control playback and show the track.
 
 The other library views and everything else in the
 [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) are still to be built.

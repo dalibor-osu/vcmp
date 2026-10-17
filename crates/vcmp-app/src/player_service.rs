@@ -3,7 +3,8 @@
 //! Volume, shuffle, repeat, the output device and the queue itself are kept in the
 //! library's settings, so they come back after a restart. The queue panel shows Up
 //! next and what follows. The playing track also goes to the Discord presence, with
-//! a cover looked up on MusicBrainz for albums whose files carry no release ID.
+//! a cover looked up on MusicBrainz for albums whose files carry no release ID,
+//! and to the OS media controls, whose media keys and widget drive the player.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -21,6 +22,7 @@ use vcmp_playback::{
 };
 
 use vcmp_integrations::discord::{DiscordPresence, Listening};
+use vcmp_integrations::media_controls::{self, Control, MediaControls, MediaState, MediaTrack};
 use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, CoverFinder, Lookup};
 
 use crate::albums::initial;
@@ -80,6 +82,18 @@ impl PresenceSink for DiscordPresence {
     }
 }
 
+/// Where the system's media widget learns what plays: the OS media controls, or a
+/// recorder in tests.
+pub trait MediaSink {
+    fn update(&self, state: MediaState);
+}
+
+impl MediaSink for MediaControls {
+    fn update(&self, state: MediaState) {
+        MediaControls::update(self, state);
+    }
+}
+
 /// Where cover lookups go: MusicBrainz, or a recorder in tests. The answer comes
 /// back through `PlayerService::cover_found`.
 pub trait CoverSearch {
@@ -130,6 +144,9 @@ pub struct PlayerService {
     // Output devices: the listed names, and how to list them.
     devices: RefCell<Vec<String>>,
     list_devices: Cell<DeviceLister>,
+    // The OS media controls, once registered, and the track they show.
+    media: RefCell<Option<Box<dyn MediaSink>>>,
+    media_track: RefCell<Option<MediaTrack>>,
 }
 
 thread_local! {
@@ -164,6 +181,8 @@ impl PlayerService {
             failed_covers: RefCell::default(),
             devices: RefCell::default(),
             list_devices: Cell::new(vcmp_playback::output_devices),
+            media: RefCell::default(),
+            media_track: RefCell::default(),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -414,6 +433,56 @@ impl PlayerService {
     /// Lists output devices with `lister` instead of asking the system (tests).
     pub fn set_device_lister(&self, lister: DeviceLister) {
         self.list_devices.set(lister);
+    }
+
+    /// Shows the playing track in the system's media widget from now on.
+    pub fn set_media_controls(&self, sink: Box<dyn MediaSink>) {
+        *self.media.borrow_mut() = Some(sink);
+        self.update_media();
+    }
+
+    /// Does what a media key or the system's media widget asks.
+    pub fn media_control(&self, control: Control) {
+        match control {
+            Control::Play => self.player.send(Command::Play),
+            Control::Pause => self.player.send(Command::Pause),
+            Control::TogglePlayPause => self.player.send(Command::TogglePlayPause),
+            Control::Stop => self.player.send(Command::Stop),
+            Control::Next => self.player.send(Command::Next),
+            Control::Previous => self.player.send(Command::Previous),
+            Control::SeekTo(position) => self.seek(position),
+            Control::SeekBy { forward, by } => {
+                let position = self.position.get();
+                let mut target = if forward {
+                    position + by
+                } else {
+                    position.saturating_sub(by)
+                };
+                if let Some(duration) = self.media_track.borrow().as_ref().and_then(|t| t.duration)
+                {
+                    target = target.min(duration);
+                }
+                self.seek(target);
+            }
+            Control::SetShuffle(on) => {
+                self.set_shuffle(if on { Shuffle::On } else { Shuffle::Off })
+            }
+            Control::SetRepeat(repeat) => self.set_repeat(match repeat {
+                media_controls::Repeat::Off => Repeat::Off,
+                media_controls::Repeat::One => Repeat::One,
+                media_controls::Repeat::All => Repeat::All,
+            }),
+            Control::SetVolume(volume) => self.set_volume(volume, true),
+            Control::Raise => {
+                if let Some(window) = self.window.upgrade() {
+                    window.window().set_minimized(false);
+                    let _ = window.show();
+                }
+            }
+            Control::Quit => {
+                let _ = slint::quit_event_loop();
+            }
+        }
     }
 
     /// Saves the queue and position, to come back to after a restart.
@@ -712,7 +781,11 @@ impl PlayerService {
             if let Some(listening) = self.listening.borrow_mut().as_mut() {
                 listening.cover_url = Some(cover.url());
             }
+            if let Some(track) = self.media_track.borrow_mut().as_mut() {
+                track.cover_url = Some(cover.url());
+            }
             self.update_presence();
+            self.update_media();
         }
     }
 
@@ -825,6 +898,7 @@ impl PlayerService {
             }
             Event::RestoreFailed(error) => log::warn!("could not restore the queue: {error}"),
         }
+        self.update_media();
     }
 
     fn show_track(&self, state: &PlayerState, now: Option<NowPlaying>) {
@@ -837,6 +911,7 @@ impl PlayerService {
             state.set_has_cover(false);
             state.set_cover(Image::default());
             *self.listening.borrow_mut() = None;
+            *self.media_track.borrow_mut() = None;
             self.album.set(None);
             self.update_presence();
             return;
@@ -878,6 +953,22 @@ impl PlayerService {
             position: Duration::ZERO,
             duration: (!duration.is_zero()).then_some(duration),
         });
+        *self.media_track.borrow_mut() = Some(MediaTrack {
+            id: path.clone(),
+            title: title.clone(),
+            artist: track.as_ref().and_then(|track| track.artist.clone()),
+            album: album.as_ref().map(|album| album.title.clone()),
+            cover_file: album
+                .as_ref()
+                .and_then(|album| album.artwork.as_ref())
+                .map(|artwork| artwork.thumbnail.clone()),
+            cover_url: self
+                .listening
+                .borrow()
+                .as_ref()
+                .and_then(|listening| listening.cover_url.clone()),
+            duration: (!duration.is_zero()).then_some(duration),
+        });
         self.album.set(album.map(|album| album.id));
         self.position.set(Duration::ZERO);
         self.update_presence();
@@ -916,6 +1007,31 @@ impl PlayerService {
             _ => presence.sink.clear(),
         }
         self.look_up_cover();
+    }
+
+    /// Tells the system's media widget what plays, and how.
+    fn update_media(&self) {
+        let media = self.media.borrow();
+        let (Some(media), Some(window)) = (media.as_ref(), self.window.upgrade()) else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        media.update(MediaState {
+            track: self.media_track.borrow().clone(),
+            playing: self.playing.get(),
+            position: self.position.get(),
+            volume: if self.muted.get() {
+                0.0
+            } else {
+                state.get_volume()
+            },
+            shuffle: state.get_shuffle() == Shuffle::On,
+            repeat: match state.get_repeat() {
+                Repeat::Off => media_controls::Repeat::Off,
+                Repeat::One => media_controls::Repeat::One,
+                Repeat::All => media_controls::Repeat::All,
+            },
+        });
     }
 
     fn discord_enabled(&self) -> bool {
@@ -1032,6 +1148,7 @@ impl PlayerService {
         if save {
             self.save(SETTING_VOLUME, &format!("{volume:.2}"));
         }
+        self.update_media();
     }
 
     fn toggle_mute(&self) {
@@ -1047,6 +1164,7 @@ impl PlayerService {
         } else {
             state.get_volume()
         }));
+        self.update_media();
     }
 
     fn set_shuffle(&self, shuffle: Shuffle) {

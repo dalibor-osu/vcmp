@@ -5,6 +5,7 @@ pub mod albums;
 pub mod icons;
 pub mod library_service;
 pub mod library_view;
+pub mod media_keys;
 pub mod player_service;
 pub mod preferences;
 pub mod saved_queue;

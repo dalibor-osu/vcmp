@@ -3,4 +3,5 @@
 //! on the UI crate.
 
 pub mod discord;
+pub mod media_controls;
 pub mod musicbrainz;
