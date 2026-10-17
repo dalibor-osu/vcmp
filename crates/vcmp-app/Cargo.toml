@@ -19,6 +19,7 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 log = "0.4.34"
 rfd = "0.17.2"
 slint.workspace = true
+vcmp-integrations = { version = "0.1.0", path = "../vcmp-integrations" }
 vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
 vcmp-playback = { version = "0.1.0", path = "../vcmp-playback" }
 
@@ -31,3 +32,4 @@ i-slint-backend-testing = "=1.18.1"
 lofty = "0.25.4"
 png = "0.18.1"
 tempfile = "3.27.0"
+vcmp-integrations = { path = "../vcmp-integrations" }

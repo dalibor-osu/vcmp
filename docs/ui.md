@@ -188,6 +188,18 @@ The Albums page tells apart why it is empty:
   `Event`s to the UI thread. Tests replace the engine with a recorder through the
   `PlayerControl` trait.
 - **Problems:** a missing sound output and skipped tracks are shown in the bar.
+- **Discord Rich Presence** (`vcmp-integrations::discord`, on by default, switch
+  under Settings → Playback):
+  - shows "Listening to VCMP" with the track, artist and a progress bar while a track
+    plays, and clears on pause or stop;
+  - after a seek the progress bar is refreshed;
+  - albums tagged with a MusicBrainz release ID show their Cover Art Archive cover,
+    which Discord fetches itself; other albums show no picture until there is an app
+    logo;
+  - the client runs on its own thread and reconnects every 15 s while Discord is
+    away;
+  - the application ID is built in (`APPLICATION_ID`) and can be replaced at build
+    time with `VCMP_DISCORD_APPLICATION_ID`.
 
 The icons are simple shapes drawn on a 24-point grid (`ui/icons/*.svg`), not taken
 from an icon set. Media controls are the one place in the UI where shapes read

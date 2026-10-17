@@ -6,3 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+
+[dependencies]
+discord-rich-presence = "1.1.0"
+log = "0.4.34"

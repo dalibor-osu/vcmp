@@ -2,7 +2,7 @@
 //! album from its page, and the engine's events turned into what the bar shows.
 //! Volume, shuffle and repeat are kept in the library's settings.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
@@ -15,6 +15,8 @@ use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackState, Player, QueueEntry, RepeatMode, ShuffleMode,
     TrackRef,
 };
+
+use vcmp_integrations::discord::{DiscordPresence, Listening};
 
 use crate::albums::initial;
 use crate::library_view::{LibraryView, format_duration};
@@ -36,6 +38,25 @@ impl PlayerControl for Player {
     }
 }
 
+/// Where "now listening" goes: Discord, or a recorder in tests.
+pub trait PresenceSink {
+    fn show(&self, listening: Listening);
+    fn clear(&self);
+}
+
+impl PresenceSink for DiscordPresence {
+    fn show(&self, listening: Listening) {
+        DiscordPresence::show(self, listening);
+    }
+
+    fn clear(&self) {
+        DiscordPresence::clear(self);
+    }
+}
+
+/// Setting key: show the playing track in Discord ("true" or "false"; absent: true).
+pub const SETTING_DISCORD: &str = "integrations.discord";
+
 pub struct PlayerService {
     window: slint::Weak<AppWindow>,
     library: Rc<Library>,
@@ -45,6 +66,11 @@ pub struct PlayerService {
     seek_target: Cell<Option<(Duration, Instant)>>,
     // Muted keeps the volume to come back to; the engine plays at 0 meanwhile.
     muted: Cell<bool>,
+    presence: Option<Box<dyn PresenceSink>>,
+    // What the presence shows while playing, and where in the track playback is.
+    listening: RefCell<Option<Listening>>,
+    playing: Cell<bool>,
+    position: Cell<Duration>,
 }
 
 thread_local! {
@@ -60,6 +86,7 @@ impl PlayerService {
         library: Rc<Library>,
         view: Rc<LibraryView>,
         player: Box<dyn PlayerControl>,
+        presence: Option<Box<dyn PresenceSink>>,
     ) -> Rc<Self> {
         let service = Rc::new(Self {
             window: window.as_weak(),
@@ -68,6 +95,10 @@ impl PlayerService {
             player,
             seek_target: Cell::default(),
             muted: Cell::new(false),
+            presence,
+            listening: RefCell::default(),
+            playing: Cell::new(false),
+            position: Cell::default(),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -91,6 +122,8 @@ impl PlayerService {
             Some("one") => Repeat::One,
             _ => Repeat::Off,
         };
+        state.set_discord_available(service.presence.is_some());
+        state.set_discord(service.setting(SETTING_DISCORD).as_deref() != Some("false"));
         state.set_volume(volume);
         state.set_shuffle(shuffle);
         state.set_shuffle_kind(kind);
@@ -173,6 +206,14 @@ impl PlayerService {
                 }
             }
         });
+        state.on_set_discord({
+            let weak = weak.clone();
+            move |enabled| {
+                if let Some(service) = weak.upgrade() {
+                    service.set_discord(enabled);
+                }
+            }
+        });
         window.on_play_album(move |start, shuffle| {
             if let Some(service) = weak.upgrade() {
                 service.play_album(start, shuffle);
@@ -236,11 +277,15 @@ impl PlayerService {
         };
         let state = window.global::<PlayerState>();
         match event {
-            Event::StateChanged(playback) => state.set_state(match playback {
-                PlaybackState::Playing => PlayState::Playing,
-                PlaybackState::Paused => PlayState::Paused,
-                PlaybackState::Stopped => PlayState::Stopped,
-            }),
+            Event::StateChanged(playback) => {
+                state.set_state(match playback {
+                    PlaybackState::Playing => PlayState::Playing,
+                    PlaybackState::Paused => PlayState::Paused,
+                    PlaybackState::Stopped => PlayState::Stopped,
+                });
+                self.playing.set(playback == PlaybackState::Playing);
+                self.update_presence();
+            }
             Event::TrackChanged(now) => self.show_track(&state, now),
             Event::Position(position) => {
                 if let Some((target, asked)) = self.seek_target.get() {
@@ -250,7 +295,11 @@ impl PlayerService {
                         return;
                     }
                     self.seek_target.set(None);
+                    // Discord's progress bar has to jump with the seek.
+                    self.position.set(position);
+                    self.update_presence();
                 }
+                self.position.set(position);
                 show_position(&state, position);
             }
             Event::QueueChanged(queue) => {
@@ -300,6 +349,8 @@ impl PlayerService {
             state.set_track_path("".into());
             state.set_has_cover(false);
             state.set_cover(Image::default());
+            *self.listening.borrow_mut() = None;
+            self.update_presence();
             return;
         };
         let path = now.entry.track.id.to_string();
@@ -318,16 +369,29 @@ impl PlayerService {
             },
             |track| track.title.clone(),
         );
-        let cover = track
+        let album = track
             .as_ref()
             .and_then(|track| track.album_id)
-            .and_then(|album| self.library.album(album).ok().flatten())
-            .and_then(|album| album.artwork)
+            .and_then(|album| self.library.album(album).ok().flatten());
+        let cover = album
+            .as_ref()
+            .and_then(|album| album.artwork.as_ref())
             .and_then(|artwork| Image::load_from_path(&artwork.thumbnail).ok());
         let duration = now
             .duration
             .or(track.as_ref().map(|track| track.duration))
             .unwrap_or_default();
+
+        *self.listening.borrow_mut() = Some(Listening {
+            title: title.clone(),
+            artist: track.as_ref().and_then(|track| track.artist.clone()),
+            album: album.as_ref().map(|album| album.title.clone()),
+            album_musicbrainz_id: album.and_then(|album| album.musicbrainz_id),
+            position: Duration::ZERO,
+            duration: (!duration.is_zero()).then_some(duration),
+        });
+        self.position.set(Duration::ZERO);
+        self.update_presence();
 
         state.set_has_track(true);
         state.set_initial(initial(&title).into());
@@ -345,6 +409,35 @@ impl PlayerService {
         state.set_duration_text(format_duration(duration).into());
         self.seek_target.set(None);
         show_position(state, Duration::ZERO);
+    }
+
+    /// Shows the track in Discord while it plays (and the presence is on); clears it
+    /// otherwise.
+    fn update_presence(&self) {
+        let Some(presence) = &self.presence else {
+            return;
+        };
+        let enabled = self
+            .window
+            .upgrade()
+            .is_some_and(|window| window.global::<PlayerState>().get_discord());
+        match self.listening.borrow().as_ref() {
+            Some(listening) if enabled && self.playing.get() => {
+                presence.show(Listening {
+                    position: self.position.get(),
+                    ..listening.clone()
+                });
+            }
+            _ => presence.clear(),
+        }
+    }
+
+    fn set_discord(&self, enabled: bool) {
+        if let Some(window) = self.window.upgrade() {
+            window.global::<PlayerState>().set_discord(enabled);
+        }
+        self.save(SETTING_DISCORD, if enabled { "true" } else { "false" });
+        self.update_presence();
     }
 
     /// Seeks, and shows the new position at once instead of waiting for the engine.

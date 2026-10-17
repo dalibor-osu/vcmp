@@ -20,8 +20,9 @@ use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, SharedString, Timer, TimerMode};
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
-use vcmp_app::player_service::{PlayerControl, PlayerService};
+use vcmp_app::player_service::{PlayerControl, PlayerService, PresenceSink};
 use vcmp_app::{AppWindow, Theme, ThemeMode};
+use vcmp_integrations::discord::Listening;
 use vcmp_library::Library;
 use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, TrackRef};
 
@@ -78,6 +79,12 @@ struct Silent;
 
 impl PlayerControl for Silent {
     fn send(&self, _: Command) {}
+}
+
+/// Shows nothing in Discord, so the shots never change the user's status.
+impl PresenceSink for Silent {
+    fn show(&self, _: Listening) {}
+    fn clear(&self) {}
 }
 
 fn press(window: &AppWindow, key: Key) {
@@ -138,8 +145,13 @@ fn main() -> Result<(), slint::PlatformError> {
         };
         let library = Rc::new(Library::open(&paths.database, &paths.cache).expect("library"));
         let view = LibraryView::connect(&window, library.clone()).expect("albums");
-        let player =
-            PlayerService::connect(&window, library.clone(), view.clone(), Box::new(Silent));
+        let player = PlayerService::connect(
+            &window,
+            library.clone(),
+            view.clone(),
+            Box::new(Silent),
+            Some(Box::new(Silent)),
+        );
         let album_index = std::env::var("VCMP_SHOT_ALBUM")
             .ok()
             .and_then(|n| n.parse().ok())

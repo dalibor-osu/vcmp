@@ -48,6 +48,8 @@ pub struct Album {
     pub year: Option<i32>,
     pub track_count: u32,
     pub artwork: Option<Artwork>,
+    /// MusicBrainz release ID, when the files are tagged with one.
+    pub musicbrainz_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,7 +127,7 @@ pub(crate) fn track(conn: &Connection, TrackId(id): TrackId) -> Result<Option<Tr
 }
 
 const ALBUM_QUERY: &str =
-    "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id), a.artwork_hash
+    "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id), a.artwork_hash, a.mbid
     FROM albums a
     JOIN tracks t ON t.album_id = a.id AND t.available = 1
     LEFT JOIN artists ar ON ar.id = a.artist_id";
@@ -141,6 +143,7 @@ fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
         artwork: row
             .get::<_, Option<String>>(6)?
             .and_then(|key| store.get(&key)),
+        musicbrainz_id: row.get(7)?,
     })
 }
 

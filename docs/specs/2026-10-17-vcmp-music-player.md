@@ -45,6 +45,12 @@ Added after the spec was agreed, while setting the design direction: the author
 likes clean animations, and an option for reduced motion would be nice for users
 who dislike them. The visual direction itself lives in `docs/DESIGN.md`.
 
+Added later, during implementation: v1 should also have Discord Rich Presence. It
+should be fairly easy to implement. It is on by default for now; a future setup
+wizard that introduces the user to the app should mention it. The presence shows the
+album cover when the album is tagged; otherwise it should show the app logo, which
+does not exist yet, so for now it shows nothing.
+
 ## Decisions
 
 ### How should the spec scope the first release of VCMP?
@@ -275,6 +281,34 @@ who dislike them. The visual direction itself lives in `docs/DESIGN.md`.
 
 **Answer: Yes, add to v1 spec**
 
+### Discord Rich Presence (asked after agreement): on or off by default?
+
+| Option | What it means |
+|---|---|
+| Off, opt-in in Settings (Recommended) | Nothing about your listening leaves the machine until you switch it on. Respects privacy; fewer people discover the feature. |
+| On by default | Works out of the box for Discord users, like most players. Broadcasts what you play without being asked. |
+
+**Answer: "For now, make it on by default. It would be nice to add some kind of setup wizard in the future that would introduce the user to the app and mention this as well."**
+
+### Discord Rich Presence: which picture should the presence show?
+
+| Option | What it means |
+|---|---|
+| Album cover when tagged (Recommended) | Cover Art Archive URL for albums with a MusicBrainz release ID, else no picture. Discord fetches the image itself, so nothing is uploaded. |
+| No picture | Text only: track, artist, album and elapsed time. Simplest; looks plainer in Discord. |
+| Upload covers somewhere | Every album gets its cover shown. Needs an image host and sends your covers off the machine. |
+
+**Answer: "Let's go with cover when tagged and when not, it should show the app logo. Logo is non existent yet, so let's show nothing for now and add this later."**
+
+### Discord Rich Presence: where does the Discord application ID come from?
+
+| Option | What it means |
+|---|---|
+| Build it configurable (Recommended) | The ID comes from a build-time setting, like the Last.fm key; without it the feature is hidden. You create the app later in Discord's developer portal. |
+| I'll create it now | You create the 'VCMP' application at discord.com/developers and paste its Application ID here to put into the build. |
+
+**Answer: I'll create it now**
+
 ## High-level plan
 
 v1 is one release with all core features. It is built in workstreams so that a
@@ -307,8 +341,8 @@ Depends on 2 and 3. This is the first point where VCMP is a usable player.
 followed by a re-read into the library. Depends on 2 and 4.
 
 **7. Integrations.** OS media controls (MPRIS / SMTC / MPNowPlaying), Last.fm
-scrobbling, artist photo search (MusicBrainz + fanart.tv) with a candidate picker,
-cover fetch (Cover Art Archive), update check. Depends on 3 (media controls,
+scrobbling, Discord Rich Presence, artist photo search (MusicBrainz + fanart.tv) with
+a candidate picker, cover fetch (Cover Art Archive), update check. Depends on 3 (media controls,
 scrobbling) and 2/4 (artwork).
 
 **8. Packaging and release.** Installers on GitHub Releases (MSI/exe, dmg, AppImage +
@@ -441,6 +475,9 @@ dialog).
 - Online tag lookup (MusicBrainz autotagging) in the tag editor, and DB-only
   metadata overrides.
 - A self-updater, and Flatpak/winget/Homebrew distribution.
+- A first-run setup wizard (it would introduce the app and mention the Discord
+  presence), and the app logo in the Discord presence for untagged albums. Both are
+  planned for later.
 - UI languages other than English (the i18n layer is in v1, translations are not).
 - Formats beyond mp3, wav, flac and Ogg Vorbis. An equalizer/DSP, streaming
   services other than the future Spotify, network/DLNA sources, mobile platforms,

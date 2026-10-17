@@ -38,6 +38,10 @@ export global PlayerState {
     in property <ShuffleKind> shuffle-kind: ShuffleKind.fewer-repeats;
     in property <Repeat> repeat;
 
+    // Discord Rich Presence: built with an application ID, and switched on.
+    in property <bool> discord-available;
+    in property <bool> discord: true;
+
     in property <PlayerProblem> problem;
     in property <string> problem-detail;
 
@@ -52,4 +56,5 @@ export global PlayerState {
     callback set-shuffle(Shuffle);
     callback set-shuffle-kind(ShuffleKind);
     callback set-repeat(Repeat);
+    callback set-discord(bool);
 }

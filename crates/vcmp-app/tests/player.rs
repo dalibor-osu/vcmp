@@ -15,9 +15,11 @@ use slint::{ComponentHandle, Model};
 use tempfile::TempDir;
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{
-    PlayerControl, PlayerService, SETTING_REPEAT, SETTING_SHUFFLE, SETTING_VOLUME,
+    PlayerControl, PlayerService, PresenceSink, SETTING_DISCORD, SETTING_REPEAT, SETTING_SHUFFLE,
+    SETTING_VOLUME,
 };
 use vcmp_app::{AppWindow, PlayState, PlayerProblem, PlayerState, Repeat, Shuffle, ShuffleKind};
+use vcmp_integrations::discord::Listening;
 use vcmp_library::Library;
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackState, QueueEntry, RepeatMode, ShuffleMode,
@@ -39,12 +41,33 @@ impl Recorder {
     }
 }
 
+/// What reached Discord: `Some` for a shown track, `None` for a cleared presence.
+#[derive(Clone, Default)]
+struct Presence(Rc<RefCell<Vec<Option<Listening>>>>);
+
+impl PresenceSink for Presence {
+    fn show(&self, listening: Listening) {
+        self.0.borrow_mut().push(Some(listening));
+    }
+
+    fn clear(&self) {
+        self.0.borrow_mut().push(None);
+    }
+}
+
+impl Presence {
+    fn last(&self) -> Option<Option<Listening>> {
+        self.0.borrow().last().cloned()
+    }
+}
+
 struct App {
     _dir: TempDir,
     window: AppWindow,
     library: Rc<Library>,
     service: Rc<PlayerService>,
     sent: Recorder,
+    shown: Presence,
     music: std::path::PathBuf,
 }
 
@@ -83,13 +106,21 @@ fn start(prepare: impl FnOnce(&Library)) -> App {
     window.show().unwrap();
     let view = LibraryView::connect(&window, library.clone()).unwrap();
     let sent = Recorder::default();
-    let service = PlayerService::connect(&window, library.clone(), view, Box::new(sent.clone()));
+    let shown = Presence::default();
+    let service = PlayerService::connect(
+        &window,
+        library.clone(),
+        view,
+        Box::new(sent.clone()),
+        Some(Box::new(shown.clone())),
+    );
     App {
         _dir: dir,
         window,
         library,
         service,
         sent,
+        shown,
         music,
     }
 }
@@ -358,4 +389,52 @@ fn the_speaker_button_mutes_and_unmutes() {
     app.state().invoke_volume_changed(0.3);
     assert!(!app.state().get_muted(), "moving the slider unmutes");
     assert_eq!(app.sent.take().last(), Some(&Command::SetVolume(0.3)));
+}
+
+#[test]
+fn discord_shows_the_playing_track_and_follows_pause_and_seek() {
+    let app = start(|_| {});
+    assert!(app.state().get_discord_available());
+    assert!(app.state().get_discord(), "on by default");
+
+    app.service.handle_event(app.now_playing("2.flac"));
+    assert_eq!(
+        app.shown.last(),
+        Some(None),
+        "nothing shown before playback starts"
+    );
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Playing));
+    let listening = app.shown.last().flatten().expect("shown while playing");
+    assert_eq!(listening.title, "Closing");
+    assert_eq!(listening.artist.as_deref(), Some("Band"));
+    assert_eq!(listening.album.as_deref(), Some("Record"));
+    assert_eq!(
+        listening.album_musicbrainz_id, None,
+        "untagged album: no cover"
+    );
+    assert_eq!(listening.duration, Some(Duration::from_secs(1)));
+
+    app.state().invoke_seek(700);
+    app.service
+        .handle_event(Event::Position(Duration::from_millis(700)));
+    assert_eq!(
+        app.shown.last().flatten().map(|l| l.position),
+        Some(Duration::from_millis(700))
+    );
+
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Paused));
+    assert_eq!(app.shown.last(), Some(None), "cleared while paused");
+
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Playing));
+    app.state().invoke_set_discord(false);
+    assert_eq!(app.shown.last(), Some(None), "switching it off clears it");
+    assert_eq!(
+        app.library.setting(SETTING_DISCORD).unwrap().as_deref(),
+        Some("false")
+    );
+    app.service.handle_event(app.now_playing("1.flac"));
+    assert_eq!(app.shown.last(), Some(None), "stays off");
 }

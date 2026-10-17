@@ -79,6 +79,19 @@ export component SettingsPage inherits Page {
                 }
             }
         }
+
+        if PlayerState.discord-available: SettingRow {
+            title: @tr("Show on Discord");
+            description: @tr("While Discord runs, your status shows the track you're listening to, with the album cover when the album is tagged with a MusicBrainz ID.");
+
+            Toggle {
+                label: @tr("Show on Discord");
+                checked: PlayerState.discord;
+                toggled(on) => {
+                    PlayerState.set-discord(on);
+                }
+            }
+        }
     }
 
     VerticalLayout {

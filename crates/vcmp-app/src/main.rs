@@ -8,6 +8,7 @@ use slint::ComponentHandle;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::PlayerService;
+use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_library::Library;
 use vcmp_playback::{Player, PlayerOptions};
 
@@ -38,6 +39,7 @@ fn main() -> Result<(), slint::PlatformError> {
                                 library.clone(),
                                 view,
                                 Box::new(player),
+                                Some(Box::new(DiscordPresence::start(discord::APPLICATION_ID))),
                             );
                             PlayerService::listen(events);
                             Some(service)

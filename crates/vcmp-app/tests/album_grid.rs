@@ -19,6 +19,7 @@ fn albums(count: usize) -> Vec<Album> {
             artist_id: None,
             year: None,
             track_count: 10,
+            musicbrainz_id: None,
             artwork: None,
         })
         .collect()
