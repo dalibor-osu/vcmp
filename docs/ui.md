@@ -194,11 +194,16 @@ The Albums page tells apart why it is empty:
   - shows "Listening to VCMP" with the track, artist and a progress bar while a track
     plays, and clears on pause or stop;
   - after a seek the progress bar is refreshed;
-  - albums tagged with a MusicBrainz release ID show their Cover Art Archive cover,
-    which Discord fetches itself; other albums show no picture until there is an app
-    logo;
+  - the album cover comes from the Cover Art Archive, which Discord fetches itself.
+    Albums tagged with a MusicBrainz release ID use it directly. For the others,
+    `vcmp-integrations::musicbrainz` looks the playing album up while Discord is
+    running and the presence is on (it sends the album title and artist to
+    musicbrainz.org). Each album is looked up once: the answer is kept in the library
+    (`cover_lookups`), an album with no match is tried again after 30 days, and a
+    failed request after 10 minutes. Albums without a cover show no picture until
+    there is an app logo;
   - the client runs on its own thread and reconnects every 15 s while Discord is
-    away;
+    away; it tells `PlayerService` when Discord is reached or lost;
   - the application ID is built in (`APPLICATION_ID`) and can be replaced at build
     time with `VCMP_DISCORD_APPLICATION_ID`.
 

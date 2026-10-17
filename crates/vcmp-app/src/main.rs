@@ -7,8 +7,9 @@ use std::rc::Rc;
 use slint::ComponentHandle;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
-use vcmp_app::player_service::PlayerService;
+use vcmp_app::player_service::{PlayerService, Presence};
 use vcmp_integrations::discord::{self, DiscordPresence};
+use vcmp_integrations::musicbrainz::CoverFinder;
 use vcmp_library::Library;
 use vcmp_playback::{Player, PlayerOptions};
 
@@ -34,12 +35,27 @@ fn main() -> Result<(), slint::PlatformError> {
                     );
                     let player_service = match Player::new(PlayerOptions::default()) {
                         Ok((player, events)) => {
+                            let presence = Presence {
+                                sink: Box::new(DiscordPresence::start(
+                                    discord::APPLICATION_ID,
+                                    |connected| {
+                                        PlayerService::post(move |service| {
+                                            service.set_discord_connected(connected)
+                                        });
+                                    },
+                                )),
+                                covers: Box::new(CoverFinder::start(|album, lookup| {
+                                    PlayerService::post(move |service| {
+                                        service.cover_found(album, lookup)
+                                    });
+                                })),
+                            };
                             let service = PlayerService::connect(
                                 &window,
                                 library.clone(),
                                 view,
                                 Box::new(player),
-                                Some(Box::new(DiscordPresence::start(discord::APPLICATION_ID))),
+                                Some(presence),
                             );
                             PlayerService::listen(events);
                             Some(service)

@@ -1,22 +1,26 @@
 //! Playback behind the `PlayerState` global: the player bar's controls, playing an
 //! album from its page, and the engine's events turned into what the bar shows.
-//! Volume, shuffle and repeat are kept in the library's settings.
+//! Volume, shuffle and repeat are kept in the library's settings. The playing track
+//! also goes to the Discord presence, with a cover looked up on MusicBrainz for
+//! albums whose files carry no release ID.
 
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use slint::{ComponentHandle, Image};
-use vcmp_library::{Library, Track};
+use vcmp_library::{Album, AlbumId, CoverArtId, CoverLookup, Library, Track};
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackState, Player, QueueEntry, RepeatMode, ShuffleMode,
     TrackRef,
 };
 
 use vcmp_integrations::discord::{DiscordPresence, Listening};
+use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, CoverFinder, Lookup};
 
 use crate::albums::initial;
 use crate::library_view::{LibraryView, format_duration};
@@ -54,8 +58,32 @@ impl PresenceSink for DiscordPresence {
     }
 }
 
+/// Where cover lookups go: MusicBrainz, or a recorder in tests. The answer comes
+/// back through `PlayerService::cover_found`.
+pub trait CoverSearch {
+    fn find(&self, album: AlbumId, query: AlbumQuery);
+}
+
+impl CoverSearch for CoverFinder<AlbumId> {
+    fn find(&self, album: AlbumId, query: AlbumQuery) {
+        CoverFinder::find(self, album, query);
+    }
+}
+
+/// The Discord presence, and the lookup that finds covers for it.
+pub struct Presence {
+    pub sink: Box<dyn PresenceSink>,
+    pub covers: Box<dyn CoverSearch>,
+}
+
 /// Setting key: show the playing track in Discord ("true" or "false"; absent: true).
 pub const SETTING_DISCORD: &str = "integrations.discord";
+
+/// An album nothing was found for is looked up again after this long, as MusicBrainz
+/// keeps growing.
+pub const RETRY_NOT_FOUND: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+/// A lookup that failed (offline, a server error) waits this long before the next.
+const RETRY_FAILED: Duration = Duration::from_secs(10 * 60);
 
 pub struct PlayerService {
     window: slint::Weak<AppWindow>,
@@ -66,11 +94,17 @@ pub struct PlayerService {
     seek_target: Cell<Option<(Duration, Instant)>>,
     // Muted keeps the volume to come back to; the engine plays at 0 meanwhile.
     muted: Cell<bool>,
-    presence: Option<Box<dyn PresenceSink>>,
+    presence: Option<Presence>,
     // What the presence shows while playing, and where in the track playback is.
     listening: RefCell<Option<Listening>>,
     playing: Cell<bool>,
     position: Cell<Duration>,
+    // Covers are only looked up while Discord is there to show them.
+    discord_connected: Cell<bool>,
+    // The playing track's album, and the albums being looked up or that just failed.
+    album: Cell<Option<AlbumId>>,
+    pending_covers: RefCell<HashSet<AlbumId>>,
+    failed_covers: RefCell<HashMap<AlbumId, Instant>>,
 }
 
 thread_local! {
@@ -86,7 +120,7 @@ impl PlayerService {
         library: Rc<Library>,
         view: Rc<LibraryView>,
         player: Box<dyn PlayerControl>,
-        presence: Option<Box<dyn PresenceSink>>,
+        presence: Option<Presence>,
     ) -> Rc<Self> {
         let service = Rc::new(Self {
             window: window.as_weak(),
@@ -99,6 +133,10 @@ impl PlayerService {
             listening: RefCell::default(),
             playing: Cell::new(false),
             position: Cell::default(),
+            discord_connected: Cell::new(false),
+            album: Cell::default(),
+            pending_covers: RefCell::default(),
+            failed_covers: RefCell::default(),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -228,17 +266,65 @@ impl PlayerService {
             .name("vcmp-player-events".into())
             .spawn(move || {
                 for event in events {
-                    let delivered = slint::invoke_from_event_loop(move || {
-                        if let Some(service) = SERVICE.with(|current| current.borrow().upgrade()) {
-                            service.handle_event(event);
-                        }
-                    });
-                    if delivered.is_err() {
+                    if !Self::post(move |service| service.handle_event(event)) {
                         break;
                     }
                 }
             })
             .expect("spawning the player event thread");
+    }
+
+    /// Runs `action` with the service on the UI thread, from any thread. False once
+    /// the event loop is gone.
+    pub fn post(action: impl FnOnce(&PlayerService) + Send + 'static) -> bool {
+        slint::invoke_from_event_loop(move || {
+            if let Some(service) = SERVICE.with(|current| current.borrow().upgrade()) {
+                action(&service);
+            }
+        })
+        .is_ok()
+    }
+
+    /// Discord was reached or lost.
+    pub fn set_discord_connected(&self, connected: bool) {
+        self.discord_connected.set(connected);
+        self.look_up_cover();
+    }
+
+    /// Takes the answer to a cover lookup: stores it, and shows a found cover if its
+    /// album is still playing.
+    pub fn cover_found(&self, album: AlbumId, lookup: Lookup) {
+        self.pending_covers.borrow_mut().remove(&album);
+        let cover = match lookup {
+            Lookup::Found(cover) => Some(cover),
+            Lookup::NotFound => None,
+            Lookup::Failed(error) => {
+                log::info!("the cover lookup failed: {error}");
+                self.failed_covers
+                    .borrow_mut()
+                    .insert(album, Instant::now());
+                return;
+            }
+        };
+        let stored = cover.as_ref().map(|cover| match cover {
+            Cover::Release(id) => CoverArtId::Release(id.clone()),
+            Cover::ReleaseGroup(id) => CoverArtId::ReleaseGroup(id.clone()),
+        });
+        if let Err(error) = self
+            .library
+            .set_cover_lookup(album, stored.as_ref(), SystemTime::now())
+        {
+            log::warn!("could not store the cover lookup: {error}");
+        }
+        let Some(cover) = cover else {
+            return;
+        };
+        if self.album.get() == Some(album) {
+            if let Some(listening) = self.listening.borrow_mut().as_mut() {
+                listening.cover_url = Some(cover.url());
+            }
+            self.update_presence();
+        }
     }
 
     /// Plays the album open on its page from track `start` (-1: from its start, or a
@@ -350,6 +436,7 @@ impl PlayerService {
             state.set_has_cover(false);
             state.set_cover(Image::default());
             *self.listening.borrow_mut() = None;
+            self.album.set(None);
             self.update_presence();
             return;
         };
@@ -386,10 +473,11 @@ impl PlayerService {
             title: title.clone(),
             artist: track.as_ref().and_then(|track| track.artist.clone()),
             album: album.as_ref().map(|album| album.title.clone()),
-            album_musicbrainz_id: album.and_then(|album| album.musicbrainz_id),
+            cover_url: album.as_ref().and_then(|album| self.known_cover(album)),
             position: Duration::ZERO,
             duration: (!duration.is_zero()).then_some(duration),
         });
+        self.album.set(album.map(|album| album.id));
         self.position.set(Duration::ZERO);
         self.update_presence();
 
@@ -417,19 +505,100 @@ impl PlayerService {
         let Some(presence) = &self.presence else {
             return;
         };
-        let enabled = self
-            .window
-            .upgrade()
-            .is_some_and(|window| window.global::<PlayerState>().get_discord());
         match self.listening.borrow().as_ref() {
-            Some(listening) if enabled && self.playing.get() => {
-                presence.show(Listening {
+            Some(listening) if self.discord_enabled() && self.playing.get() => {
+                presence.sink.show(Listening {
                     position: self.position.get(),
                     ..listening.clone()
                 });
             }
-            _ => presence.clear(),
+            _ => presence.sink.clear(),
         }
+        self.look_up_cover();
+    }
+
+    fn discord_enabled(&self) -> bool {
+        self.window
+            .upgrade()
+            .is_some_and(|window| window.global::<PlayerState>().get_discord())
+    }
+
+    /// The cover of `album` on the web: from its tags, or from an earlier lookup.
+    fn known_cover(&self, album: &Album) -> Option<String> {
+        if let Some(release) = &album.musicbrainz_id {
+            return Some(Cover::Release(release.clone()).url());
+        }
+        match self.library.cover_lookup(album.id) {
+            Ok(lookup) => lookup?.cover.map(|cover| match cover {
+                CoverArtId::Release(id) => Cover::Release(id).url(),
+                CoverArtId::ReleaseGroup(id) => Cover::ReleaseGroup(id).url(),
+            }),
+            Err(error) => {
+                log::warn!("could not read the cover lookup: {error}");
+                None
+            }
+        }
+    }
+
+    /// Asks MusicBrainz for the playing album's cover when Discord shows the track
+    /// without one and the album was not looked up yet (or long ago, or failed a
+    /// while back).
+    fn look_up_cover(&self) {
+        let Some(presence) = &self.presence else {
+            return;
+        };
+        let Some(album) = self.album.get() else {
+            return;
+        };
+        let shown_without_cover = self
+            .listening
+            .borrow()
+            .as_ref()
+            .is_some_and(|listening| listening.cover_url.is_none());
+        if !(shown_without_cover
+            && self.playing.get()
+            && self.discord_connected.get()
+            && self.discord_enabled())
+            || self.pending_covers.borrow().contains(&album)
+            || self
+                .failed_covers
+                .borrow()
+                .get(&album)
+                .is_some_and(|failed| failed.elapsed() < RETRY_FAILED)
+        {
+            return;
+        }
+        match self.library.cover_lookup(album) {
+            Ok(None) => {}
+            Ok(Some(CoverLookup {
+                cover: None,
+                looked_up,
+            })) if looked_up.elapsed().is_ok_and(|age| age >= RETRY_NOT_FOUND) => {}
+            Ok(Some(_)) => return,
+            Err(error) => {
+                log::warn!("could not read the cover lookup: {error}");
+                return;
+            }
+        }
+        let Some(Album {
+            title,
+            artist: Some(artist),
+            track_count,
+            musicbrainz_id: None,
+            ..
+        }) = self.library.album(album).ok().flatten()
+        else {
+            return;
+        };
+        self.pending_covers.borrow_mut().insert(album);
+        presence.covers.find(
+            album,
+            AlbumQuery {
+                artist,
+                title,
+                track_count,
+            },
+        );
     }
 
     fn set_discord(&self, enabled: bool) {

@@ -22,7 +22,7 @@ Music files are only ever read by this crate. Tag writing arrives with the tag e
 
 ## Schema
 
-Version 1, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 2, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -32,6 +32,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration |
 | `albums` | Album groups, their artist, year and artwork state |
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
+| `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
 | `track_search`, `album_search`, `artist_search` | FTS5 indexes, diacritics removed |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that

@@ -20,9 +20,10 @@ use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, SharedString, Timer, TimerMode};
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
-use vcmp_app::player_service::{PlayerControl, PlayerService, PresenceSink};
+use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
 use vcmp_app::{AppWindow, Theme, ThemeMode};
 use vcmp_integrations::discord::Listening;
+use vcmp_integrations::musicbrainz::AlbumQuery;
 use vcmp_library::Library;
 use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, TrackRef};
 
@@ -85,6 +86,11 @@ impl PlayerControl for Silent {
 impl PresenceSink for Silent {
     fn show(&self, _: Listening) {}
     fn clear(&self) {}
+}
+
+/// Looks nothing up, so the shots send nothing to MusicBrainz.
+impl CoverSearch for Silent {
+    fn find(&self, _: vcmp_library::AlbumId, _: AlbumQuery) {}
 }
 
 fn press(window: &AppWindow, key: Key) {
@@ -150,7 +156,10 @@ fn main() -> Result<(), slint::PlatformError> {
             library.clone(),
             view.clone(),
             Box::new(Silent),
-            Some(Box::new(Silent)),
+            Some(Presence {
+                sink: Box::new(Silent),
+                covers: Box::new(Silent),
+            }),
         );
         let album_index = std::env::var("VCMP_SHOT_ALBUM")
             .ok()

@@ -1,6 +1,6 @@
 //! Discord Rich Presence: "Listening to VCMP" in the user's Discord status, with the
-//! track, artist, a progress bar and, for albums tagged with a MusicBrainz release ID,
-//! the cover from the Cover Art Archive (Discord fetches it; nothing is uploaded).
+//! track, artist, a progress bar and the album cover when it is on the web (Discord
+//! fetches it from its address; nothing is uploaded).
 //!
 //! The client runs on its own thread. Discord may not be running, may start later or
 //! may quit: the thread retries the connection while there is something to show and
@@ -30,7 +30,8 @@ pub struct Listening {
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
-    pub album_musicbrainz_id: Option<String>,
+    /// Where the album cover is on the web (the Cover Art Archive).
+    pub cover_url: Option<String>,
     /// How far into the track playback is now.
     pub position: Duration,
     pub duration: Option<Duration>,
@@ -49,7 +50,10 @@ pub struct DiscordPresence {
 }
 
 impl DiscordPresence {
-    pub fn start(application_id: &str) -> Self {
+    /// Starts the client thread. `on_connection` hears (on that thread) when Discord
+    /// is reached or lost; the client only looks for Discord while there is a track
+    /// to show.
+    pub fn start(application_id: &str, on_connection: impl Fn(bool) + Send + 'static) -> Self {
         let (updates, inbox) = mpsc::channel();
         let application_id = application_id.to_string();
         let thread = thread::Builder::new()
@@ -66,6 +70,9 @@ impl DiscordPresence {
                     }
                     if client.is_none() && wanted.is_some() {
                         client = connect(&application_id);
+                        if client.is_some() {
+                            on_connection(true);
+                        }
                     }
                     if let Some(connected) = client.as_mut() {
                         let result = match &wanted {
@@ -77,6 +84,7 @@ impl DiscordPresence {
                         if let Err(error) = result {
                             log::info!("Discord connection lost: {error}");
                             client = None;
+                            on_connection(false);
                         }
                     }
                 }
@@ -123,11 +131,6 @@ fn connect(application_id: &str) -> Option<DiscordIpcClient> {
     }
 }
 
-/// The URL of an album's front cover on the Cover Art Archive.
-pub fn cover_url(release_id: &str) -> String {
-    format!("https://coverartarchive.org/release/{release_id}/front-250")
-}
-
 fn activity(listening: &Listening, sent_at: SystemTime) -> Activity<'_> {
     // The progress bar runs from when the track would have started.
     let started = sent_at.checked_sub(listening.position).unwrap_or(sent_at);
@@ -147,8 +150,8 @@ fn activity(listening: &Listening, sent_at: SystemTime) -> Activity<'_> {
     if let Some(artist) = &listening.artist {
         activity = activity.state(fit(artist));
     }
-    if let Some(release) = &listening.album_musicbrainz_id {
-        let mut assets = Assets::new().large_image(cover_url(release));
+    if let Some(cover) = &listening.cover_url {
+        let mut assets = Assets::new().large_image(cover.as_str());
         if let Some(album) = &listening.album {
             assets = assets.large_text(fit(album));
         }
@@ -186,21 +189,13 @@ mod tests {
     }
 
     #[test]
-    fn covers_come_from_the_cover_art_archive() {
-        assert_eq!(
-            cover_url("abc-123"),
-            "https://coverartarchive.org/release/abc-123/front-250"
-        );
-    }
-
-    #[test]
     fn a_missing_discord_does_not_block() {
-        let presence = DiscordPresence::start("0");
+        let presence = DiscordPresence::start("0", |_| {});
         presence.show(Listening {
             title: "Largo".into(),
             artist: None,
             album: None,
-            album_musicbrainz_id: None,
+            cover_url: None,
             position: Duration::ZERO,
             duration: None,
         });

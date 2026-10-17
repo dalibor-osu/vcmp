@@ -5,7 +5,8 @@ use rusqlite::Connection;
 
 use crate::{Error, Result};
 
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -76,7 +77,19 @@ CREATE VIRTUAL TABLE album_search USING fts5(
     title, artist,
     tokenize = 'unicode61 remove_diacritics 2'
 );
-"#];
+"#,
+    r#"
+-- What an online lookup found for albums whose files carry no MusicBrainz release
+-- ID: a Cover Art Archive cover (its kind and MBID), or NULLs when nothing matched.
+-- Keyed by the album's group_key, which outlives album rows a scan removes and adds.
+CREATE TABLE cover_lookups (
+    group_key TEXT PRIMARY KEY,
+    cover_kind TEXT CHECK (cover_kind IN ('release', 'release-group')),
+    cover_mbid TEXT,
+    looked_up_ms INTEGER NOT NULL
+) STRICT;
+"#,
+];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;
 

@@ -7,7 +7,7 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use common::{Song, add};
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
@@ -15,12 +15,13 @@ use slint::{ComponentHandle, Model};
 use tempfile::TempDir;
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{
-    PlayerControl, PlayerService, PresenceSink, SETTING_DISCORD, SETTING_REPEAT, SETTING_SHUFFLE,
-    SETTING_VOLUME,
+    CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink, RETRY_NOT_FOUND,
+    SETTING_DISCORD, SETTING_REPEAT, SETTING_SHUFFLE, SETTING_VOLUME,
 };
 use vcmp_app::{AppWindow, PlayState, PlayerProblem, PlayerState, Repeat, Shuffle, ShuffleKind};
 use vcmp_integrations::discord::Listening;
-use vcmp_library::Library;
+use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, Lookup};
+use vcmp_library::{AlbumId, CoverArtId, Library};
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackState, QueueEntry, RepeatMode, ShuffleMode,
     TrackRef,
@@ -43,9 +44,9 @@ impl Recorder {
 
 /// What reached Discord: `Some` for a shown track, `None` for a cleared presence.
 #[derive(Clone, Default)]
-struct Presence(Rc<RefCell<Vec<Option<Listening>>>>);
+struct Shown(Rc<RefCell<Vec<Option<Listening>>>>);
 
-impl PresenceSink for Presence {
+impl PresenceSink for Shown {
     fn show(&self, listening: Listening) {
         self.0.borrow_mut().push(Some(listening));
     }
@@ -55,9 +56,31 @@ impl PresenceSink for Presence {
     }
 }
 
-impl Presence {
+impl Shown {
     fn last(&self) -> Option<Option<Listening>> {
         self.0.borrow().last().cloned()
+    }
+
+    fn cover(&self) -> Option<String> {
+        self.last()
+            .flatten()
+            .and_then(|listening| listening.cover_url)
+    }
+}
+
+/// The albums sent to MusicBrainz.
+#[derive(Clone, Default)]
+struct Lookups(Rc<RefCell<Vec<(AlbumId, AlbumQuery)>>>);
+
+impl CoverSearch for Lookups {
+    fn find(&self, album: AlbumId, query: AlbumQuery) {
+        self.0.borrow_mut().push((album, query));
+    }
+}
+
+impl Lookups {
+    fn take(&self) -> Vec<(AlbumId, AlbumQuery)> {
+        std::mem::take(&mut self.0.borrow_mut())
     }
 }
 
@@ -67,7 +90,8 @@ struct App {
     library: Rc<Library>,
     service: Rc<PlayerService>,
     sent: Recorder,
-    shown: Presence,
+    shown: Shown,
+    lookups: Lookups,
     music: std::path::PathBuf,
 }
 
@@ -106,13 +130,17 @@ fn start(prepare: impl FnOnce(&Library)) -> App {
     window.show().unwrap();
     let view = LibraryView::connect(&window, library.clone()).unwrap();
     let sent = Recorder::default();
-    let shown = Presence::default();
+    let shown = Shown::default();
+    let lookups = Lookups::default();
     let service = PlayerService::connect(
         &window,
         library.clone(),
         view,
         Box::new(sent.clone()),
-        Some(Box::new(shown.clone())),
+        Some(Presence {
+            sink: Box::new(shown.clone()),
+            covers: Box::new(lookups.clone()),
+        }),
     );
     App {
         _dir: dir,
@@ -121,6 +149,7 @@ fn start(prepare: impl FnOnce(&Library)) -> App {
         service,
         sent,
         shown,
+        lookups,
         music,
     }
 }
@@ -144,6 +173,18 @@ impl App {
 
     fn path(&self, name: &str) -> String {
         self.music.join(name).to_str().unwrap().to_string()
+    }
+
+    fn album(&self) -> AlbumId {
+        self.library.albums().unwrap()[0].id
+    }
+
+    /// Plays `name` with Discord running.
+    fn play_with_discord(&self, name: &str) {
+        self.service.set_discord_connected(true);
+        self.service.handle_event(self.now_playing(name));
+        self.service
+            .handle_event(Event::StateChanged(PlaybackState::Playing));
     }
 
     fn now_playing(&self, name: &str) -> Event {
@@ -409,10 +450,7 @@ fn discord_shows_the_playing_track_and_follows_pause_and_seek() {
     assert_eq!(listening.title, "Closing");
     assert_eq!(listening.artist.as_deref(), Some("Band"));
     assert_eq!(listening.album.as_deref(), Some("Record"));
-    assert_eq!(
-        listening.album_musicbrainz_id, None,
-        "untagged album: no cover"
-    );
+    assert_eq!(listening.cover_url, None, "untagged album: no cover yet");
     assert_eq!(listening.duration, Some(Duration::from_secs(1)));
 
     app.state().invoke_seek(700);
@@ -437,4 +475,90 @@ fn discord_shows_the_playing_track_and_follows_pause_and_seek() {
     );
     app.service.handle_event(app.now_playing("1.flac"));
     assert_eq!(app.shown.last(), Some(None), "stays off");
+}
+
+#[test]
+fn an_untagged_album_is_looked_up_once_discord_is_there() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Playing));
+    assert_eq!(app.lookups.take(), [], "Discord is not running");
+
+    app.service.set_discord_connected(true);
+    let album = app.album();
+    assert_eq!(
+        app.lookups.take(),
+        [(
+            album,
+            AlbumQuery {
+                artist: "Band".into(),
+                title: "Record".into(),
+                track_count: 2,
+            }
+        )]
+    );
+    app.state().invoke_seek(500);
+    app.service
+        .handle_event(Event::Position(Duration::from_millis(500)));
+    app.service.handle_event(app.now_playing("2.flac"));
+    assert_eq!(app.lookups.take(), [], "one lookup at a time per album");
+
+    let cover = Cover::Release("r-1".into());
+    app.service.cover_found(album, Lookup::Found(cover.clone()));
+    assert_eq!(
+        app.shown.cover(),
+        Some(cover.url()),
+        "the playing track gets it"
+    );
+    assert_eq!(
+        app.library.cover_lookup(album).unwrap().unwrap().cover,
+        Some(CoverArtId::Release("r-1".into()))
+    );
+
+    app.service.handle_event(app.now_playing("1.flac"));
+    assert_eq!(app.shown.cover(), Some(cover.url()), "known from now on");
+    assert_eq!(app.lookups.take(), []);
+}
+
+#[test]
+fn nothing_is_looked_up_while_the_presence_is_off() {
+    let app = start(|library| {
+        library.set_setting(SETTING_DISCORD, "false").unwrap();
+    });
+    app.play_with_discord("1.flac");
+    assert_eq!(app.lookups.take(), []);
+    assert_eq!(app.shown.last(), Some(None));
+}
+
+#[test]
+fn an_album_without_a_match_waits_before_the_next_lookup() {
+    let app = start(|_| {});
+    app.play_with_discord("1.flac");
+    let album = app.album();
+    assert_eq!(app.lookups.take().len(), 1);
+    app.service.cover_found(album, Lookup::NotFound);
+    assert_eq!(app.shown.cover(), None);
+
+    app.service.handle_event(app.now_playing("2.flac"));
+    assert_eq!(app.lookups.take(), [], "the answer is kept");
+
+    let long_ago = SystemTime::now() - RETRY_NOT_FOUND - Duration::from_secs(60);
+    app.library.set_cover_lookup(album, None, long_ago).unwrap();
+    app.service.handle_event(app.now_playing("1.flac"));
+    assert_eq!(app.lookups.take().len(), 1, "asked again after a while");
+}
+
+#[test]
+fn a_failed_lookup_is_not_kept() {
+    let app = start(|_| {});
+    app.play_with_discord("1.flac");
+    let album = app.album();
+    assert_eq!(app.lookups.take().len(), 1);
+    app.service
+        .cover_found(album, Lookup::Failed("offline".into()));
+    assert_eq!(app.library.cover_lookup(album).unwrap(), None);
+
+    app.service.handle_event(app.now_playing("2.flac"));
+    assert_eq!(app.lookups.take(), [], "not right away");
 }

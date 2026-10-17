@@ -7,6 +7,7 @@
 
 mod artwork;
 mod error;
+mod lookups;
 mod path_codec;
 mod query;
 mod scan;
@@ -21,6 +22,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 pub use artwork::{Artwork, THUMBNAIL_SIZE};
 pub use error::{Error, Result};
+pub use lookups::{CoverArtId, CoverLookup};
 pub use query::{Album, AlbumId, Artist, ArtistId, SearchResults, Track, TrackId};
 pub use scan::{ScanPhase, ScanProgress, ScanReport, SkippedFile};
 pub use tags::Format;
