@@ -270,9 +270,12 @@ shown, because the page itself stays alive while hidden.
   playlist to its track menu, and Alt+Up, Alt+Down and Delete to its keys. The
   keyboard's current track follows a moved one.
 - **Adding:** every track menu (album, artist, search, folder and playlist lists,
-  and the songs table) has Add to playlist, with New playlist and every playlist by
-  name. New playlist there makes "Playlist n" with the track, without leaving the
-  page.
+  the songs table and the queue panel) has Add to playlist, with New playlist and
+  every playlist by name. New playlist there makes "Playlist n" with the track,
+  without leaving the page. The now playing view has the same in its "…" menu, for
+  the track playing.
+- **A whole album:** "Add to playlist…" under the album page's cover adds every
+  track of the album; New playlist there names the playlist after the album.
 - **Getting back:** the back button, Escape, or the Playlists sidebar entry. A
   playlist opened from search goes back to Search.
 
@@ -647,8 +650,7 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 
 - Up next can be filled from album and artist pages and search, and reordered by
   keyboard or menu, not by dragging. Playlist entries likewise move one step at a
-  time, and whole albums can't be added to a playlist in one go yet.
-- The queue panel and the now playing view have no Add to playlist yet.
+  time.
 - Going back is one step: an album opened from an artist found by search returns
   to the artist, and the artist to Search, but there is no general history.
 - The queue panel appears without an animation; one is planned.

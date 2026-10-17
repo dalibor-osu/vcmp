@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 import { Button, FocusRing, IconButton } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
+import { Playlists } from "playlist-state.slint";
 
 // One track in the queue. A right click asks the panel for the track's menu.
 component QueueLine {
@@ -163,6 +164,14 @@ export component QueuePanel inherits Rectangle {
         }
     }
 
+    // The file of the row the menu is for.
+    function current-path() -> string {
+        if root.current < root.up-next-count {
+            return PlayerState.up-next[root.current].path;
+        }
+        PlayerState.upcoming[root.current - root.up-next-count].path
+    }
+
     function show-menu(index: int, x: length, y: length) {
         root.current = index;
         menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
@@ -268,6 +277,23 @@ export component QueuePanel inherits Rectangle {
                             title: @tr("Add to queue");
                             activated => {
                                 PlayerState.queue-upcoming(root.current - root.up-next-count, false);
+                            }
+                        }
+                        Menu {
+                            title: @tr("Add to playlist");
+
+                            MenuItem {
+                                title: @tr("New playlist");
+                                activated => {
+                                    Playlists.add-track(-1, root.current-path());
+                                }
+                            }
+                            if Playlists.names.length > 0: MenuSeparator { }
+                            for name[index] in Playlists.names: MenuItem {
+                                title: name;
+                                activated => {
+                                    Playlists.add-track(index, root.current-path());
+                                }
                             }
                         }
                     }
