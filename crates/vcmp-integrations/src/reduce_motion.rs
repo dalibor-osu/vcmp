@@ -6,6 +6,12 @@
 //! portal doesn't offer that key yet are asked for their own switch: GNOME's
 //! `enable-animations`, and KDE's animation speed (`AnimationDurationFactor`, 0 for
 //! "Instant").
+//!
+//! `follow` also hears about changes: the portal's `SettingChanged` signal on Linux,
+//! `WM_SETTINGCHANGE` on Windows, and AppKit's accessibility display notification on
+//! macOS. Each one makes it read the setting again.
+
+use std::thread;
 
 /// Whether the operating system asks apps to reduce motion; `None` where it has no
 /// such setting or it can't be read. On Linux this waits for D-Bus, up to a few
@@ -16,10 +22,55 @@ pub fn system_setting() -> Option<bool> {
     setting
 }
 
+/// Calls `report` with whether the operating system asks apps to reduce motion: once
+/// it is known, then whenever it changes, for as long as VCMP runs. Nothing is
+/// reported where the system has no such setting. Runs on a worker thread, except
+/// that macOS reports changes on its main thread.
+pub fn follow(mut report: impl FnMut(bool) + Send + 'static) {
+    let mut changes = Changes::default();
+    let spawned = thread::Builder::new()
+        .name("vcmp-reduce-motion".into())
+        .spawn(move || {
+            platform::follow(move |setting| {
+                if let Some(reduce) = changes.update(setting) {
+                    log::debug!("system reduce-motion setting: {reduce}");
+                    report(reduce);
+                }
+            });
+        });
+    if let Err(error) = spawned {
+        log::warn!("could not follow the system's reduce-motion setting: {error}");
+    }
+}
+
+/// Passes a setting on only when it differs from the last one passed on. A setting
+/// that can no longer be read keeps the last one.
+#[derive(Default)]
+struct Changes {
+    last: Option<bool>,
+}
+
+impl Changes {
+    fn update(&mut self, setting: Option<bool>) -> Option<bool> {
+        let setting = setting?;
+        if self.last == Some(setting) {
+            return None;
+        }
+        self.last = Some(setting);
+        Some(setting)
+    }
+}
+
 #[cfg(windows)]
 mod platform {
+    use std::cell::RefCell;
+    use std::ptr::{null, null_mut};
+
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, MSG, RegisterClassW,
+        SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW, WM_SETTINGCHANGE, WNDCLASSW,
     };
     use windows_sys::core::BOOL;
 
@@ -31,14 +82,118 @@ mod platform {
         };
         (read != 0).then_some(animate == 0)
     }
+
+    thread_local! {
+        /// What `window_proc` calls on this thread when a system setting changes.
+        static CHANGED: RefCell<Option<Box<dyn FnMut(Option<bool>)>>> =
+            const { RefCell::new(None) };
+    }
+
+    /// Reports the setting, then waits for `WM_SETTINGCHANGE` in this thread's message
+    /// loop for as long as VCMP runs. The window that receives it is a hidden top-level
+    /// one: Windows broadcasts the message to top-level windows only, not to
+    /// message-only ones.
+    pub fn follow(mut changed: impl FnMut(Option<bool>) + 'static) {
+        changed(read());
+        CHANGED.set(Some(Box::new(changed)));
+        let class: Vec<u16> = "VcmpReduceMotion\0".encode_utf16().collect();
+        // SAFETY: the class and window outlive the message loop, which never returns
+        // while VCMP runs; `class` stays alive across all three calls that read it.
+        unsafe {
+            let instance = GetModuleHandleW(null());
+            let window_class = WNDCLASSW {
+                lpfnWndProc: Some(window_proc),
+                hInstance: instance,
+                lpszClassName: class.as_ptr(),
+                ..Default::default()
+            };
+            if RegisterClassW(&window_class) == 0 {
+                log::debug!("could not register the reduce-motion window class");
+                return;
+            }
+            let window = CreateWindowExW(
+                0,
+                class.as_ptr(),
+                null(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                null_mut(),
+                null_mut(),
+                instance,
+                null(),
+            );
+            if window.is_null() {
+                log::debug!("could not create the reduce-motion window");
+                return;
+            }
+            let mut message = MSG::default();
+            while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
+                DispatchMessageW(&message);
+            }
+        }
+    }
+
+    /// Any setting may have changed; reading ours again is cheap.
+    unsafe extern "system" fn window_proc(
+        window: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if message == WM_SETTINGCHANGE {
+            CHANGED.with_borrow_mut(|changed| {
+                if let Some(changed) = changed {
+                    changed(read());
+                }
+            });
+        }
+        // SAFETY: passes the message on unchanged, as every window procedure must.
+        unsafe { DefWindowProcW(window, message, wparam, lparam) }
+    }
 }
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use objc2_app_kit::NSWorkspace;
+    use std::ptr::NonNull;
+    use std::sync::Mutex;
+
+    use block2::RcBlock;
+    use objc2_app_kit::{NSWorkspace, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification};
+    use objc2_foundation::NSNotification;
 
     pub fn read() -> Option<bool> {
         Some(NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion())
+    }
+
+    /// Reports the setting, then asks AppKit to call back when the accessibility
+    /// display options change. AppKit posts that on the main thread, from the run
+    /// loop the window's event loop runs.
+    pub fn follow(mut changed: impl FnMut(Option<bool>) + Send + 'static) {
+        changed(read());
+        let changed = Mutex::new(changed);
+        let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+            if let Ok(mut changed) = changed.lock() {
+                changed(read());
+            }
+        });
+        let workspace = NSWorkspace::sharedWorkspace();
+        // SAFETY: the name is AppKit's own constant, no object or queue is given, and
+        // the block is sendable: its only state is behind a Mutex.
+        let observer = unsafe {
+            workspace
+                .notificationCenter()
+                .addObserverForName_object_queue_usingBlock(
+                    Some(NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification),
+                    None,
+                    None,
+                    &block,
+                )
+        };
+        // Observed for as long as VCMP runs, so the observer is never removed.
+        std::mem::forget(observer);
     }
 }
 
@@ -60,19 +215,48 @@ mod platform {
     const TIMEOUT: Duration = Duration::from_secs(5);
 
     pub fn read() -> Option<bool> {
+        read_from(&portal()?)
+    }
+
+    /// Reports the setting, then reads it again after each `SettingChanged` signal
+    /// for one of `SETTINGS`, for as long as VCMP runs.
+    pub fn follow(mut changed: impl FnMut(Option<bool>)) {
+        let Some(portal) = portal() else { return };
+        // Subscribed before the first read, so a change between the two isn't missed.
+        let signals = portal
+            .receive_signal("SettingChanged")
+            .inspect_err(|error| log::debug!("can't follow the settings portal: {error}"));
+        changed(read_from(&portal));
+        let Ok(signals) = signals else { return };
+        for signal in signals {
+            let Ok((namespace, key, _)) =
+                signal.body().deserialize::<(String, String, OwnedValue)>()
+            else {
+                continue;
+            };
+            if SETTINGS.contains(&(namespace.as_str(), key.as_str())) {
+                changed(read_from(&portal));
+            }
+        }
+    }
+
+    fn portal() -> Option<Proxy<'static>> {
         let connection = connection::Builder::session()
             .and_then(|builder| builder.method_timeout(TIMEOUT).build())
             .inspect_err(|error| log::debug!("no D-Bus session for the settings portal: {error}"))
             .ok()?;
-        let portal = Proxy::new(
+        Proxy::new(
             &connection,
             "org.freedesktop.portal.Desktop",
             "/org/freedesktop/portal/desktop",
             "org.freedesktop.portal.Settings",
         )
-        .ok()?;
+        .ok()
+    }
+
+    fn read_from(portal: &Proxy) -> Option<bool> {
         SETTINGS.into_iter().find_map(|(namespace, key)| {
-            let value = read_one(&portal, namespace, key)?;
+            let value = read_one(portal, namespace, key)?;
             reduces_motion(key, &value)
         })
     }
@@ -117,6 +301,29 @@ mod platform {
 mod platform {
     pub fn read() -> Option<bool> {
         None
+    }
+
+    pub fn follow(_changed: impl FnMut(Option<bool>)) {}
+}
+
+#[cfg(test)]
+mod change_tests {
+    use super::Changes;
+
+    #[test]
+    fn only_changes_are_passed_on() {
+        let mut changes = Changes::default();
+        assert_eq!(changes.update(None), None, "nothing known yet");
+        assert_eq!(changes.update(Some(false)), Some(false), "the first answer");
+        assert_eq!(changes.update(Some(false)), None, "the same answer again");
+        assert_eq!(changes.update(Some(true)), Some(true));
+        assert_eq!(
+            changes.update(None),
+            None,
+            "an unreadable setting keeps the last one"
+        );
+        assert_eq!(changes.update(Some(true)), None);
+        assert_eq!(changes.update(Some(false)), Some(false));
     }
 }
 

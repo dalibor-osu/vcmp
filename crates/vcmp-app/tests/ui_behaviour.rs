@@ -282,7 +282,7 @@ fn reduced_motion_follows_the_system_unless_chosen() {
         );
     }
 
-    // Under "System", the system's answer takes effect when it arrives after start.
+    // Under "System", the system's answer takes effect whenever it arrives or changes.
     theme.set_system_reduces_motion(false);
     theme.set_motion_choice(ReduceMotion::System);
     let albums_marker = marker_y(&window);
@@ -293,6 +293,15 @@ fn reduced_motion_follows_the_system_unless_chosen() {
         "marker is already at About"
     );
     assert_eq!(page_opacity(&window, "AboutPage"), 1.0);
+
+    let about_marker = marker_y(&window);
+    theme.set_system_reduces_motion(false);
+    open_page(&window, "Albums");
+    assert_eq!(
+        marker_y(&window),
+        about_marker,
+        "motion is back: the marker starts sliding from About"
+    );
 }
 
 #[test]
