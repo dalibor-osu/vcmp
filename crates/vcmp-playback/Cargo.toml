@@ -6,3 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+
+[dependencies]
+cpal = "0.18.2"
+fastrand = "2.4.0"
+rtrb = "0.3.2"
+rubato = "5.0.1"
+symphonia = { version = "0.6.1", default-features = false, features = ["mp3", "flac", "pcm", "wav", "ogg", "vorbis", "all-meta", "opt-simd"] }

@@ -418,8 +418,10 @@ dialog).
 
 **Questions deliberately left open**
 
-- Should the queue and playback position be restored after a restart? Not
-  discussed. It has to be decided before workstream 3 ends.
+- Should the queue and playback position be restored after a restart? Decided by
+  the owner on 2026-10-17, during workstream 3: yes. The context, Up next, shuffle
+  and repeat modes and the current track come back, loaded paused at the saved
+  position.
 - Signing budget (Apple Developer Program, Windows code-signing certificate). Has to
   be decided before the first public release.
 - Last.fm extras beyond scrobbling ("now playing" updates, loving tracks): not
