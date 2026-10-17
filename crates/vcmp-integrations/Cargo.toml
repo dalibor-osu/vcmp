@@ -23,13 +23,15 @@ unicode-normalization = "0.1.26"
 ureq = "3.4.2"
 url = "2.5.8"
 
-# The operating system's reduce-motion setting (src/reduce_motion.rs). All three are
-# already in the build through Slint and the OS media controls.
+# The operating system's reduce-motion setting and its changes (src/reduce_motion.rs).
+# All of these are already in the build through Slint and the OS media controls.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAccessibility", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSNotification", "NSOperation", "NSString"] }

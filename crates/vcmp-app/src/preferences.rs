@@ -3,7 +3,6 @@
 //! page lists. Also hands the operating system's reduce-motion setting to the theme.
 
 use std::rc::Rc;
-use std::thread;
 
 use slint::ComponentHandle;
 use vcmp_integrations::reduce_motion;
@@ -57,23 +56,16 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
     Ok(())
 }
 
-/// Asks the operating system on a worker thread whether it wants motion reduced, and
-/// hands the answer to the theme. Until the answer arrives, and where the system has
-/// no such setting, it counts as not asking.
-pub fn read_system_motion(window: &AppWindow) {
+/// Hands the operating system's reduce-motion setting to the theme once it is known,
+/// and again whenever it changes. Until it is known, and where the system has no such
+/// setting, the system counts as not asking.
+pub fn follow_system_motion(window: &AppWindow) {
     let weak = window.as_weak();
-    let spawned = thread::Builder::new()
-        .name("vcmp-reduce-motion".into())
-        .spawn(move || {
-            if let Some(reduce) = reduce_motion::system_setting() {
-                let _ = weak.upgrade_in_event_loop(move |window| {
-                    window.global::<Theme>().set_system_reduces_motion(reduce);
-                });
-            }
+    reduce_motion::follow(move |reduce| {
+        let _ = weak.upgrade_in_event_loop(move |window| {
+            window.global::<Theme>().set_system_reduces_motion(reduce);
         });
-    if let Err(error) = spawned {
-        log::warn!("could not ask for the system's reduce-motion setting: {error}");
-    }
+    });
 }
 
 fn mode_name(mode: ThemeMode) -> &'static str {

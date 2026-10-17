@@ -33,8 +33,8 @@ export enum ReduceMotion { system, on, off }
 export global Theme {
     in-out property <ThemeMode> mode: ThemeMode.system;
     in-out property <ReduceMotion> motion-choice: ReduceMotion.system;
-    // The operating system asks apps to reduce motion. Read once at start
-    // (src/preferences.rs); stays false where the system has no such setting.
+    // The operating system asks apps to reduce motion. Set at start and on every
+    // change (src/preferences.rs); stays false where the system has no such setting.
     in property <bool> system-reduces-motion: false;
     // Called after the user changes `mode`, `motion-choice` or opens or closes the
     // queue panel, so they can be saved.

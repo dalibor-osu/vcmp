@@ -6121,11 +6121,13 @@ dependencies = [
 name = "vcmp-integrations"
 version = "0.1.0"
 dependencies = [
+ "block2 0.6.2",
  "discord-rich-presence",
  "keyring",
  "log",
  "md5",
  "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "playwire",
  "semver",
  "serde",

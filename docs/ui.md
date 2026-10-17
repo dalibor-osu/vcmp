@@ -621,13 +621,16 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   default) it does what the operating system asks: Windows' "Animation effects",
   macOS' "Reduce motion", and on Linux the settings portal's `reduced-motion` key,
   or where the portal lacks it GNOME's `enable-animations` or KDE's animation speed
-  set to "Instant" (`vcmp_integrations::reduce_motion`). VCMP asks once at start,
-  on a worker thread (`preferences::read_system_motion`), and sets
-  `Theme.system-reduces-motion`; until the answer arrives, and where the system has
-  no such setting, motion stays on. "On" and "Off" override the system. Saved values
-  are `system`, `on` and `off`; the older switch's `true` reads as On and `false` as
-  System, because `false` was saved with every other appearance change, chosen or
-  not.
+  set to "Instant" (`vcmp_integrations::reduce_motion`). VCMP asks at start, on a
+  worker thread (`preferences::follow_system_motion`), and asks again whenever the
+  system announces a change: the portal's `SettingChanged` signal, `WM_SETTINGCHANGE`
+  (received by a hidden top-level window, since message-only windows miss
+  broadcasts), or AppKit's accessibility display notification. Each answer that
+  differs from the last sets `Theme.system-reduces-motion`. Until the first answer,
+  and where the system has no such setting, motion stays on. "On" and "Off" override
+  the system. Saved values are `system`, `on` and `off`; the older switch's `true`
+  reads as On and `false` as System, because `false` was saved with every other
+  appearance change, chosen or not.
 - State is never shown by colour alone: the selected option is bold and filled, and
   the switch knob changes side.
 
@@ -686,11 +689,10 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   can look out of place when VCMP's theme differs from the OS.
 - Theme and reduced-motion choices are saved in the library database's settings
   (`src/preferences.rs`). If the database can't be opened, they last for the session.
-- The operating system's reduce-motion setting is read at start, so changing it
-  while VCMP runs takes effect at the next start.
-- Reading it was tried on Linux (GNOME's key through the portal, with both portal
-  methods). The Windows and macOS calls and the KDE key are still to be tried on
-  those systems: `cargo run -p vcmp-integrations --example reduce_motion` prints
-  what VCMP reads.
+- The operating system's reduce-motion setting was tried on Linux only: GNOME's key
+  through the real portal (both portal methods), and following changes against a
+  stand-in portal on a private bus. The Windows and macOS code and the KDE key are
+  still to be tried on those systems: `cargo run -p vcmp-integrations --example
+  reduce_motion` prints what VCMP reads and, except on macOS, each change.
 - `examples/screenshots.rs` cannot force a window size under tiling window managers.
   Layout at the smallest window size is covered by a test instead.

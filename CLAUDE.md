@@ -22,7 +22,7 @@ Read it before changing anything structural.
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty |
 | OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
-| OS reduce-motion setting | zbus to the XDG settings portal (Linux), windows-sys (Windows), objc2-app-kit (macOS); all three already come with Slint |
+| OS reduce-motion setting | zbus to the XDG settings portal (Linux), windows-sys (Windows), objc2-app-kit, objc2-foundation and block2 (macOS); all already come with Slint |
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
