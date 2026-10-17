@@ -22,6 +22,7 @@ Read it before changing anything structural.
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty |
 | OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
+| OS reduce-motion setting | zbus to the XDG settings portal (Linux), windows-sys (Windows), objc2-app-kit (macOS); all three already come with Slint |
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
@@ -35,7 +36,7 @@ Workspace layout:
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
 | `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, playlists, watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
-| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online", the update check, Last.fm scrobbling; planned: artist photos |
+| `crates/vcmp-integrations` | OS media controls, the OS reduce-motion setting, Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online", the update check, Last.fm scrobbling; planned: artist photos |
 
 The core crates must never depend on `vcmp-app` or Slint.
 

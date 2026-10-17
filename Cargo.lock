@@ -6125,6 +6125,7 @@ dependencies = [
  "keyring",
  "log",
  "md5",
+ "objc2-app-kit 0.3.2",
  "playwire",
  "semver",
  "serde",
@@ -6132,6 +6133,8 @@ dependencies = [
  "unicode-normalization",
  "ureq",
  "url",
+ "windows-sys 0.61.2",
+ "zbus",
 ]
 
 [[package]]
