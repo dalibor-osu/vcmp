@@ -1,12 +1,13 @@
 //! Connects the library to the window: the album grid and the album page that
-//! opens from it, and the artist grid with the artist page and its albums. All of
-//! them are reloaded after every library change.
+//! opens from it, the artist grid with the artist page and its albums, and search.
+//! All of them are reloaded after every library change.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
-use slint::{ComponentHandle, Image, ModelRc, VecModel};
+use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
 use vcmp_library::{Album, Artist, Library, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
@@ -25,7 +26,26 @@ pub struct LibraryView {
     // The artist the artist page shows (or showed last), with its albums and the
     // tracks it appears on elsewhere.
     artist: RefCell<Option<OpenArtist>>,
+    // What the last search found, and the pause after typing before it runs.
+    found: RefCell<Found>,
+    search_artists_grid: Rc<CoverGrid>,
+    search_albums_grid: Rc<CoverGrid>,
+    search_timer: Timer,
 }
+
+#[derive(Default)]
+struct Found {
+    artists: Vec<Artist>,
+    albums: Vec<Album>,
+    tracks: Vec<Track>,
+}
+
+/// How long typing must pause before a search runs; a one-letter search can take
+/// 50 ms on a few thousand tracks.
+pub const SEARCH_DELAY: Duration = Duration::from_millis(150);
+/// The most of each kind a search shows: a couple of rows of cards, and tracks.
+const SEARCH_CARDS: usize = 12;
+const SEARCH_TRACKS: usize = 50;
 
 #[derive(Clone)]
 struct OpenArtist {
@@ -64,6 +84,10 @@ impl LibraryView {
             artist_grid,
             artist_albums_grid,
             artist: RefCell::default(),
+            found: RefCell::default(),
+            search_artists_grid: CoverGrid::connect(window, Grid::SearchArtists, Vec::new(), 2),
+            search_albums_grid: CoverGrid::connect(window, Grid::SearchAlbums, Vec::new(), 2),
+            search_timer: Timer::default(),
         });
         view.show_artists();
         let weak = Rc::downgrade(&view);
@@ -90,6 +114,37 @@ impl LibraryView {
         window.on_artists_filter_changed(move || {
             if let Some(view) = weak.upgrade() {
                 view.show_artists();
+            }
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_search_edited(move |_| {
+            let Some(view) = weak.upgrade() else { return };
+            let weak = Rc::downgrade(&view);
+            view.search_timer
+                .start(TimerMode::SingleShot, SEARCH_DELAY, move || {
+                    if let Some(view) = weak.upgrade() {
+                        view.search();
+                    }
+                });
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_search_artist_activated(move |index| {
+            let Some(view) = weak.upgrade() else { return };
+            let artist = usize::try_from(index)
+                .ok()
+                .and_then(|index| view.found.borrow().artists.get(index).cloned());
+            if let Some(artist) = artist {
+                view.open_artist(artist);
+            }
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_search_album_activated(move |index| {
+            let Some(view) = weak.upgrade() else { return };
+            let album = usize::try_from(index)
+                .ok()
+                .and_then(|index| view.found.borrow().albums.get(index).cloned());
+            if let Some(album) = album {
+                view.open_album(album, false);
             }
         });
         let weak = Rc::downgrade(&view);
@@ -137,6 +192,7 @@ impl LibraryView {
         };
         self.browser.replace(&albums);
         self.show_artists();
+        self.search();
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -211,9 +267,15 @@ impl LibraryView {
                 Vec::new()
             }
         };
-        // Until artists have photos, an artist shows the cover of their newest album.
+        self.artist_grid.replace(self.artist_cards(&artists));
+        *self.artists.borrow_mut() = artists;
+    }
+
+    /// Artist cards. Until artists have photos, an artist shows the cover of their
+    /// newest album.
+    fn artist_cards(&self, artists: &[Artist]) -> Vec<Card> {
         let albums = self.library.albums().unwrap_or_default();
-        let picture = |artist: &Artist| {
+        let picture = |artist: &Artist| -> Option<PathBuf> {
             albums
                 .iter()
                 .filter(|album| album.artist_id == Some(artist.id))
@@ -221,12 +283,63 @@ impl LibraryView {
                 .max_by_key(|(year, _)| *year)
                 .map(|(_, artwork)| artwork.thumbnail.clone())
         };
-        let cards: Vec<Card> = artists
+        artists
             .iter()
             .map(|artist| (artist_tile(artist), picture(artist)))
+            .collect()
+    }
+
+    /// Searches for the text in the search field and shows what it finds.
+    pub fn search(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let text = window.get_search_text();
+        let found = match self.library.search(&text, SEARCH_TRACKS) {
+            Ok(results) => Found {
+                artists: results.artists.into_iter().take(SEARCH_CARDS).collect(),
+                albums: results.albums.into_iter().take(SEARCH_CARDS).collect(),
+                tracks: results.tracks,
+            },
+            Err(error) => {
+                log::error!("could not search for {text:?}: {error}");
+                Found::default()
+            }
+        };
+        self.search_artists_grid
+            .replace(self.artist_cards(&found.artists));
+        self.search_artists_grid.show_range(0, found.artists.len());
+        self.search_albums_grid.replace(cards(&found.albums));
+        self.search_albums_grid.show_range(0, found.albums.len());
+        let rows: Vec<TrackRow> = found
+            .tracks
+            .iter()
+            .map(|track| {
+                // Artist and album in one column; the separator is not a word to
+                // translate.
+                let artist = track.artist.as_deref().unwrap_or_default();
+                let album = track.album.as_deref().unwrap_or_default();
+                let source = match (artist.is_empty(), album.is_empty()) {
+                    (false, false) => format!("{artist} · {album}"),
+                    (false, true) => artist.to_string(),
+                    (true, _) => album.to_string(),
+                };
+                TrackRow {
+                    title: track.title.as_str().into(),
+                    artist: source.into(),
+                    duration: format_duration(track.duration).into(),
+                    path: track.path.to_string_lossy().as_ref().into(),
+                    ..TrackRow::default()
+                }
+            })
             .collect();
-        self.artist_grid.replace(cards);
-        *self.artists.borrow_mut() = artists;
+        window.set_search_tracks(ModelRc::new(VecModel::from(rows)));
+        *self.found.borrow_mut() = found;
+    }
+
+    /// The tracks the last search found, in the order shown.
+    pub fn found_tracks(&self) -> Vec<Track> {
+        self.found.borrow().tracks.clone()
     }
 
     fn open_artist(&self, artist: Artist) {

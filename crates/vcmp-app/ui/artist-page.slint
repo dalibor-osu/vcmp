@@ -3,7 +3,7 @@ import { Theme } from "theme.slint";
 import { Button, SectionHeading } from "components.slint";
 import { PlayerState } from "player-state.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
-import { BackButton, TrackLine, TrackRow } from "album-page.slint";
+import { BackButton, TrackList, TrackRow } from "album-page.slint";
 
 export struct ArtistDetail {
     name: string,
@@ -22,6 +22,8 @@ export struct ArtistDetail {
 // elsewhere (features, compilations, tracks without an album).
 export component ArtistView {
     in property <ArtistDetail> artist;
+    // Names the page the back button returns to.
+    in property <string> back-label: @tr("Artists");
     in property <[AlbumTile]> albums;
     // `artist` holds the album each track is on.
     in property <[TrackRow]> appearances;
@@ -35,9 +37,6 @@ export component ArtistView {
     // Puts an appearance into Up next: at its front (`next`), or at its end.
     callback queue-appearance(int, bool);
 
-    // The keyboard's current track in the appearances list.
-    private property <int> current: 0;
-
     public function focus-back() {
         back-button.focus();
     }
@@ -45,11 +44,6 @@ export component ArtistView {
     // Shows the albums with `index` as the current card, focused.
     public function focus-album(index: int) {
         albums-grid.focus-card(index);
-    }
-
-    function show-menu(index: int, x: length, y: length) {
-        root.current = index;
-        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
     }
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
@@ -93,7 +87,7 @@ export component ArtistView {
                     alignment: start;
 
                     back-button := BackButton {
-                        label: @tr("Artists");
+                        label: root.back-label;
                         clicked => {
                             root.back();
                         }
@@ -208,77 +202,19 @@ export component ArtistView {
                     text: @tr("Appears on");
                 }
 
-                // The appearances: one tab stop; Up/Down move, Enter or Space plays, and
-                // the Menu key (or a right click) opens the track's menu.
-                menu := ContextMenuArea {
+                TrackList {
                     max-width: Theme.content-max-width;
-
-                    Menu {
-                        MenuItem {
-                            title: @tr("Play now");
-                            activated => {
-                                root.play-appearance(root.current);
-                            }
-                        }
-                        MenuItem {
-                            title: @tr("Play next");
-                            activated => {
-                                root.queue-appearance(root.current, true);
-                            }
-                        }
-                        MenuItem {
-                            title: @tr("Add to queue");
-                            activated => {
-                                root.queue-appearance(root.current, false);
-                            }
-                        }
+                    label: @tr("Appears on");
+                    tracks: root.appearances;
+                    playing-path: PlayerState.track-path;
+                    play(index) => {
+                        root.play-appearance(index);
                     }
-
-                    list := FocusScope {
-                        focus-on-click: false;
-                        focus-on-tab-navigation: root.appearances.length > 0;
-                        focus-gained(reason) => {
-                            if reason == FocusReason.tab-navigation {
-                                Theme.keyboard-navigation = true;
-                            }
-                        }
-                        key-pressed(event) => {
-                            if event.text == Key.DownArrow {
-                                root.current = min(root.appearances.length - 1, root.current + 1);
-                            } else if event.text == Key.UpArrow {
-                                root.current = max(0, root.current - 1);
-                            } else if event.text == Key.Home {
-                                root.current = 0;
-                            } else if event.text == Key.End {
-                                root.current = root.appearances.length - 1;
-                            } else if event.text == Key.Return || event.text == Key.Space {
-                                root.play-appearance(root.current);
-                            } else {
-                                return reject;
-                            }
-                            accept
-                        }
-
-                        VerticalLayout {
-                            accessible-role: AccessibleRole.list;
-                            accessible-label: @tr("Appears on");
-
-                            for track[index] in root.appearances: TrackLine {
-                                track: track;
-                                playing: track.path == PlayerState.track-path;
-                                focused: list.has-focus && index == root.current;
-                                clicked => {
-                                    root.current = index;
-                                    root.play-appearance(index);
-                                }
-                                menu-requested(x, y) => {
-                                    root.show-menu(index, x, y);
-                                }
-                                shown-focused(top, height) => {
-                                    root.ensure-visible(top, height);
-                                }
-                            }
-                        }
+                    queue(index, next) => {
+                        root.queue-appearance(index, next);
+                    }
+                    shown-focused(top, height) => {
+                        root.ensure-visible(top, height);
                     }
                 }
             }

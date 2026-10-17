@@ -674,3 +674,110 @@ export component Dropdown {
         }
     }
 }
+
+// A text field for searching. The placeholder shows while it is empty and a clear
+// button while it is not; Escape clears it too. `edited` reports every change.
+export component SearchField {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> text;
+    callback edited(string);
+
+    public function focus-text() {
+        input.focus();
+    }
+
+    function clear() {
+        if root.text != "" {
+            root.text = "";
+            root.edited("");
+        }
+    }
+
+    min-height: 48px;
+    forward-focus: input;
+
+    Rectangle {
+        border-radius: Theme.radius-l;
+        background: Theme.colors.base;
+        border-width: input.has-focus ? 2px : 1px;
+        border-color: input.has-focus ? Theme.colors.accent : Theme.colors.outline;
+    }
+
+    // Sees the keys the text input leaves, such as Escape.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape && root.text != "" {
+                root.clear();
+                return accept;
+            }
+            reject
+        }
+
+        HorizontalLayout {
+            padding-left: Theme.space-l;
+            padding-right: Theme.space-xs;
+            spacing: Theme.space-m;
+
+            VerticalLayout {
+                alignment: center;
+
+                Icon {
+                    width: 20px;
+                    height: 20px;
+                    glyph: Glyph.search;
+                    tint: Theme.colors.text-muted;
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+
+                if root.text == "": Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.placeholder;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-heading;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: none;
+                }
+
+                input := TextInput {
+                    width: parent.width;
+                    height: parent.height;
+                    text <=> root.text;
+                    single-line: true;
+                    color: Theme.colors.text;
+                    font-size: Theme.font-heading;
+                    vertical-alignment: center;
+                    selection-background-color: Theme.colors.surface;
+                    selection-foreground-color: Theme.colors.text;
+                    accessible-label: root.label;
+                    accessible-placeholder-text: root.placeholder;
+                    edited => {
+                        root.edited(self.text);
+                    }
+                }
+            }
+
+            if root.text != "": VerticalLayout {
+                alignment: center;
+
+                IconButton {
+                    glyph: Glyph.remove;
+                    label: @tr("Clear the search");
+                    // Escape does the same from the keyboard.
+                    tab-stop: false;
+                    clicked => {
+                        root.clear();
+                        input.focus();
+                    }
+                }
+            }
+        }
+    }
+}

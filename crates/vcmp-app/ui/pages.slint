@@ -1,11 +1,11 @@
-import { AboutSlint, Palette } from "std-widgets.slint";
+import { AboutSlint, Palette, ScrollView } from "std-widgets.slint";
 import { Theme, ThemeMode } from "theme.slint";
-import { Button, Dropdown, FocusRing, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { Button, Dropdown, FocusRing, SearchField, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
 import { LibraryState } from "library-state.slint";
 import { LibrarySection } from "library-settings.slint";
 import { PlayerState, ShuffleKind } from "player-state.slint";
-import { AlbumGrid, AlbumTile } from "album-grid.slint";
-import { AlbumDetail, AlbumView, TrackRow } from "album-page.slint";
+import { AlbumGrid, AlbumTile, CardGrid } from "album-grid.slint";
+import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
 import { ArtistDetail, ArtistView } from "artist-page.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
@@ -265,6 +265,9 @@ export component AlbumsPage inherits Rectangle {
     in property <bool> shown;
     // Showing one album instead of the grid.
     in-out property <bool> album-open;
+    // The open album came from search, so going back returns there.
+    in property <bool> from-search;
+    callback back-to-search();
     // Plays the open album from a track (-1: from its start), shuffled or not.
     callback play-album(int, bool);
     callback queue-album-track(int, bool);
@@ -363,8 +366,13 @@ export component AlbumsPage inherits Rectangle {
         album: root.album;
         tracks: root.tracks;
         multi-disc: root.multi-disc;
+        back-label: root.from-search ? @tr("Search") : @tr("Albums");
         back => {
-            root.close-album();
+            if root.from-search {
+                root.back-to-search();
+            } else {
+                root.close-album();
+            }
         }
     }
 
@@ -383,6 +391,9 @@ export component ArtistsPage inherits Rectangle {
     in-out property <bool> artist-open;
     // An album opened from the artist's page.
     in-out property <bool> album-open;
+    // The open artist came from search, so going back returns there.
+    in property <bool> from-search;
+    callback back-to-search();
     in property <ArtistDetail> artist;
     in property <[AlbumTile]> artist-albums;
     in property <[TrackRow]> appearances;
@@ -505,8 +516,13 @@ export component ArtistsPage inherits Rectangle {
         artist: root.artist;
         albums: root.artist-albums;
         appearances: root.appearances;
+        back-label: root.from-search ? @tr("Search") : @tr("Artists");
         back => {
-            root.close-artist();
+            if root.from-search {
+                root.back-to-search();
+            } else {
+                root.close-artist();
+            }
         }
         album-activated(index) => {
             root.album-index = index;
@@ -540,6 +556,136 @@ export component ArtistsPage inherits Rectangle {
         }
         back => {
             root.close-album();
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
+// Search over the whole library: artists, albums and tracks whose names contain the
+// typed words (any part of a name, in any script). The page stays alive while
+// hidden, so the search and its results are still there when the user comes back.
+export component SearchPage inherits Rectangle {
+    in property <bool> shown;
+    in-out property <string> text;
+    in property <[AlbumTile]> artists;
+    in property <[AlbumTile]> albums;
+    in property <[TrackRow]> tracks;
+    callback edited(string);
+    callback artist-activated(int);
+    callback album-activated(int);
+    callback play-track(int);
+    callback queue-track(int, bool);
+
+    public function focus-field() {
+        field.focus-text();
+    }
+
+    private property <bool> found: root.artists.length + root.albums.length + root.tracks.length > 0;
+
+    // Scrolls so the row at window y `top` with `height` is inside the view.
+    function ensure-visible(top: length, height: length) {
+        let view-top = scroll.absolute-position.y;
+        let view-bottom = view-top + scroll.visible-height;
+        if top < view-top {
+            scroll.content-y = min(0px, scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            scroll.content-y = scroll.content-y - (top + height - view-bottom);
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        padding: Theme.space-xxl;
+        padding-bottom: 0;
+        spacing: Theme.space-xl;
+
+        Text {
+            text: @tr("Search");
+            color: Theme.colors.text;
+            font-size: Theme.font-title;
+            font-weight: Theme.weight-strong;
+        }
+
+        field := SearchField {
+            max-width: Theme.content-max-width;
+            label: @tr("Search");
+            placeholder: @tr("Artists, albums and tracks");
+            text <=> root.text;
+            edited(text) => {
+                root.edited(text);
+            }
+        }
+
+        scroll := ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                padding-bottom: Theme.space-xxl;
+                spacing: Theme.space-l;
+                alignment: start;
+
+                if root.text == "": Text {
+                    text: @tr("Finds artists, albums and tracks by any part of their names, in any language.");
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    max-width: Theme.content-max-width;
+                }
+
+                if root.text != "" && !root.found: Text {
+                    text: @tr("Nothing in your library matches “{}”.", root.text);
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    max-width: Theme.content-max-width;
+                }
+
+                if root.artists.length > 0: SectionHeading {
+                    text: @tr("Artists");
+                }
+                if root.artists.length > 0: CardGrid {
+                    tiles: root.artists;
+                    round: true;
+                    label: @tr("Artists");
+                    available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
+                    activated(index) => {
+                        root.artist-activated(index);
+                    }
+                }
+
+                if root.albums.length > 0: SectionHeading {
+                    text: @tr("Albums");
+                }
+                if root.albums.length > 0: CardGrid {
+                    tiles: root.albums;
+                    label: @tr("Albums");
+                    available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
+                    activated(index) => {
+                        root.album-activated(index);
+                    }
+                }
+
+                if root.tracks.length > 0: SectionHeading {
+                    text: @tr("Tracks");
+                }
+                TrackList {
+                    max-width: Theme.content-max-width;
+                    label: @tr("Tracks");
+                    tracks: root.tracks;
+                    playing-path: PlayerState.track-path;
+                    play(index) => {
+                        root.play-track(index);
+                    }
+                    queue(index, next) => {
+                        root.queue-track(index, next);
+                    }
+                    shown-focused(top, height) => {
+                        root.ensure-visible(top, height);
+                    }
+                }
+            }
         }
     }
 

@@ -57,6 +57,8 @@ export global PlayerState {
     in property <[QueueRow]> up-next;
     in property <[QueueRow]> upcoming;
     in property <string> queue-origin;
+    // The context is the tracks a search found.
+    in property <bool> queue-from-search;
 
     // Output devices by name, the chosen one included even while it is missing; the
     // system default is not among them. `output-device` indexes the chosen one (-1

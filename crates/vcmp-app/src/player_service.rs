@@ -34,6 +34,9 @@ pub const SETTING_VOLUME: &str = "playback.volume";
 pub const SETTING_SHUFFLE: &str = "playback.shuffle";
 pub const SETTING_SHUFFLE_KIND: &str = "playback.shuffle_kind";
 pub const SETTING_REPEAT: &str = "playback.repeat";
+/// The context origin of tracks played from search results.
+const SEARCH_ORIGIN: &str = "search";
+
 /// The output device by name; absent or empty for the system default.
 pub const SETTING_OUTPUT_DEVICE: &str = "playback.output_device";
 
@@ -336,6 +339,33 @@ impl PlayerService {
                 }
             }
         });
+        window.on_play_search_track({
+            let weak = weak.clone();
+            move |index| {
+                if let (Some(service), Ok(index)) = (weak.upgrade(), usize::try_from(index)) {
+                    service.play_found(index);
+                }
+            }
+        });
+        window.on_queue_search_track({
+            let weak = weak.clone();
+            move |index, next| {
+                let Some(service) = weak.upgrade() else {
+                    return;
+                };
+                let tracks = service.view.found_tracks();
+                let track = usize::try_from(index)
+                    .ok()
+                    .and_then(|index| tracks.get(index));
+                if let Some(entry) = track.and_then(entry) {
+                    service.player.send(if next {
+                        Command::PlayNext(vec![entry])
+                    } else {
+                        Command::AddToQueue(vec![entry])
+                    });
+                }
+            }
+        });
         window.on_queue_album_track({
             let weak = weak.clone();
             move |index, next| {
@@ -400,6 +430,16 @@ impl PlayerService {
             entries,
             origin: Some(format!("artist:{}", artist.artist.id.0)),
             start: if shuffle { None } else { start },
+        });
+    }
+
+    /// Plays the tracks the search found, from track `start`.
+    pub fn play_found(&self, start: usize) {
+        let entries: Vec<QueueEntry> = self.view.found_tracks().iter().filter_map(entry).collect();
+        self.player.send(Command::PlayContext {
+            entries,
+            origin: Some(SEARCH_ORIGIN.to_string()),
+            start: Some(start),
         });
     }
 
@@ -538,6 +578,7 @@ impl PlayerService {
             })
             .unwrap_or_default();
         state.set_queue_origin(origin.into());
+        state.set_queue_from_search(view.origin.as_deref() == Some(SEARCH_ORIGIN));
     }
 
     fn queue_row(&self, entry: &QueueEntry) -> QueueRow {

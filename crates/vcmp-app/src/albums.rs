@@ -25,6 +25,10 @@ pub enum Grid {
     Artists,
     /// The albums on an artist's page.
     ArtistAlbums,
+    /// The artists found by a search.
+    SearchArtists,
+    /// The albums found by a search.
+    SearchAlbums,
 }
 
 impl Grid {
@@ -33,6 +37,8 @@ impl Grid {
             Grid::Albums => window.get_albums(),
             Grid::Artists => window.get_artists(),
             Grid::ArtistAlbums => window.get_artist_albums(),
+            Grid::SearchArtists => window.get_search_artists(),
+            Grid::SearchAlbums => window.get_search_albums(),
         }
     }
 
@@ -41,6 +47,8 @@ impl Grid {
             Grid::Albums => window.set_albums(model),
             Grid::Artists => window.set_artists(model),
             Grid::ArtistAlbums => window.set_artist_albums(model),
+            Grid::SearchArtists => window.set_search_artists(model),
+            Grid::SearchAlbums => window.set_search_albums(model),
         }
     }
 
@@ -256,7 +264,7 @@ impl AlbumBrowser {
 
 thread_local! {
     /// The grids decoded pictures are delivered to, on the UI thread.
-    static GRIDS: RefCell<[std::rc::Weak<CoverGrid>; 3]> = RefCell::default();
+    static GRIDS: RefCell<[std::rc::Weak<CoverGrid>; 5]> = RefCell::default();
 }
 
 /// Logical size the grids show pictures at, at most; they are decoded for this times

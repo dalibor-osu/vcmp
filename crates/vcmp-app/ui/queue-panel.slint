@@ -314,7 +314,8 @@ export component QueuePanel inherits Rectangle {
                         }
 
                         if PlayerState.upcoming.length > 0: SectionLabel {
-                            text: PlayerState.queue-origin != "" ? @tr("Next from {}", PlayerState.queue-origin) : @tr("Next up");
+                            text: PlayerState.queue-from-search ? @tr("Next from your search")
+                                : PlayerState.queue-origin != "" ? @tr("Next from {}", PlayerState.queue-origin) : @tr("Next up");
                             height: Theme.target-height;
                             vertical-alignment: bottom;
                         }

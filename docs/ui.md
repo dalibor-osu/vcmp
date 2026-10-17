@@ -13,14 +13,14 @@ dials come from DESIGN.md).
 | File | Holds |
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
-| `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `ProgressBar` |
+| `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `AlbumsPage`, `ArtistsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
-| `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc |
+| `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist grid and an artist's albums |
-| `src/library_view.rs` | Connects the library to the album and artist grids and opens album and artist pages |
+| `src/library_view.rs` | Connects the library to the album and artist grids and search, and opens album and artist pages |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
 | `ui/library-settings.slint` | The Music folders section of Settings |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
@@ -77,7 +77,8 @@ subtext1 and overlay2 instead.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Albums, Artists, Settings, About) |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Settings, About) |
+| Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
 | Artists in round frames, albums in rounded squares | The shape tells the two grids apart at a glance, as people know it from other players |
 | An artist's picture is their newest album's cover until there are artist photos | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists keep the initial |
 | Album artists by default, everyone behind a switch | The owner's choice: 391 of 532 artists in their library are only credited on others' albums, and would crowd the grid |
@@ -168,6 +169,29 @@ shown, because the page itself stays alive while hidden.
     marked as gone, until the user leaves.
 - **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
   returns to the grid from anywhere on the page.
+
+## Search
+
+- **The Search page** is first in the sidebar; Ctrl+F (Cmd+F on macOS) opens it
+  from anywhere with the field focused. The window's shortcut scope holds the focus
+  at start, so the shortcut works before anything was clicked.
+- **The field** (`SearchField`) searches 150 ms after typing pauses
+  (`SEARCH_DELAY`): a one-letter search takes about 50 ms on a few thousand tracks.
+  Escape or the clear button empties it.
+- **Results:** up to 12 artists and 12 albums as cards, and up to 50 tracks with
+  their artist and album. A search finds any part of a name, so Japanese titles
+  without spaces are found by a word inside them (see `docs/library.md`). Without
+  a search the page says what it finds; when nothing matches, it says so.
+- **Opening a result:** an artist or album opens on the Artists or Albums page, and
+  its back button (or Escape) returns to Search, where the results are still
+  shown. Opening something from those pages' own grids goes back to the grid as
+  before.
+- **Tracks:** a click or Enter plays the found tracks from that one (the queue
+  panel says "Next from your search"); the track menu offers Play now, Play next
+  and Add to queue.
+- **`TrackList`** is the track list on album pages, artist pages and search: one tab
+  stop, Up/Down, Home/End, Enter or Space, and the Menu key or a right click for the
+  track menu.
 
 ## Music folders and scanning
 
@@ -303,8 +327,10 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 
 ## Known limits
 
-- Up next can be filled from album and artist pages only, and reordered by keyboard
-  or menu, not by dragging.
+- Up next can be filled from album and artist pages and search, and reordered by
+  keyboard or menu, not by dragging.
+- Going back is one step: an album opened from an artist found by search returns
+  to the artist, and the artist to Search, but there is no general history.
 - The queue panel appears without an animation; one is planned.
 - Artists have no photos of their own yet: choosing a photo, and the web search for
   one (fanart.tv), come with the integrations.

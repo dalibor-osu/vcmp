@@ -7,7 +7,15 @@ use std::path::{Path, PathBuf};
 
 /// String literals that are not translatable text: the product name, the font family,
 /// a URL, and the empty string (used in comparisons).
-const ALLOWED_LITERALS: &[&str] = &["\"VCMP\"", "\"Sora\"", "\"https://slint.dev\"", "\"\""];
+// Names, the font, a URL, the empty string, and the key in the Ctrl+F shortcut.
+const ALLOWED_LITERALS: &[&str] = &[
+    "\"VCMP\"",
+    "\"Sora\"",
+    "\"https://slint.dev\"",
+    "\"\"",
+    "\"f\"",
+    "\"F\"",
+];
 
 fn slint_sources() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui");

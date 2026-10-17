@@ -233,6 +233,106 @@ export component TrackLine {
     }
 }
 
+// Tracks as a list that is one tab stop: Up/Down and Home/End move, Enter or Space
+// plays, and the Menu key (or a right click) opens a track's menu: Play now, Play
+// next, Add to queue. The owner scrolls the row reported by `shown-focused` into
+// view.
+export component TrackList {
+    in property <[TrackRow]> tracks;
+    in property <string> label;
+    // Disc headings above the first track of each disc.
+    in property <bool> show-disc;
+    // Path of the track now playing, to mark it.
+    in property <string> playing-path;
+    callback play(int);
+    // Puts a track into Up next: at its front (`next`), or at its end.
+    callback queue(int, bool);
+    callback shown-focused(length, length);
+
+    // The keyboard's current track.
+    private property <int> current: 0;
+
+    function show-menu(index: int, x: length, y: length) {
+        root.current = index;
+        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
+    }
+
+    changed tracks => {
+        root.current = max(0, min(root.current, root.tracks.length - 1));
+    }
+
+    menu := ContextMenuArea {
+        Menu {
+            MenuItem {
+                title: @tr("Play now");
+                activated => {
+                    root.play(root.current);
+                }
+            }
+            MenuItem {
+                title: @tr("Play next");
+                activated => {
+                    root.queue(root.current, true);
+                }
+            }
+            MenuItem {
+                title: @tr("Add to queue");
+                activated => {
+                    root.queue(root.current, false);
+                }
+            }
+        }
+
+        list := FocusScope {
+            focus-on-click: false;
+            focus-on-tab-navigation: root.tracks.length > 0;
+            focus-gained(reason) => {
+                if reason == FocusReason.tab-navigation {
+                    Theme.keyboard-navigation = true;
+                }
+            }
+            key-pressed(event) => {
+                if event.text == Key.DownArrow {
+                    root.current = min(root.tracks.length - 1, root.current + 1);
+                } else if event.text == Key.UpArrow {
+                    root.current = max(0, root.current - 1);
+                } else if event.text == Key.Home {
+                    root.current = 0;
+                } else if event.text == Key.End {
+                    root.current = root.tracks.length - 1;
+                } else if event.text == Key.Return || event.text == Key.Space {
+                    root.play(root.current);
+                } else {
+                    return reject;
+                }
+                accept
+            }
+
+            VerticalLayout {
+                accessible-role: AccessibleRole.list;
+                accessible-label: root.label;
+
+                for track[index] in root.tracks: TrackLine {
+                    track: track;
+                    show-disc: root.show-disc;
+                    playing: track.path == root.playing-path;
+                    focused: list.has-focus && index == root.current;
+                    clicked => {
+                        root.current = index;
+                        root.play(index);
+                    }
+                    menu-requested(x, y) => {
+                        root.show-menu(index, x, y);
+                    }
+                    shown-focused(top, height) => {
+                        root.shown-focused(top, height);
+                    }
+                }
+            }
+        }
+    }
+}
+
 // One album: its cover and details, then its tracks grouped by disc.
 export component AlbumView {
     in property <AlbumDetail> album;
@@ -248,16 +348,8 @@ export component AlbumView {
     // Puts a track into Up next: at its front (`next`), or at its end.
     callback queue-track(int, bool);
 
-    // The keyboard's current track; the list is one tab stop.
-    private property <int> current: 0;
-
     public function focus-back() {
         back-button.focus();
-    }
-
-    function show-menu(index: int, x: length, y: length) {
-        root.current = index;
-        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
     }
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
@@ -417,77 +509,20 @@ export component AlbumView {
                     wrap: word-wrap;
                 }
 
-                // The tracks: one tab stop; Up/Down move, Enter or Space plays, and the
-                // Menu key (or a right click) opens the track's menu.
-                menu := ContextMenuArea {
+                TrackList {
                     max-width: Theme.content-max-width;
-
-                    Menu {
-                        MenuItem {
-                            title: @tr("Play now");
-                            activated => {
-                                root.play(root.current, false);
-                            }
-                        }
-                        MenuItem {
-                            title: @tr("Play next");
-                            activated => {
-                                root.queue-track(root.current, true);
-                            }
-                        }
-                        MenuItem {
-                            title: @tr("Add to queue");
-                            activated => {
-                                root.queue-track(root.current, false);
-                            }
-                        }
+                    label: @tr("Tracks");
+                    tracks: root.tracks;
+                    show-disc: root.multi-disc;
+                    playing-path: root.playing-path;
+                    play(index) => {
+                        root.play(index, false);
                     }
-
-                    list := FocusScope {
-                        max-width: Theme.content-max-width;
-                        focus-on-click: false;
-                        focus-gained(reason) => {
-                            if reason == FocusReason.tab-navigation {
-                                Theme.keyboard-navigation = true;
-                            }
-                        }
-                        key-pressed(event) => {
-                            if event.text == Key.DownArrow {
-                                root.current = min(root.tracks.length - 1, root.current + 1);
-                            } else if event.text == Key.UpArrow {
-                                root.current = max(0, root.current - 1);
-                            } else if event.text == Key.Home {
-                                root.current = 0;
-                            } else if event.text == Key.End {
-                                root.current = root.tracks.length - 1;
-                            } else if event.text == Key.Return || event.text == Key.Space {
-                                root.play(root.current, false);
-                            } else {
-                                return reject;
-                            }
-                            accept
-                        }
-
-                        VerticalLayout {
-                            accessible-role: AccessibleRole.list;
-
-                            for track[index] in root.tracks: TrackLine {
-                                track: track;
-                                show-disc: root.multi-disc;
-                                playing: track.path == root.playing-path;
-                                focused: list.has-focus && index == root.current;
-                                clicked => {
-                                    root.current = index;
-                                    root.play(index, false);
-                                }
-                                menu-requested(x, y) => {
-                                    root.show-menu(index, x, y);
-                                }
-                                shown-focused(top, height) => {
-                                    root.ensure-visible(top, height);
-                                }
-                            }
-                        }
+                    queue(index, next) => {
+                        root.queue-track(index, next);
+                    }
+                    shown-focused(top, height) => {
+                        root.ensure-visible(top, height);
                     }
                 }
             }

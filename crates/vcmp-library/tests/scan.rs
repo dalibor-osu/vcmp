@@ -809,3 +809,50 @@ fn an_artist_page_has_own_albums_and_appearances() {
     appearances.sort();
     assert_eq!(appearances, ["Guest spot", "Loose"]);
 }
+
+#[test]
+fn search_finds_parts_of_words_in_any_script() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music(),
+        "1.flac",
+        "silence.flac",
+        Tags {
+            album_artist: Some("μ's"),
+            ..song("Music S.T.A.R.T!!", "高坂穂乃果", "ラブライブ! Solo Live!")
+        },
+    );
+    add_file(
+        &setup.music(),
+        "2.flac",
+        "silence.flac",
+        song(
+            "Butterfly Effect",
+            "Koven",
+            "Butterfly Effect (Deluxe Edition)",
+        ),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let titles = |text: &str| -> Vec<String> {
+        let results = setup.library.search(text, 10).unwrap();
+        results
+            .tracks
+            .into_iter()
+            .map(|track| track.title)
+            .collect()
+    };
+
+    // Inside a word without spaces, at three characters and more.
+    assert_eq!(titles("ライブ"), ["Music S.T.A.R.T!!"]);
+    assert_eq!(titles("穂乃果"), ["Music S.T.A.R.T!!"]);
+    // Shorter words are matched too, without the index.
+    assert_eq!(titles("高坂"), ["Music S.T.A.R.T!!"]);
+    assert_eq!(titles("μ"), ["Music S.T.A.R.T!!"], "by album artist");
+    // Inside Latin words, combined with a short word.
+    assert_eq!(titles("terfly ko"), ["Butterfly Effect"]);
+    // Wildcards in the text are plain characters.
+    assert!(titles("%").is_empty());
+    let results = setup.library.search("ライブ", 10).unwrap();
+    assert_eq!(results.albums.len(), 1);
+}

@@ -217,6 +217,8 @@ export component AlbumGrid {
 // it without a layout loop. One tab stop: arrow keys, Home/End, Enter or Space.
 export component CardGrid {
     in property <[AlbumTile]> tiles;
+    // Artists rather than albums.
+    in property <bool> round;
     in property <length> available-width;
     in property <string> label;
     in-out property <int> current: 0;
@@ -276,6 +278,7 @@ export component CardGrid {
         y: floor(index / root.columns) * root.row-height;
         width: root.tile-width;
         cover-size: root.tile-width;
+        round: root.round;
         album: tile;
         focused: focus.has-focus && index == root.current;
         clicked => {

@@ -22,7 +22,7 @@ Music files are only ever read by this crate. Tag writing arrives with the tag e
 
 ## Schema
 
-Version 2, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 3, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -33,7 +33,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `albums` | Album groups, their artist, year and artwork state |
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
 | `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
-| `track_search`, `album_search`, `artist_search` | FTS5 indexes, diacritics removed |
+| `track_search`, `album_search`, `artist_search` | FTS5 trigram indexes, case and diacritics ignored (version 3; version 1 indexed words) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -97,9 +97,23 @@ starts it, and scans at startup, while `library.auto_update` is on (the default)
 
 ## Search
 
-`Library::search` matches every typed word as a word prefix, ignoring case and
-diacritics: `dvorak` finds "Dvořák", and `floyd wall` finds the album "The Wall" by
-Pink Floyd. Artists, albums and tracks are searched separately and ranked by FTS5.
+`Library::search` finds every typed word anywhere in a title, artist or album name,
+ignoring case and diacritics: `dvorak` finds "Dvořák", `floyd wall` finds the album
+"The Wall" by Pink Floyd, and `ライブ` finds "ラブライブ!". Artists, albums and
+tracks are searched separately.
+
+- **Why parts of words:** the first index matched word starts, and words end at
+  spaces and punctuation. Japanese and Chinese titles have no spaces, so on the
+  owner's library `ライブ` found 1 of the 88 tracks whose title or album contains it,
+  and `穂乃果` 3 of 135. The trigram tokenizer indexes every three-character run.
+- **Words of three characters or more** go into one full-text query, ranked by FTS5.
+  **Shorter words** (`高坂`, `μ`) cannot be looked up in a trigram index, so they
+  become `LIKE` conditions over the search table's columns, which scan it.
+- **Speed:** each full-text query runs once, in a `MATERIALIZED` CTE that the other
+  tables join. Joined directly, SQLite looked the full-text query up again for
+  every album row: 237 ms for one search instead of a few. On the owner's library
+  (3,621 tracks) searches take 7 to 16 ms, a one-letter search about 50 ms.
+  `examples/search.rs` times searches on any library.
 
 ## Measured
 
