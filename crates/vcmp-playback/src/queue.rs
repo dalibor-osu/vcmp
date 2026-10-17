@@ -313,6 +313,27 @@ impl Queue {
         None
     }
 
+    /// Removes the track [`peek_next`](Self::peek_next) returns, without touching
+    /// the current one: for a next track that turned out unplayable. False when
+    /// there is nothing to remove, or when the next track is the current one again
+    /// ([`RepeatMode::One`]).
+    pub fn drop_next(&mut self) -> bool {
+        if self.repeat == RepeatMode::One && self.current.is_some() {
+            return false;
+        }
+        if self.up_next.pop_front().is_some() {
+            return true;
+        }
+        if !self.context_has(self.cursor) {
+            return false;
+        }
+        self.cursor += 1;
+        if self.repeat_from.is_some_and(|from| self.cursor > from) {
+            self.repeat_from = None;
+        }
+        true
+    }
+
     /// Goes back to the previously played track. The track left behind returns to
     /// where it came from: the front of Up next, or the front of the context's
     /// upcoming tracks. Up next still plays first, so going back over a mix of both

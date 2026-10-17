@@ -117,9 +117,8 @@ mod tests {
 
     #[test]
     fn source_names_round_trip() {
-        for kind in [SourceKind::Local] {
-            assert_eq!(kind.as_str().parse::<SourceKind>(), Ok(kind));
-        }
+        assert_eq!("local".parse::<SourceKind>(), Ok(SourceKind::Local));
+        assert_eq!(SourceKind::Local.to_string(), "local");
         assert!("spotify".parse::<SourceKind>().is_err());
     }
 }

@@ -491,3 +491,23 @@ fn endless_play_keeps_memory_bounded() {
         );
     }
 }
+
+#[test]
+fn drop_next_skips_what_would_play_next() {
+    let mut queue = Queue::with_seed(1);
+    queue.set_context(album(4), None, None);
+    queue.add_to_queue([track("a")]);
+    assert!(queue.drop_next());
+    assert_eq!(name(queue.peek_next()).as_deref(), Some("t1"));
+    assert!(queue.drop_next());
+    assert_eq!(
+        name(queue.current()).as_deref(),
+        Some("t0"),
+        "the current track stays"
+    );
+    assert_eq!(play_out(&mut queue, 10), ["t0", "t2", "t3"]);
+    assert!(!queue.drop_next(), "nothing left");
+    queue.set_context(album(2), None, None);
+    queue.set_repeat(RepeatMode::One);
+    assert!(!queue.drop_next(), "repeat one has no other next track");
+}
