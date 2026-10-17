@@ -6,4 +6,7 @@ export global Playlists {
     out property <string> new-name: @tr("Playlist {}", root.names.length + 1);
     // Adds the track with this file path to playlist `index` (-1: to a new one).
     callback add-track(int, string);
+    // Adds every track of the album page's album (-1: to a new playlist named after
+    // the album).
+    callback add-album(int);
 }

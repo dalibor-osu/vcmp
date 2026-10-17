@@ -532,6 +532,36 @@ export component AlbumView {
                                 CoverSearch.find();
                             }
                         }
+                        // The whole album into a playlist; its menu opens below.
+                        if root.tracks.length > 0 && !root.album.missing: add-album := ContextMenuArea {
+                            width: 200px;
+                            height: Theme.target-height;
+
+                            Menu {
+                                MenuItem {
+                                    title: @tr("New playlist");
+                                    activated => {
+                                        Playlists.add-album(-1);
+                                    }
+                                }
+                                if Playlists.names.length > 0: MenuSeparator { }
+                                for name[index] in Playlists.names: MenuItem {
+                                    title: name;
+                                    activated => {
+                                        Playlists.add-album(index);
+                                    }
+                                }
+                            }
+
+                            Button {
+                                width: parent.width;
+                                text: @tr("Add to playlist…");
+                                label: @tr("Add {} to a playlist", root.album.title);
+                                clicked => {
+                                    add-album.show({ x: 0, y: self.height });
+                                }
+                            }
+                        }
                         // Under the cover too: the album's tags, its cover among them.
                         if root.tracks.length > 0 && !root.album.missing: Button {
                             text: @tr("Edit tags…");

@@ -658,7 +658,7 @@ export component AppWindow inherits Window {
 
                 // Over the pages and the now playing view alike, at the right edge.
                 if root.queue-open: QueuePanel {
-                    x: parent.width - self.width;
+                    x: parent.width - self.width + self.slide;
                     width: root.queue-width;
                     height: parent.height;
                 }

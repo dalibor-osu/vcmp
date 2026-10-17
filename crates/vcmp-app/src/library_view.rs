@@ -14,7 +14,9 @@ use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Playlist, Track};
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
 use crate::folders::FolderBrowser;
 use crate::playlists::{self, PlaylistBrowser};
-use crate::{AlbumDetail, AlbumTile, AppWindow, ArtistDetail, SongColumn, SongRow, TrackRow};
+use crate::{
+    AlbumDetail, AlbumTile, AppWindow, ArtistDetail, Playlists, SongColumn, SongRow, TrackRow,
+};
 
 pub struct LibraryView {
     window: slint::Weak<AppWindow>,
@@ -182,6 +184,22 @@ impl LibraryView {
                 .and_then(|index| view.found.borrow().albums.get(index).cloned());
             if let Some(album) = album {
                 view.open_album(album, false);
+            }
+        });
+        let weak = Rc::downgrade(&view);
+        window.global::<Playlists>().on_add_album(move |index| {
+            let Some(view) = weak.upgrade() else { return };
+            let Some(album) = view.shown_album() else {
+                return;
+            };
+            match view.library.album_tracks(album.id) {
+                Ok(tracks) => {
+                    let ids: Vec<_> = tracks.iter().map(|track| track.id).collect();
+                    view.playlists.add_tracks(index, &ids, &album.title);
+                }
+                Err(error) => {
+                    log::error!("could not read the tracks of {:?}: {error}", album.title)
+                }
             }
         });
         let weak = Rc::downgrade(&view);

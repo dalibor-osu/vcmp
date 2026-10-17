@@ -1,5 +1,6 @@
 import { Theme } from "theme.slint";
 import { FocusRing, IconButton, TextLink } from "components.slint";
+import { Playlists } from "playlist-state.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 
@@ -298,6 +299,42 @@ export component NowPlayingView inherits Rectangle {
             label: @tr("Close now playing");
             clicked => {
                 root.close();
+            }
+        }
+
+        // What can be done with the track, across from the close button.
+        if PlayerState.has-track: actions := ContextMenuArea {
+            x: root.width - self.width - Theme.space-l;
+            y: Theme.space-l;
+            width: Theme.target-height;
+            height: Theme.target-height;
+
+            Menu {
+                Menu {
+                    title: @tr("Add to playlist");
+
+                    MenuItem {
+                        title: @tr("New playlist");
+                        activated => {
+                            Playlists.add-track(-1, PlayerState.track-path);
+                        }
+                    }
+                    if Playlists.names.length > 0: MenuSeparator { }
+                    for name[index] in Playlists.names: MenuItem {
+                        title: name;
+                        activated => {
+                            Playlists.add-track(index, PlayerState.track-path);
+                        }
+                    }
+                }
+            }
+
+            IconButton {
+                glyph: Glyph.more;
+                label: @tr("More for {}", PlayerState.title);
+                clicked => {
+                    actions.show({ x: 0, y: self.height });
+                }
             }
         }
     }
