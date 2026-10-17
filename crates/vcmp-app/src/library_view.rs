@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
-use vcmp_library::{Album, Artist, Library, Track};
+use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
 use crate::folders::FolderBrowser;
@@ -290,6 +290,24 @@ impl LibraryView {
             tracks,
             appearances_from,
         })
+    }
+
+    /// Opens an album on the Albums page by its id, as the player bar does.
+    pub fn open_album_by_id(&self, id: AlbumId) {
+        match self.library.album(id) {
+            Ok(Some(album)) => self.open_album(album, false),
+            Ok(None) => {}
+            Err(error) => log::error!("could not read album {}: {error}", id.0),
+        }
+    }
+
+    /// Opens an artist on the Artists page by their id, as the player bar does.
+    pub fn open_artist_by_id(&self, id: ArtistId) {
+        match self.library.artist(id) {
+            Ok(Some(artist)) => self.open_artist(artist),
+            Ok(None) => {}
+            Err(error) => log::error!("could not read artist {}: {error}", id.0),
+        }
     }
 
     /// Opens an album on the Albums page, or (`from_artist`) on the artist's page.

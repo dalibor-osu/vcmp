@@ -110,6 +110,21 @@ export component AppWindow inherits Window {
         { page: Page.settings, label: @tr("Settings") },
         { page: Page.about, label: @tr("About") },
     ];
+    // Opens the playing track's album, or its artist, on their page, from the
+    // player bar or the now playing view (which closes).
+    function show-playing-album() {
+        PlayerState.go-to-album();
+        root.opened-from-search = false;
+        PlayerState.now-playing-open = false;
+        root.selected-index = 1;
+    }
+    function show-playing-artist() {
+        PlayerState.go-to-artist();
+        root.opened-from-search = false;
+        PlayerState.now-playing-open = false;
+        root.selected-index = 2;
+    }
+
     // Shows the Search page with its field focused.
     function show-search() {
         root.opened-from-search = false;
@@ -147,6 +162,15 @@ export component AppWindow inherits Window {
             // Ctrl+F (Cmd+F on macOS) searches from anywhere.
             if (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") {
                 root.show-search();
+                return accept;
+            }
+            reject
+        }
+        // Space plays and pauses when the focused control has no use for it: a
+        // focused button or list keeps Space for itself, and typing stays typing.
+        key-pressed(event) => {
+            if event.text == Key.Space && PlayerState.has-track {
+                PlayerState.toggle-play();
                 return accept;
             }
             reject
@@ -412,30 +436,41 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        if root.queue-open: QueuePanel {
-                            x: parent.width - self.width;
-                            width: root.queue-width;
-                            height: parent.height;
-                        }
                     }
 
 
                 }
 
+                // Leaves the queue panel its room when the window is wide enough.
                 if PlayerState.now-playing-open: NowPlayingView {
-                    width: parent.width;
+                    width: parent.width - (root.queue-open && root.width >= 1000px ? root.queue-width : 0px);
                     height: parent.height;
                     close => {
                         PlayerState.now-playing-open = false;
                     }
+                    show-album => {
+                        root.show-playing-album();
+                    }
+                    show-artist => {
+                        root.show-playing-artist();
+                    }
+                }
+
+                // Over the pages and the now playing view alike, at the right edge.
+                if root.queue-open: QueuePanel {
+                    x: parent.width - self.width;
+                    width: root.queue-width;
+                    height: parent.height;
                 }
             }
 
             PlayerBar {
                 queue-open <=> root.queue-open;
-                show-now-playing => {
-                    PlayerState.now-playing-open = true;
-                    PlayerState.load-large-cover();
+                show-album => {
+                    root.show-playing-album();
+                }
+                show-artist => {
+                    root.show-playing-artist();
                 }
             }
         }

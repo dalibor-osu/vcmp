@@ -297,10 +297,12 @@ export component AlbumsPage inherits Rectangle {
         height: parent.height;
         visible: !root.album-open;
 
+        // Space below the title, so the grid scrolls under it with room to spare.
         HorizontalLayout {
             padding-left: Theme.space-xxl;
             padding-right: Theme.space-xxl;
             padding-top: Theme.space-xxl;
+            padding-bottom: Theme.space-l;
 
             Text {
                 text: @tr("Albums");
@@ -451,10 +453,12 @@ export component ArtistsPage inherits Rectangle {
         height: parent.height;
         visible: !root.artist-open && !root.album-open;
 
+        // Space below the title, so the grid scrolls under it with room to spare.
         HorizontalLayout {
             padding-left: Theme.space-xxl;
             padding-right: Theme.space-xxl;
             padding-top: Theme.space-xxl;
+            padding-bottom: Theme.space-l;
             spacing: Theme.space-xl;
 
             Text {
@@ -468,7 +472,9 @@ export component ArtistsPage inherits Rectangle {
 
             SegmentedChoice {
                 label: @tr("Artists shown");
-                segment-min: 120px;
+                segment-min: 136px;
+                horizontal-stretch: 0;
+                max-width: self.min-width;
                 options: [@tr("Album artists"), @tr("All artists")];
                 current-index: root.show-all ? 1 : 0;
                 selected(index) => {

@@ -10,12 +10,12 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use slint::{
-    ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
 use vcmp_library::{Album, AlbumId, ArtistId, CoverArtId, CoverLookup, Library, Track};
 use vcmp_playback::{
@@ -139,8 +139,10 @@ pub struct PlayerService {
     position: Cell<Duration>,
     // Covers are only looked up while Discord is there to show them.
     discord_connected: Cell<bool>,
-    // The playing track's album, and the albums being looked up or that just failed.
+    // The playing track's album and artist, and the albums being looked up or that
+    // just failed.
     album: Cell<Option<AlbumId>>,
+    artist: Cell<Option<ArtistId>>,
     pending_covers: RefCell<HashSet<AlbumId>>,
     failed_covers: RefCell<HashMap<AlbumId, Instant>>,
     // Output devices: the listed names, and how to list them.
@@ -153,7 +155,19 @@ pub struct PlayerService {
     // is decoded or on its way.
     large_cover: RefCell<Option<PathBuf>>,
     large_cover_requested: Cell<bool>,
+    // The queue as the engine last reported it, and the queue panel's small album
+    // covers: decoded ones (None: the album has none), those on their way, and the
+    // thread that decodes them.
+    queue_view: RefCell<QueueView>,
+    queue_covers: RefCell<HashMap<AlbumId, Option<Image>>>,
+    queue_covers_pending: RefCell<HashSet<AlbumId>>,
+    queue_cover_jobs: RefCell<Option<mpsc::Sender<(AlbumId, PathBuf)>>>,
 }
+
+/// Pixels the queue panel's covers are decoded at: 40 px rows at up to 2.4 times.
+const QUEUE_COVER_PIXELS: u32 = 96;
+/// Covers kept before the cache starts over.
+const QUEUE_COVER_CACHE: usize = 500;
 
 /// The longest side the now playing view's cover is decoded at.
 const LARGE_COVER_PIXELS: u32 = 1200;
@@ -186,6 +200,7 @@ impl PlayerService {
             position: Cell::default(),
             discord_connected: Cell::new(false),
             album: Cell::default(),
+            artist: Cell::default(),
             pending_covers: RefCell::default(),
             failed_covers: RefCell::default(),
             devices: RefCell::default(),
@@ -194,6 +209,10 @@ impl PlayerService {
             media_track: RefCell::default(),
             large_cover: RefCell::default(),
             large_cover_requested: Cell::new(false),
+            queue_view: RefCell::default(),
+            queue_covers: RefCell::default(),
+            queue_covers_pending: RefCell::default(),
+            queue_cover_jobs: RefCell::default(),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -319,6 +338,24 @@ impl PlayerService {
                 }
             }
         });
+        state.on_queue_upcoming({
+            let weak = weak.clone();
+            move |index, next| {
+                let Some(service) = weak.upgrade() else {
+                    return;
+                };
+                let entry = usize::try_from(index)
+                    .ok()
+                    .and_then(|index| service.queue_view.borrow().upcoming.get(index).cloned());
+                if let Some(entry) = entry {
+                    service.player.send(if next {
+                        Command::PlayNext(vec![entry])
+                    } else {
+                        Command::AddToQueue(vec![entry])
+                    });
+                }
+            }
+        });
         state.on_remove_from_up_next({
             let weak = weak.clone();
             move |index| {
@@ -348,6 +385,16 @@ impl PlayerService {
         });
         state.on_refresh_output_devices(with(|service| service.refresh_output_devices()));
         state.on_load_large_cover(with(|service| service.load_large_cover()));
+        state.on_go_to_album(with(|service| {
+            if let Some(album) = service.album.get() {
+                service.view.open_album_by_id(album);
+            }
+        }));
+        state.on_go_to_artist(with(|service| {
+            if let Some(artist) = service.artist.get() {
+                service.view.open_artist_by_id(artist);
+            }
+        }));
         window.on_play_artist({
             let weak = weak.clone();
             move |shuffle| {
@@ -755,6 +802,7 @@ impl PlayerService {
 
     /// Fills the queue panel.
     fn show_queue(&self, state: &PlayerState, view: &QueueView) {
+        *self.queue_view.borrow_mut() = view.clone();
         let rows = |entries: &[QueueEntry]| -> ModelRc<QueueRow> {
             ModelRc::new(VecModel::from(
                 entries
@@ -816,20 +864,109 @@ impl PlayerService {
             .flatten()
             .and_then(|id| self.library.track(id).ok().flatten());
         match track {
-            Some(track) => QueueRow {
-                title: track.title.into(),
-                artist: track.artist.unwrap_or_default().into(),
-                duration: format_duration(track.duration).into(),
-            },
+            Some(track) => {
+                let cover = track.album_id.and_then(|album| self.queue_cover(album));
+                QueueRow {
+                    title: track.title.into(),
+                    artist: track.artist.unwrap_or_default().into(),
+                    duration: format_duration(track.duration).into(),
+                    album_id: track.album_id.map_or(-1, |album| album.0 as i32),
+                    has_cover: cover.is_some(),
+                    cover: cover.unwrap_or_default(),
+                }
+            }
             None => QueueRow {
                 title: path
                     .file_stem()
                     .map(|stem| stem.to_string_lossy().into_owned())
                     .unwrap_or_default()
                     .into(),
-                artist: SharedString::default(),
-                duration: SharedString::default(),
+                album_id: -1,
+                ..QueueRow::default()
             },
+        }
+    }
+
+    /// An album's small cover for the queue panel, once decoded; asks for it
+    /// otherwise, and the rows get it when it arrives.
+    fn queue_cover(&self, album: AlbumId) -> Option<Image> {
+        if let Some(cover) = self.queue_covers.borrow().get(&album) {
+            return cover.clone();
+        }
+        if !self.queue_covers_pending.borrow_mut().insert(album) {
+            return None;
+        }
+        let thumbnail = self
+            .library
+            .album(album)
+            .ok()
+            .flatten()
+            .and_then(|album| album.artwork)
+            .map(|artwork| artwork.thumbnail);
+        let Some(thumbnail) = thumbnail else {
+            self.queue_covers_pending.borrow_mut().remove(&album);
+            self.queue_covers.borrow_mut().insert(album, None);
+            return None;
+        };
+        let mut jobs = self.queue_cover_jobs.borrow_mut();
+        let sender = jobs.get_or_insert_with(|| {
+            let (sender, inbox) = mpsc::channel::<(AlbumId, PathBuf)>();
+            thread::Builder::new()
+                .name("vcmp-queue-covers".into())
+                .spawn(move || {
+                    for (album, path) in inbox {
+                        let buffer = image::open(&path).ok().map(|image| {
+                            let rgba = image
+                                .thumbnail(QUEUE_COVER_PIXELS, QUEUE_COVER_PIXELS)
+                                .into_rgba8();
+                            SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                                rgba.as_raw(),
+                                rgba.width(),
+                                rgba.height(),
+                            )
+                        });
+                        if !Self::post(move |service| service.queue_cover_decoded(album, buffer)) {
+                            break;
+                        }
+                    }
+                })
+                .expect("spawning the queue cover thread");
+            sender
+        });
+        let _ = sender.send((album, thumbnail));
+        None
+    }
+
+    /// Takes a decoded queue cover: keeps it, and shows it on the rows of its album.
+    pub fn queue_cover_decoded(
+        &self,
+        album: AlbumId,
+        buffer: Option<SharedPixelBuffer<Rgba8Pixel>>,
+    ) {
+        self.queue_covers_pending.borrow_mut().remove(&album);
+        let cover = buffer.map(Image::from_rgba8);
+        {
+            let mut covers = self.queue_covers.borrow_mut();
+            // A long session meets many albums; the queue shows few at a time.
+            if covers.len() >= QUEUE_COVER_CACHE {
+                covers.clear();
+            }
+            covers.insert(album, cover.clone());
+        }
+        let (Some(cover), Some(window)) = (cover, self.window.upgrade()) else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        for model in [state.get_up_next(), state.get_upcoming()] {
+            for index in 0..model.row_count() {
+                if let Some(mut row) = model.row_data(index)
+                    && row.album_id == album.0 as i32
+                {
+                    row.cover = cover.clone();
+                    row.has_cover = true;
+                    model.set_row_data(index, row);
+                }
+            }
         }
     }
 
@@ -1030,6 +1167,9 @@ impl PlayerService {
             *self.listening.borrow_mut() = None;
             *self.media_track.borrow_mut() = None;
             self.album.set(None);
+            self.artist.set(None);
+            state.set_has_album_link(false);
+            state.set_has_artist_link(false);
             self.update_presence();
             return;
         };
@@ -1087,6 +1227,10 @@ impl PlayerService {
             duration: (!duration.is_zero()).then_some(duration),
         });
         self.album.set(album.as_ref().map(|album| album.id));
+        self.artist
+            .set(track.as_ref().and_then(|track| track.artist_id));
+        state.set_has_album_link(album.is_some());
+        state.set_has_artist_link(self.artist.get().is_some());
         self.position.set(Duration::ZERO);
         self.update_presence();
 

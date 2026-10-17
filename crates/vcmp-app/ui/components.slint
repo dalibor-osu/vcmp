@@ -781,3 +781,86 @@ export component SearchField {
         }
     }
 }
+
+// Text that goes somewhere: underlined while the pointer is over it, and a tab stop
+// with a focus ring. Disabled, it is plain text.
+export component TextLink {
+    in property <string> text;
+    // Spoken label, saying where the link goes.
+    in property <string> label: root.text;
+    in property <color> color: Theme.colors.text;
+    in property <length> font-size: Theme.font-body;
+    in property <int> font-weight: Theme.weight-regular;
+    in property <bool> enabled: true;
+    // Long text wraps onto more lines instead of ending in an ellipsis.
+    in property <bool> wrap;
+    in property <TextHorizontalAlignment> horizontal-alignment: TextHorizontalAlignment.left;
+    callback clicked();
+
+    private property <length> line-width: min(caption.preferred-width, root.width);
+
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+    forward-focus: focus;
+
+    HorizontalLayout {
+        caption := Text {
+            text: root.text;
+            color: root.color;
+            font-size: root.font-size;
+            font-weight: root.font-weight;
+            wrap: root.wrap ? TextWrap.word-wrap : TextWrap.no-wrap;
+            overflow: elide;
+            horizontal-alignment: root.horizontal-alignment;
+            accessible-role: none;
+        }
+    }
+
+    Rectangle {
+        x: root.horizontal-alignment == TextHorizontalAlignment.center ? (root.width - root.line-width) / 2 : 0;
+        y: caption.height - 1px;
+        width: root.line-width;
+        height: 1px;
+        background: root.color;
+        visible: root.enabled && touch.has-hover;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.clicked();
+        }
+    }
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        x: (root.horizontal-alignment == TextHorizontalAlignment.center ? (root.width - root.line-width) / 2 : 0) - 3px;
+        around-width: root.line-width;
+        around-height: root.height;
+        radius: Theme.radius-s;
+    }
+}
