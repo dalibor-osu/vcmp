@@ -242,3 +242,30 @@ fn only_the_rows_in_view_are_created() {
         .len();
     assert!(created < 60, "{created} rows created for 5000 songs");
 }
+
+#[test]
+fn the_filter_keeps_songs_with_every_word_after_a_pause() {
+    let app = start();
+    app.show();
+    app.window.set_songs_filter("bravo".into());
+    app.window.invoke_songs_filter_edited("bravo".into());
+    assert_eq!(app.titles().len(), 3, "not while typing");
+    mock_elapsed_time(vcmp_app::library_view::SEARCH_DELAY);
+    assert_eq!(app.titles(), ["Mango"], "by artist");
+
+    app.window.set_songs_filter("second ap".into());
+    app.window.invoke_songs_filter_edited("second ap".into());
+    mock_elapsed_time(vcmp_app::library_view::SEARCH_DELAY);
+    assert_eq!(app.titles(), ["Apple"], "album and title words together");
+
+    // Playing plays what is shown.
+    find(&app.window, AccessibleRole::ListItem, "Apple, Charlie")
+        .invoke_accessible_default_action();
+    assert_eq!(app.played().map(|played| played.0.len()), Some(1));
+
+    app.window.set_songs_filter("zzz".into());
+    app.window.invoke_songs_filter_edited("zzz".into());
+    mock_elapsed_time(vcmp_app::library_view::SEARCH_DELAY);
+    assert!(app.titles().is_empty());
+    find(&app.window, AccessibleRole::Text, "No songs match “zzz”.");
+}

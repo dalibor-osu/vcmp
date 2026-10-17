@@ -35,6 +35,13 @@ export component AppWindow inherits Window {
     in property <[TrackRow]> album-tracks;
     in property <bool> album-multi-disc;
     in-out property <bool> album-open;
+    // Filters on the Albums, Artists and Songs pages, and their edits.
+    in-out property <string> albums-filter;
+    in-out property <string> artists-filter;
+    in-out property <string> songs-filter;
+    callback albums-filter-edited(string);
+    callback artists-filter-edited(string);
+    callback songs-filter-edited(string);
     // The Artists page: its grid, the open artist and an album opened from there.
     in property <[AlbumTile]> artists;
     in-out property <bool> artists-show-all;
@@ -125,6 +132,16 @@ export component AppWindow inherits Window {
         root.selected-index = 2;
     }
 
+    // A text field has the focus, so Space types instead of playing.
+    out property <bool> typing: TextInputInterface.text-input-focused;
+
+    // Takes the focus off whatever has it, back to the window: a click does this
+    // first (src/shortcuts.rs), so the focus ring goes and Space plays and pauses.
+    public function release-focus() {
+        shortcuts.focus();
+        Theme.keyboard-navigation = false;
+    }
+
     // Shows the Search page with its field focused.
     function show-search() {
         root.opened-from-search = false;
@@ -164,17 +181,19 @@ export component AppWindow inherits Window {
                 root.show-search();
                 return accept;
             }
-            reject
-        }
-        // Space plays and pauses when the focused control has no use for it: a
-        // focused button or list keeps Space for itself, and typing stays typing.
-        key-pressed(event) => {
-            if event.text == Key.Space && PlayerState.has-track {
-                PlayerState.toggle-play();
+            // Space plays and pauses unless a text field is being typed in: caught
+            // here, before the focused control, so buttons and lists never take it.
+            // The app also catches it before Slint routes keys (src/shortcuts.rs),
+            // so it works when nothing has the focus.
+            if event.text == Key.Space && !root.typing {
+                if PlayerState.has-track {
+                    PlayerState.toggle-play();
+                }
                 return accept;
             }
             reject
         }
+
 
         VerticalLayout {
             // The sidebar and pages, and the now playing view over them; the player
@@ -306,6 +325,10 @@ export component AppWindow inherits Window {
                                 root.album-open = false;
                                 root.show-search();
                             }
+                            filter <=> root.albums-filter;
+                            filter-edited(text) => {
+                                root.albums-filter-edited(text);
+                            }
                             albums: root.albums;
                             album: root.album-detail;
                             tracks: root.album-tracks;
@@ -335,6 +358,10 @@ export component AppWindow inherits Window {
                                 root.artist-album-open = false;
                                 root.artist-open = false;
                                 root.show-search();
+                            }
+                            filter <=> root.artists-filter;
+                            filter-edited(text) => {
+                                root.artists-filter-edited(text);
                             }
                             artists: root.artists;
                             show-all <=> root.artists-show-all;
@@ -384,6 +411,10 @@ export component AppWindow inherits Window {
                             sort-column: root.songs-sort-column;
                             sort-descending: root.songs-sort-descending;
                             library-failed: root.library-failed;
+                            filter <=> root.songs-filter;
+                            filter-edited(text) => {
+                                root.songs-filter-edited(text);
+                            }
                             needed => {
                                 root.songs-needed();
                             }

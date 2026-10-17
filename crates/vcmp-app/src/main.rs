@@ -16,6 +16,7 @@ use vcmp_playback::{Player, PlayerOptions};
 fn main() -> Result<(), slint::PlatformError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let window = vcmp_app::create_window()?;
+    vcmp_app::shortcuts::install(&window);
     // Without a database VCMP still runs; preferences then last for this session only.
     // The services stay alive until the window closes.
     let mut services = None;

@@ -99,8 +99,9 @@ fn everything_works_from_the_keyboard() {
     press(&window, Key::Return);
     assert_eq!(window.get_current_page(), Page::About);
 
+    // Enter activates; Space plays and pauses everywhere but in text fields.
     press(&window, Key::Backtab);
-    press(&window, Key::Space);
+    press(&window, Key::Return);
     assert_eq!(window.get_current_page(), Page::Settings);
 
     // From the Settings entry: About, Add folder, Update automatically, the shuffle
@@ -124,7 +125,7 @@ fn everything_works_from_the_keyboard() {
     assert_eq!(theme.get_mode(), ThemeMode::System);
 
     press(&window, Key::Tab);
-    press(&window, Key::Space);
+    press(&window, Key::Return);
     assert!(theme.get_reduced_motion());
 }
 

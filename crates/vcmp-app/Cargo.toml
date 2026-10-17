@@ -20,7 +20,8 @@ log = "0.4.34"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-slint.workspace = true
+# The winit hook catches Space before Slint routes it (src/shortcuts.rs).
+slint = { workspace = true, features = ["unstable-winit-030"] }
 vcmp-integrations = { version = "0.1.0", path = "../vcmp-integrations" }
 vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
 vcmp-playback = { version = "0.1.0", path = "../vcmp-playback" }

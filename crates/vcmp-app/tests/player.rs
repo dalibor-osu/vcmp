@@ -203,6 +203,13 @@ impl App {
         QueueEntry::new(TrackRef::local(self.path(name)))
     }
 
+    fn key_text(&self, text: &str) {
+        let text: SharedString = text.into();
+        let window = self.window.window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
+    }
+
     fn key(&self, key: Key) {
         let text: SharedString = key.into();
         let window = self.window.window();
@@ -1048,12 +1055,43 @@ fn the_next_track_in_the_view_plays_when_chosen() {
 }
 
 #[test]
-fn space_plays_and_pauses() {
+fn space_plays_and_pauses_everywhere_but_in_text_fields() {
     let app = start(|_| {});
     app.sent.take();
     app.key(Key::Space);
     assert_eq!(app.sent.take(), [], "nothing loaded");
     app.service.handle_event(app.now_playing("1.flac"));
+    app.key(Key::Space);
+    assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
+
+    // An album page focuses its back button; Space still plays and pauses.
+    app.open_album();
+    app.key(Key::Space);
+    assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
+    assert!(app.window.get_album_open(), "the back button kept still");
+
+    // In a text field, Space types.
+    app.press(AccessibleRole::Tab, "Search");
+    app.window.invoke_release_focus();
+    let ctrl = |pressed: bool| {
+        let text: SharedString = Key::Control.into();
+        app.window.window().dispatch_event(if pressed {
+            WindowEvent::KeyPressed { text }
+        } else {
+            WindowEvent::KeyReleased { text }
+        });
+    };
+    ctrl(true);
+    app.key_text("f");
+    ctrl(false);
+    app.key_text("a");
+    app.key(Key::Space);
+    app.key_text("b");
+    assert_eq!(app.window.get_search_text(), "a b");
+    assert_eq!(app.sent.take(), []);
+
+    // A click elsewhere takes the focus out of the field, and Space plays again.
+    app.window.invoke_release_focus();
     app.key(Key::Space);
     assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
 }

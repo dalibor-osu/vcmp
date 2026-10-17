@@ -681,6 +681,8 @@ export component SearchField {
     in property <string> label;
     in property <string> placeholder;
     in-out property <string> text;
+    // The smaller field that filters a page, beside its title.
+    in property <bool> compact;
     callback edited(string);
 
     public function focus-text() {
@@ -694,7 +696,7 @@ export component SearchField {
         }
     }
 
-    min-height: 48px;
+    min-height: root.compact ? Theme.target-height : 48px;
     forward-focus: input;
 
     Rectangle {
@@ -717,16 +719,16 @@ export component SearchField {
         }
 
         HorizontalLayout {
-            padding-left: Theme.space-l;
+            padding-left: root.compact ? Theme.space-m : Theme.space-l;
             padding-right: Theme.space-xs;
-            spacing: Theme.space-m;
+            spacing: root.compact ? Theme.space-s : Theme.space-m;
 
             VerticalLayout {
                 alignment: center;
 
                 Icon {
-                    width: 20px;
-                    height: 20px;
+                    width: root.compact ? 16px : 20px;
+                    height: root.compact ? 16px : 20px;
                     glyph: Glyph.search;
                     tint: Theme.colors.text-muted;
                 }
@@ -740,7 +742,7 @@ export component SearchField {
                     height: parent.height;
                     text: root.placeholder;
                     color: Theme.colors.text-muted;
-                    font-size: Theme.font-heading;
+                    font-size: root.compact ? Theme.font-body : Theme.font-heading;
                     vertical-alignment: center;
                     overflow: elide;
                     accessible-role: none;
@@ -752,7 +754,7 @@ export component SearchField {
                     text <=> root.text;
                     single-line: true;
                     color: Theme.colors.text;
-                    font-size: Theme.font-heading;
+                    font-size: root.compact ? Theme.font-body : Theme.font-heading;
                     vertical-alignment: center;
                     selection-background-color: Theme.colors.surface;
                     selection-foreground-color: Theme.colors.text;

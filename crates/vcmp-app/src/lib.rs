@@ -10,6 +10,7 @@ pub mod media_keys;
 pub mod player_service;
 pub mod preferences;
 pub mod saved_queue;
+pub mod shortcuts;
 pub mod theme;
 
 slint::include_modules!();

@@ -198,8 +198,18 @@ shown, because the page itself stays alive while hidden.
   panel says "Next from your search"); the track menu offers Play now, Play next
   and Add to queue.
 - **`TrackList`** is the track list on album pages, artist pages and search: one tab
-  stop, Up/Down, Home/End, Enter or Space, and the Menu key or a right click for the
+  stop, Up/Down, Home/End, Enter, and the Menu key or a right click for the
   track menu.
+
+## Page filters
+
+The Albums, Artists and Songs pages each have a filter field beside their title
+(`SearchField` in its compact form). A row stays when every typed word appears in
+one of its names, ignoring case: an album's title or artist, an artist's name, a
+song's title, artist or album. Albums and artists filter as you type; the songs
+table, which can hold tens of thousands of rows, once typing pauses for 150 ms.
+The page says when nothing matches, and Escape or the clear button empties the
+field. Unlike Search, a filter only narrows the page it is on.
 
 ## Songs page
 
@@ -212,7 +222,7 @@ shown, because the page itself stays alive while hidden.
 - **Loading:** the tracks are read the first time the page is shown, not at
   startup, and again after library changes once they were loaded.
 - **Keyboard:** the headers are buttons; the rows are one tab stop with Up/Down,
-  Page Up/Down, Home/End and Enter or Space. The Menu key or a right click opens
+  Page Up/Down, Home/End and Enter. The Menu key or a right click opens
   the track menu.
 - **Playing:** a click or Enter plays every song in the table's order from that one;
   the queue panel says "Next from all songs".
@@ -303,13 +313,22 @@ The Albums page tells apart why it is empty:
 - **On the album page:**
   - Play starts the album; Shuffle turns shuffle on and starts it;
   - clicking a track, or pressing Enter on it, plays the album from there;
-  - the track list is one tab stop (Up/Down, Home/End, Enter or Space);
+  - the track list is one tab stop (Up/Down, Home/End, Enter);
   - a track's menu (right click, or the Menu key on the current track) offers Play
     now, Play next (front of Up next) and Add to queue (end of Up next);
   - the playing track gets a play mark and an accent title.
-- **Space** plays and pauses when the focused control has no use for it: a focused
-  button or list keeps Space for itself, and typing stays typing. At start nothing
-  is focused, so it works at once.
+- **Space** plays and pauses everywhere except while typing in a text field, so
+  controls are activated with Enter. Slint routes keys only to the focused element
+  and drops the focus when that element is removed or hidden (the now playing
+  view's close button, an album page's back button), after which keys reach
+  nothing. So the app catches Space from the native window events before Slint
+  routes them (`src/shortcuts.rs`, through Slint's winit hook), and the window's
+  own key handler does the same where the hook cannot reach, as in tests. Whether
+  a text field has the focus comes from Slint's `TextInputInterface`.
+- **A click takes the focus off** whatever has it first (the same hook), so focus
+  rings go away and Space works again after clicking anywhere. A click on a text
+  field gives it the focus straight back, as fields take the focus when pressed;
+  the app's other controls never take focus on a click.
 - **The queue panel** opens from the queue button in the player bar, and stays open
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
   the page narrows to make room for it; in a narrower one the panel lies over the
@@ -323,7 +342,7 @@ The Albums page tells apart why it is empty:
     track out of the album being played. It shows the track
   playing, Up next (with Clear, and a remove button per track), then "Next from" the
   album being played, at most 100 tracks ahead, as the engine reports them.
-  - Clicking a track, or Enter or Space on it, plays it; the tracks before it are
+  - Clicking a track, or Enter on it, plays it; the tracks before it are
     dropped, as the engine's `SkipTo` does.
   - The tracks are one tab stop: Up/Down and Home/End move, Delete removes from Up
     next, Alt+Up/Alt+Down reorder it, and the Menu key opens the track's menu. The
@@ -335,7 +354,7 @@ The Albums page tells apart why it is empty:
   is ignored with a warning.
 - **Settings → Playback → Output device** lists "System default" and the devices,
   listed off the UI thread each time Settings opens and when the list opens. Up and
-  Down change the choice directly; a click, Enter or Space opens the list. The
+  Down change the choice directly; a click or Enter opens the list. The
   choice is saved by name (`playback.output_device`) and used when the engine
   starts. A chosen device that is unplugged stays in the list, and the description
   names the device playing instead.
@@ -408,7 +427,8 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 
 ## Accessibility patterns
 
-- Every control is a `FocusScope` with Space or Enter (arrows in `SegmentedChoice`)
+- Every control is a `FocusScope` activated with Enter (arrows in `SegmentedChoice`);
+  Space is play and pause everywhere but in text fields
   and an accent `FocusRing` drawn 3 px outside it. Mouse clicks do not move focus
   (`focus-on-click: false`).
 - Rings show only in keyboard mode (`Theme.keyboard-navigation`), like
@@ -417,7 +437,7 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   a control is clicked. So focus can move for keyboard users, as when an album
   opens, without leaving a ring in front of mouse users.
 - The album grid is a single tab stop. Arrow keys, Home/End and Page Up/Down move
-  the current card and scroll it into view; Enter or Space opens it.
+  the current card and scroll it into view; Enter opens it.
 - Controls set `accessible-role`, `accessible-label`, the checked or selected state,
   and `accessible-action-default`. Tests find elements through these properties.
 - Interactive targets are at least 40 px tall (`Theme.target-height`).

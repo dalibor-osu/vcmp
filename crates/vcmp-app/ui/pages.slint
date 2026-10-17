@@ -275,6 +275,9 @@ export component AlbumsPage inherits Rectangle {
     callback queue-album-track(int, bool);
     // The library database could not be opened or read.
     in property <bool> library-failed;
+    // Narrows the grid to albums whose title or artist holds every typed word.
+    in-out property <string> filter;
+    callback filter-edited(string);
     callback range-changed(int, int);
     callback activated(int);
 
@@ -303,12 +306,28 @@ export component AlbumsPage inherits Rectangle {
             padding-right: Theme.space-xxl;
             padding-top: Theme.space-xxl;
             padding-bottom: Theme.space-l;
+            spacing: Theme.space-xl;
 
             Text {
                 text: @tr("Albums");
                 color: Theme.colors.text;
                 font-size: Theme.font-title;
                 font-weight: Theme.weight-strong;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            SearchField {
+                compact: true;
+                horizontal-stretch: 0;
+                preferred-width: 280px;
+                min-width: 160px;
+                label: @tr("Filter albums");
+                placeholder: @tr("Filter albums");
+                text <=> root.filter;
+                edited(text) => {
+                    root.filter-edited(text);
+                }
             }
         }
 
@@ -320,6 +339,7 @@ export component AlbumsPage inherits Rectangle {
 
             Text {
                 text: root.library-failed ? @tr("The music library could not be opened, so no albums can be shown.")
+                    : root.filter != "" ? @tr("No albums match “{}”.", root.filter)
                     : LibraryState.scanning ? @tr("Looking for albums in your music folders. They appear here as they are found.")
                     : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in, and VCMP finds your albums.")
                     : @tr("No albums found in your music folders. Tracks without an album tag don't appear here.");
@@ -329,7 +349,7 @@ export component AlbumsPage inherits Rectangle {
                 max-width: Theme.content-max-width;
             }
 
-            if !root.library-failed && !LibraryState.scanning && LibraryState.folders.length == 0: HorizontalLayout {
+            if !root.library-failed && root.filter == "" && !LibraryState.scanning && LibraryState.folders.length == 0: HorizontalLayout {
                 alignment: start;
 
                 Button {
@@ -390,6 +410,9 @@ export component ArtistsPage inherits Rectangle {
     in property <[AlbumTile]> artists;
     // Everyone credited on a track, rather than album artists only.
     in-out property <bool> show-all;
+    // Narrows the grid to artists whose name holds every typed word.
+    in-out property <string> filter;
+    callback filter-edited(string);
     in property <bool> shown;
     in property <bool> library-failed;
     in-out property <bool> artist-open;
@@ -459,7 +482,7 @@ export component ArtistsPage inherits Rectangle {
             padding-right: Theme.space-xxl;
             padding-top: Theme.space-xxl;
             padding-bottom: Theme.space-l;
-            spacing: Theme.space-xl;
+            spacing: Theme.space-l;
 
             Text {
                 text: @tr("Artists");
@@ -470,11 +493,26 @@ export component ArtistsPage inherits Rectangle {
                 horizontal-stretch: 1;
             }
 
+            SearchField {
+                compact: true;
+                horizontal-stretch: 0;
+                preferred-width: 240px;
+                min-width: 96px;
+                label: @tr("Filter artists");
+                placeholder: @tr("Filter artists");
+                text <=> root.filter;
+                edited(text) => {
+                    root.filter-edited(text);
+                }
+            }
+
+            // Its natural width, narrower in a small window.
             SegmentedChoice {
                 label: @tr("Artists shown");
-                segment-min: 136px;
+                segment-min: 96px;
                 horizontal-stretch: 0;
-                max-width: self.min-width;
+                preferred-width: 272px;
+                max-width: 272px;
                 options: [@tr("Album artists"), @tr("All artists")];
                 current-index: root.show-all ? 1 : 0;
                 selected(index) => {
@@ -491,6 +529,7 @@ export component ArtistsPage inherits Rectangle {
 
             Text {
                 text: root.library-failed ? @tr("The music library could not be opened, so no artists can be shown.")
+                    : root.filter != "" ? @tr("No artists match “{}”.", root.filter)
                     : LibraryState.scanning ? @tr("Looking for artists in your music folders. They appear here as they are found.")
                     : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in in Settings, and VCMP finds your artists.")
                     : root.show-all ? @tr("No artists found in your music folders.")
@@ -708,6 +747,9 @@ export component SongsPage inherits Rectangle {
     in property <SongColumn> sort-column;
     in property <bool> sort-descending;
     in property <bool> library-failed;
+    // Narrows the table to songs whose title, artist or album hold every typed word.
+    in-out property <string> filter;
+    callback filter-edited(string);
     // The page is shown and wants its tracks.
     callback needed();
     callback sort(SongColumn);
@@ -734,7 +776,6 @@ export component SongsPage inherits Rectangle {
 
         HorizontalLayout {
             spacing: Theme.space-l;
-            alignment: start;
 
             Text {
                 text: @tr("Songs");
@@ -748,10 +789,28 @@ export component SongsPage inherits Rectangle {
                 font-size: Theme.font-small;
                 vertical-alignment: center;
             }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+
+            SearchField {
+                compact: true;
+                horizontal-stretch: 0;
+                preferred-width: 280px;
+                min-width: 160px;
+                label: @tr("Filter songs");
+                placeholder: @tr("Filter songs");
+                text <=> root.filter;
+                edited(text) => {
+                    root.filter-edited(text);
+                }
+            }
         }
 
         if root.songs.length == 0: Text {
             text: root.library-failed ? @tr("The music library could not be opened, so no songs can be shown.")
+                : root.filter != "" ? @tr("No songs match “{}”.", root.filter)
                 : LibraryState.scanning ? @tr("Looking for songs in your music folders. They appear here as they are found.")
                 : @tr("No songs yet. Add the folder your music is in in Settings.");
             color: Theme.colors.text;

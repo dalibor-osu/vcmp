@@ -282,3 +282,27 @@ fn an_open_artist_follows_library_changes() {
     assert!(app.window.get_artist_detail().missing);
     assert_eq!(app.names(), ["Singer", "Various Artists"]);
 }
+
+#[test]
+fn the_filter_narrows_the_artists() {
+    let app = start();
+    app.window.set_artists_filter("SING".into());
+    app.window.invoke_artists_filter_edited("SING".into());
+    assert_eq!(app.names(), ["Singer"], "ignoring case");
+    find(&app.window, AccessibleRole::Button, "Singer, 1 album").invoke_accessible_default_action();
+    assert_eq!(
+        app.window.get_artist_detail().name,
+        "Singer",
+        "the card shown opens"
+    );
+
+    press(&app.window, Key::Escape);
+    app.window.set_artists_filter("nobody".into());
+    app.window.invoke_artists_filter_edited("nobody".into());
+    assert!(app.names().is_empty());
+    find(
+        &app.window,
+        AccessibleRole::Text,
+        "No artists match “nobody”.",
+    );
+}
