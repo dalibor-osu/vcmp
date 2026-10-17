@@ -12,7 +12,9 @@ use lofty::file::{FileType, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
 use tempfile::TempDir;
-use vcmp_library::{Artwork, Error, Format, Library, LibraryWatcher, ScanReport};
+use vcmp_library::{
+    Artwork, CoverArtId, Error, FieldEdit, Format, Library, LibraryWatcher, ScanReport, TagEdit,
+};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
@@ -126,7 +128,11 @@ fn song<'a>(title: &'a str, artist: &'a str, album: &'a str) -> Tags<'a> {
 }
 
 fn png() -> Vec<u8> {
-    let image = image::RgbImage::from_pixel(64, 64, image::Rgb([245, 194, 231]));
+    png_in([245, 194, 231])
+}
+
+fn png_in(colour: [u8; 3]) -> Vec<u8> {
+    let image = image::RgbImage::from_pixel(64, 64, image::Rgb(colour));
     let mut bytes = std::io::Cursor::new(Vec::new());
     image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
     bytes.into_inner()
@@ -555,6 +561,84 @@ fn artwork_comes_from_embedded_pictures_or_folder_images() {
     setup.scan();
     assert!(album_artwork(&setup.library, "Embedded").is_some());
     assert!(album_artwork(&setup.library, "Folder").is_some());
+}
+
+#[test]
+fn a_fetched_cover_stays_until_the_files_bring_their_own() {
+    let mut setup = Setup::new();
+    let path = add_file(
+        &setup.music(),
+        "a.flac",
+        "silence.flac",
+        song("A", "X", "Bare"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let album = |library: &Library| {
+        library
+            .albums()
+            .unwrap()
+            .into_iter()
+            .find(|album| album.title == "Bare")
+            .map(|album| album.id)
+    };
+    assert_eq!(album_artwork(&setup.library, "Bare"), None);
+    let fetched = setup
+        .library
+        .set_fetched_cover(
+            album(&setup.library).unwrap(),
+            &png_in([30, 102, 245]),
+            &CoverArtId::Release("r-1".into()),
+        )
+        .unwrap()
+        .expect("a png is accepted");
+    assert!(fetched.thumbnail.starts_with(setup.cache()));
+    assert_eq!(album_artwork(&setup.library, "Bare"), Some(fetched.clone()));
+
+    // Rescans keep it, also when a file changed without gaining art.
+    setup.scan();
+    assert_eq!(album_artwork(&setup.library, "Bare"), Some(fetched.clone()));
+    let retag = |tags: Tags| {
+        // Make sure the modification time moves even on coarse file systems.
+        std::thread::sleep(Duration::from_millis(1100));
+        write_tags(&path, tags);
+    };
+    retag(Tags {
+        year: Some("2001"),
+        ..song("A", "X", "Bare")
+    });
+    assert_eq!(setup.scan().updated, 1);
+    assert_eq!(album_artwork(&setup.library, "Bare"), Some(fetched.clone()));
+
+    // It belongs to the album, not its row: moving the file to another album and
+    // back makes a new row, which finds it again.
+    retag(song("A", "X", "Elsewhere"));
+    setup.scan();
+    assert_eq!(album(&setup.library), None);
+    retag(song("A", "X", "Bare"));
+    setup.scan();
+    assert_eq!(album_artwork(&setup.library, "Bare"), Some(fetched.clone()));
+
+    // Art of the files' own wins, and the fetched cover comes back when the tag
+    // editor removes it.
+    retag(Tags {
+        picture: Some(png()),
+        ..song("A", "X", "Bare")
+    });
+    setup.scan();
+    let own = album_artwork(&setup.library, "Bare").expect("embedded art");
+    assert_ne!(own, fetched);
+    let track = setup.library.track_id_for_path(&path).unwrap().unwrap();
+    let clear = TagEdit {
+        cover: FieldEdit::Clear,
+        ..TagEdit::default()
+    };
+    let report = setup
+        .library
+        .write_tags(&[(track, &clear)], &AtomicBool::new(false), |_, _| {})
+        .unwrap();
+    assert_eq!(report.written, [track]);
+    assert_eq!(album_artwork(&setup.library, "Bare"), Some(fetched));
 }
 
 fn album_artwork(library: &Library, title: &str) -> Option<Artwork> {
