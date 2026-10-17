@@ -19,3 +19,8 @@ slint-build = "1.18.1"
 # rebuilding them stays quick.
 [profile.dev.package."*"]
 opt-level = 3
+
+# Release builds are what the installers ship: without symbols the binary is about
+# a quarter smaller.
+[profile.release]
+strip = true

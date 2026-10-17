@@ -1,0 +1,153 @@
+name: Release
+
+# A pushed tag vX.Y.Z on main builds the installers and attaches them to a draft
+# GitHub Release. Running the workflow by hand (workflow_dispatch) builds the same
+# installers as downloadable workflow artifacts and creates no release.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PACKAGER_VERSION: 0.11.8
+
+jobs:
+  check:
+    name: Check the tag
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The tag is on main and matches the workspace version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the workspace version $version in Cargo.toml"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME is not on main"
+            exit 1
+          fi
+
+  package:
+    name: Package (${{ matrix.name }})
+    needs: check
+    # Runs after a passing check on a tag, and without the check on a manual run.
+    if: ${{ !failure() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            formats: wix,nsis
+          - name: macOS Apple silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            formats: dmg
+          - name: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            formats: dmg
+          # The oldest supported Ubuntu runner: the AppImage and .deb then run on
+          # any distribution with glibc 2.35 or newer.
+          - name: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            formats: deb,appimage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev libasound2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager@${{ env.CARGO_PACKAGER_VERSION }}
+
+      # API keys for the web integrations, compiled in with option_env!. Secrets
+      # that are not set stay out of the environment, so the build sees them as
+      # missing rather than empty.
+      - name: Pass the integration keys to the build
+        shell: bash
+        env:
+          VCMP_LASTFM_API_KEY: ${{ secrets.VCMP_LASTFM_API_KEY }}
+          VCMP_LASTFM_SHARED_SECRET: ${{ secrets.VCMP_LASTFM_SHARED_SECRET }}
+          VCMP_FANARTTV_API_KEY: ${{ secrets.VCMP_FANARTTV_API_KEY }}
+        run: |
+          for name in VCMP_LASTFM_API_KEY VCMP_LASTFM_SHARED_SECRET VCMP_FANARTTV_API_KEY; do
+            if [ -n "${!name}" ]; then
+              echo "$name=${!name}" >> "$GITHUB_ENV"
+              echo "$name is set"
+            fi
+          done
+
+      - name: Build
+        run: cargo build --release --locked -p vcmp-app --target ${{ matrix.target }}
+
+      # target/packages/ is cleared first so that installers of an older version in
+      # the restored cache cannot end up in the upload.
+      - name: Package
+        shell: bash
+        run: |
+          rm -rf target/packages
+          cargo packager --release -p vcmp-app --target ${{ matrix.target }} --formats ${{ matrix.formats }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vcmp-${{ matrix.target }}
+          path: |
+            target/packages/*.msi
+            target/packages/*.exe
+            target/packages/*.dmg
+            target/packages/*.deb
+            target/packages/*.AppImage
+          if-no-files-found: error
+
+  release:
+    name: Draft the GitHub Release
+    needs: package
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --draft
+          --verify-tag
+          --title "VCMP ${GITHUB_REF_NAME#v}"
+          --generate-notes
