@@ -235,20 +235,36 @@ impl Harness {
         out
     }
 
-    /// Plays until the engine has nothing more to give.
-    fn play_to_end(&self) -> Vec<f32> {
+    /// Plays until the engine reports the end of the queue, which it does once the
+    /// last frame was taken. Waiting for that, rather than for a pause in the audio,
+    /// keeps a slow start or refill on a busy machine from ending the test early.
+    fn play_to_end(&mut self) -> Vec<f32> {
         let mut out = Vec::new();
-        let mut idle_since = Instant::now();
-        while idle_since.elapsed() < Duration::from_millis(300) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
             let ready = self.device.available().min(1024);
-            if ready == 0 {
-                sleep(Duration::from_millis(1));
+            if ready > 0 {
+                out.extend(self.render(ready));
                 continue;
             }
-            out.extend(self.render(ready));
-            idle_since = Instant::now();
+            // Kept unmatched, so a later wait for the end still finds it.
+            while let Ok(event) = self.events.try_recv() {
+                self.seen.push((event, false));
+            }
+            let ended = self
+                .seen
+                .iter()
+                .any(|(event, matched)| !matched && *event == Event::TrackChanged(None));
+            if ended && self.device.available() == 0 {
+                return out;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the queue did not end; {} frames played",
+                out.len() / 2
+            );
+            sleep(Duration::from_millis(1));
         }
-        out
     }
 
     /// Waits until the engine has written `frames` frames ahead of playback.
@@ -399,6 +415,11 @@ fn seeking_continues_from_the_exact_sample() {
     let mut h = Harness::new(CD);
     h.play_context(vec![file("a", "flac")]);
     h.play(1000);
+    // The rest of the track is in the ring before the seek, and the new place after
+    // it, before anything more plays. On a busy machine the engine could otherwise
+    // still be writing, and a callback would hold the fade, some new audio and then
+    // silence, which reads as audio before the jump.
+    h.wait_until_buffered(SPLIT - 1000);
     h.send(Command::Seek(Duration::from_secs_f64(
         11_025.0 / f64::from(RATE),
     )));
@@ -406,6 +427,7 @@ fn seeking_continues_from_the_exact_sample() {
         "position",
         |e| matches!(e, Event::Position(p) if p.as_millis() == 250),
     );
+    h.wait_until_buffered(SPLIT - 1000 + SPLIT - 11_025);
     let out = h.play_to_end();
     let (old, new) = out.split_at(out.len() - (SPLIT - 11_025) * 2);
     assert_fade_then_silence(old);
@@ -532,10 +554,13 @@ fn stop_and_play_after_the_end_start_from_the_beginning() {
     let a = file("a", "wav");
     h.play_context(vec![a.clone()]);
     h.play(1_000);
+    // As in the seek test: the old audio and the new start fully buffered first.
+    h.wait_until_buffered(SPLIT - 1_000);
     h.send(Command::Stop);
     h.wait_for_state(PlaybackState::Stopped);
     h.send(Command::Play);
     h.wait_for_state(PlaybackState::Playing);
+    h.wait_until_buffered(SPLIT - 1_000 + SPLIT);
     let out = h.play_to_end();
     let (old, new) = out.split_at(out.len() - SPLIT * 2);
     assert_fade_then_silence(old);
