@@ -53,6 +53,7 @@ export component SettingsPage inherits Page {
                 current-index: Theme.mode == ThemeMode.light ? 1 : Theme.mode == ThemeMode.dark ? 2 : 0;
                 selected(index) => {
                     Theme.mode = index == 1 ? ThemeMode.light : index == 2 ? ThemeMode.dark : ThemeMode.system;
+                    Theme.preferences-changed();
                 }
             }
         }
@@ -66,6 +67,7 @@ export component SettingsPage inherits Page {
                 checked: Theme.reduced-motion;
                 toggled(on) => {
                     Theme.reduced-motion = on;
+                    Theme.preferences-changed();
                 }
             }
         }

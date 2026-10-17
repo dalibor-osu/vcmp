@@ -30,6 +30,8 @@ export enum ThemeMode { system, light, dark }
 export global Theme {
     in-out property <ThemeMode> mode: ThemeMode.system;
     in-out property <bool> reduced-motion: false;
+    // Called after the user changes `mode` or `reduced-motion`, so they can be saved.
+    callback preferences-changed();
 
     in property <ThemePalette> light-colors;
     in property <ThemePalette> dark-colors;
