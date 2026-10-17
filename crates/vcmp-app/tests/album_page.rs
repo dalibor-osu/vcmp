@@ -218,3 +218,29 @@ fn the_grid_works_from_the_keyboard() {
         "focus came back to the grid"
     );
 }
+
+#[test]
+fn the_album_page_fits_the_smallest_window() {
+    let (_dir, window, _browser) = open();
+    let width = 720.0;
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(width, 480.0));
+    card(&window, "Summer Mix, Various Artists").invoke_accessible_default_action();
+
+    let texts = ElementHandle::find_by_element_type_name(&window, "Text");
+    for text in texts.filter(|text| {
+        text.accessible_label()
+            .is_some_and(|label| !label.is_empty())
+    }) {
+        let (left, right) = (
+            text.absolute_position().x,
+            text.absolute_position().x + text.size().width,
+        );
+        let label = text.accessible_label().unwrap_or_default();
+        assert!(
+            left >= 0.0 && right <= width + 0.5,
+            "{label:?} spans x {left}..{right}"
+        );
+    }
+}

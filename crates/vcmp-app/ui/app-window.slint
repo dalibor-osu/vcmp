@@ -23,6 +23,8 @@ export component AppWindow inherits Window {
     in property <[TrackRow]> album-tracks;
     in property <bool> album-multi-disc;
     in-out property <bool> album-open;
+    // The library database could not be opened or read.
+    in property <bool> library-failed;
     in-out property <int> selected-index: 0;
     // The album grid's rows in view changed: first album index and how many fit.
     callback album-range-changed(int, int);
@@ -119,6 +121,7 @@ export component AppWindow inherits Window {
                     tracks: root.album-tracks;
                     multi-disc: root.album-multi-disc;
                     album-open <=> root.album-open;
+                library-failed: root.library-failed;
                     range-changed(first, count) => {
                         root.album-range-changed(first, count);
                     }

@@ -183,6 +183,8 @@ export component AlbumsPage inherits Rectangle {
     in property <bool> shown;
     // Showing one album instead of the grid.
     in-out property <bool> album-open;
+    // The library database could not be opened or read.
+    in property <bool> library-failed;
     callback range-changed(int, int);
     callback activated(int);
 
@@ -223,7 +225,7 @@ export component AlbumsPage inherits Rectangle {
             alignment: start;
 
             Text {
-                text: @tr("No albums in the library yet.");
+                text: root.library-failed ? @tr("The music library could not be opened, so no albums can be shown.") : @tr("No albums in the library yet.");
                 color: Theme.colors.text-muted;
                 font-size: Theme.font-body;
                 wrap: word-wrap;

@@ -242,3 +242,15 @@ fn focus_rings_show_only_after_keyboard_use() {
     find(&window, AccessibleRole::Tab, "About").mock_single_click(PointerEventButton::Left);
     assert!(!theme.get_keyboard_navigation(), "a click hides the ring");
 }
+
+#[test]
+fn a_library_that_failed_to_open_says_so() {
+    let window = open_window();
+    window.set_library_failed(true);
+    ElementHandle::find_by_accessible_label(
+        &window,
+        "The music library could not be opened, so no albums can be shown.",
+    )
+    .next()
+    .expect("error message instead of the empty state");
+}

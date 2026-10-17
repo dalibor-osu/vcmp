@@ -16,13 +16,19 @@ fn main() -> Result<(), slint::PlatformError> {
             let library = Rc::new(library);
             match vcmp_app::library_view::connect(&window, library.clone()) {
                 Ok(browser) => _albums = Some(browser),
-                Err(error) => log::error!("could not read albums: {error}"),
+                Err(error) => {
+                    log::error!("could not read albums: {error}");
+                    window.set_library_failed(true);
+                }
             }
             if let Err(error) = vcmp_app::preferences::connect(&window, library) {
                 log::warn!("could not load preferences: {error}");
             }
         }
-        Err(error) => log::error!("could not open the library database: {error}"),
+        Err(error) => {
+            log::error!("could not open the library database: {error}");
+            window.set_library_failed(true);
+        }
     }
     window.run()
 }
