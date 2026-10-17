@@ -1,0 +1,67 @@
+// The single source of colours, spacing, type sizes and motion for the whole UI.
+// Components must not contain colour literals or durations of their own (enforced by
+// tests/ui_invariants.rs). Colour values are supplied from Rust (src/theme.rs), so a
+// future custom theme only has to set different palettes.
+
+import { Palette } from "std-widgets.slint";
+
+export struct ThemePalette {
+    // Content background.
+    base: color,
+    // Sidebar and other recessed areas.
+    mantle: color,
+    // Hover and resting fill for interactive elements; text on it must stay readable.
+    surface: color,
+    // Boundary of interactive elements, at least 3:1 against base and mantle.
+    outline: color,
+    text: color,
+    // Secondary text; only placed on base or mantle.
+    text-muted: color,
+    // Marks what is active: current page, selected option, switched-on state.
+    accent: color,
+    // Text and marks drawn on an accent fill.
+    on-accent: color,
+    // The neon glow; used only around the current-page marker.
+    glow: color,
+}
+
+export enum ThemeMode { system, light, dark }
+
+export global Theme {
+    in-out property <ThemeMode> mode: ThemeMode.system;
+    in-out property <bool> reduced-motion: false;
+
+    in property <ThemePalette> light-colors;
+    in property <ThemePalette> dark-colors;
+
+    // An unknown system scheme counts as light.
+    out property <bool> dark: root.mode == ThemeMode.system ? Palette.color-scheme == ColorScheme.dark : root.mode == ThemeMode.dark;
+    out property <ThemePalette> colors: root.dark ? root.dark-colors : root.light-colors;
+
+    out property <length> space-xs: 4px;
+    out property <length> space-s: 8px;
+    out property <length> space-m: 12px;
+    out property <length> space-l: 16px;
+    out property <length> space-xl: 24px;
+    out property <length> space-xxl: 40px;
+
+    out property <length> radius-s: 2px;
+    out property <length> radius-m: 8px;
+    out property <length> radius-l: 12px;
+
+    out property <length> font-small: 12px;
+    out property <length> font-body: 14px;
+    out property <length> font-heading: 16px;
+    out property <length> font-wordmark: 20px;
+    out property <length> font-title: 26px;
+    out property <int> weight-regular: 400;
+    out property <int> weight-strong: 600;
+
+    // Interactive targets are at least this tall.
+    out property <length> target-height: 40px;
+    // Reading width for page content, so labels and their controls stay close.
+    out property <length> content-max-width: 720px;
+
+    out property <duration> duration-fast: root.reduced-motion ? 0ms : 120ms;
+    out property <duration> duration-medium: root.reduced-motion ? 0ms : 220ms;
+}

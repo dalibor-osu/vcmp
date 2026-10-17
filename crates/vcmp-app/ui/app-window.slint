@@ -1,0 +1,99 @@
+import { ScrollView } from "std-widgets.slint";
+import "../../../assets/fonts/sora/Sora[wght].ttf";
+import { Theme, ThemeMode, ThemePalette } from "theme.slint";
+import { NavItem } from "components.slint";
+import { AboutPage, SettingsPage } from "pages.slint";
+
+export { Theme, ThemeMode, ThemePalette }
+
+export enum Page { settings, about }
+
+struct NavEntry {
+    page: Page,
+    label: string,
+}
+
+export component AppWindow inherits Window {
+    in property <string> version;
+    in-out property <int> selected-index: 0;
+    out property <Page> current-page: root.nav[root.selected-index].page;
+
+    private property <[NavEntry]> nav: [
+        { page: Page.settings, label: @tr("Settings") },
+        { page: Page.about, label: @tr("About") },
+    ];
+    private property <length> nav-spacing: Theme.space-xs;
+    private property <length> marker-height: 20px;
+
+    title: "VCMP";
+    min-width: 720px;
+    min-height: 480px;
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    default-font-family: "Sora";
+    background: Theme.colors.base;
+
+    HorizontalLayout {
+        sidebar := Rectangle {
+            width: 220px;
+            background: Theme.colors.mantle;
+
+            sidebar-layout := VerticalLayout {
+                padding: Theme.space-l;
+                spacing: Theme.space-xl;
+                alignment: start;
+
+                // Wordmark, inset to line up with the navigation labels.
+                HorizontalLayout {
+                    padding-left: Theme.space-l;
+
+                    Text {
+                        text: "VCMP";
+                        color: Theme.colors.text;
+                        font-size: Theme.font-wordmark;
+                        font-weight: Theme.weight-strong;
+                    }
+                }
+
+                nav-list := VerticalLayout {
+                    spacing: root.nav-spacing;
+                    accessible-role: tab-list;
+                    accessible-label: @tr("Sections");
+
+                    for entry[index] in root.nav: NavItem {
+                        label: entry.label;
+                        selected: index == root.selected-index;
+                        activated => {
+                            root.selected-index = index;
+                        }
+                    }
+                }
+            }
+
+            // Current-page marker: the one place the neon glow is used.
+            marker := Rectangle {
+                x: Theme.space-l - 6px;
+                y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+                width: 3px;
+                height: root.marker-height;
+                border-radius: Theme.radius-s;
+                background: Theme.colors.accent;
+                drop-shadow-blur: 8px;
+                drop-shadow-color: Theme.colors.glow;
+                animate y { duration: Theme.duration-medium; easing: ease-in-out; }
+            }
+        }
+
+        ScrollView {
+            accessible-role: tab-panel;
+
+            if root.current-page == Page.settings: SettingsPage {
+                width: parent.width;
+            }
+            if root.current-page == Page.about: AboutPage {
+                width: parent.width;
+                version: root.version;
+            }
+        }
+    }
+}

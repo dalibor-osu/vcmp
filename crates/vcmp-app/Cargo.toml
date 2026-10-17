@@ -1,0 +1,22 @@
+[package]
+name = "vcmp-app"
+description = "VCMP desktop music player"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "vcmp"
+path = "src/main.rs"
+
+[dependencies]
+slint.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
+
+[dev-dependencies]
+i-slint-backend-testing = "=1.18.1"
+png = "0.18.1"

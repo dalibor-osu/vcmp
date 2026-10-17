@@ -1,0 +1,154 @@
+import { AboutSlint, Palette } from "std-widgets.slint";
+import { Theme, ThemeMode } from "theme.slint";
+import { FocusRing, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+
+// Shared page frame: title plus content, fading in when the page is opened.
+component Page inherits VerticalLayout {
+    in property <string> title;
+
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    padding: Theme.space-xxl;
+    spacing: Theme.space-xl;
+    alignment: start;
+
+    Text {
+        text: root.title;
+        color: Theme.colors.text;
+        font-size: Theme.font-title;
+        font-weight: Theme.weight-strong;
+    }
+
+    @children
+}
+
+component SectionHeading inherits Text {
+    color: Theme.colors.text;
+    font-size: Theme.font-heading;
+    font-weight: Theme.weight-strong;
+}
+
+export component SettingsPage inherits Page {
+    title: @tr("Settings");
+
+    VerticalLayout {
+        spacing: Theme.space-xs;
+        max-width: Theme.content-max-width;
+
+        SectionHeading {
+            text: @tr("Appearance");
+        }
+
+        SettingRow {
+            title: @tr("Theme");
+            description: @tr("Follow the system setting, or always use the light or dark theme.");
+
+            SegmentedChoice {
+                label: @tr("Theme");
+                options: [@tr("System"), @tr("Light"), @tr("Dark")];
+                current-index: Theme.mode == ThemeMode.light ? 1 : Theme.mode == ThemeMode.dark ? 2 : 0;
+                selected(index) => {
+                    Theme.mode = index == 1 ? ThemeMode.light : index == 2 ? ThemeMode.dark : ThemeMode.system;
+                }
+            }
+        }
+
+        SettingRow {
+            title: @tr("Reduce motion");
+            description: @tr("Turns off transitions, such as fading pages and the moving page marker.");
+
+            Toggle {
+                label: @tr("Reduce motion");
+                checked: Theme.reduced-motion;
+                toggled(on) => {
+                    Theme.reduced-motion = on;
+                }
+            }
+        }
+    }
+}
+
+export component AboutPage inherits Page {
+    in property <string> version;
+
+    title: @tr("About");
+
+    VerticalLayout {
+        spacing: Theme.space-s;
+        max-width: Theme.content-max-width;
+
+        SectionHeading {
+            text: "VCMP";
+        }
+
+        Text {
+            text: @tr("Version {}", root.version);
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+        }
+
+        Text {
+            text: @tr("A cross-platform music player for locally stored music.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: @tr("Licensed under the MIT License or the Apache License 2.0, at your option.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+        }
+
+        Text {
+            text: @tr("Typeface: Sora by the Sora Project Authors, licensed under the SIL Open Font License 1.1.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+        }
+    }
+
+    // The Slint royalty-free license requires showing this widget in the About
+    // screen. Its logo follows the operating system's colour scheme rather than
+    // VCMP's theme, so it sits on the system palette's own background. The widget
+    // opens slint.dev on click only; the focus scope adds the keyboard path.
+    VerticalLayout {
+        alignment: start;
+
+        Rectangle {
+            border-radius: Theme.radius-l;
+            background: Palette.background;
+            min-height: about.min-height;
+            max-width: 320px;
+            accessible-role: button;
+            accessible-label: @tr("Made with Slint, opens slint.dev");
+            accessible-action-default => {
+                Platform.open-url("https://slint.dev");
+            }
+
+            about := AboutSlint { }
+
+            link-focus := FocusScope {
+                focus-on-click: false;
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        Platform.open-url("https://slint.dev");
+                        return accept;
+                    }
+                    reject
+                }
+            }
+
+            if link-focus.has-focus: FocusRing {
+                around-width: parent.width;
+                around-height: parent.height;
+                radius: Theme.radius-l;
+            }
+        }
+    }
+}
