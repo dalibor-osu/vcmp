@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, params_from_iter};
 
 use crate::artwork::{Artwork, ArtworkStore};
 use crate::tags::Format;
@@ -48,6 +48,8 @@ pub struct Album {
     pub year: Option<i32>,
     pub track_count: u32,
     pub artwork: Option<Artwork>,
+    /// MusicBrainz release ID, when the files are tagged with one.
+    pub musicbrainz_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,6 +70,8 @@ pub struct SearchResults {
 pub(crate) enum TrackFilter {
     All,
     Album(AlbumId),
+    /// Tracks credited to the artist outside the artist's own albums.
+    AppearsOn(ArtistId),
 }
 
 const TRACK_COLUMNS: &str =
@@ -98,6 +102,10 @@ pub(crate) fn tracks(conn: &Connection, filter: TrackFilter) -> Result<Vec<Track
     let (condition, album) = match filter {
         TrackFilter::All => ("", None),
         TrackFilter::Album(AlbumId(id)) => ("AND t.album_id = ?1", Some(id)),
+        TrackFilter::AppearsOn(ArtistId(id)) => (
+            "AND t.artist_id = ?1 AND (a.artist_id IS NULL OR a.artist_id != ?1)",
+            Some(id),
+        ),
     };
     let sql = format!(
         "SELECT {TRACK_COLUMNS} FROM tracks t
@@ -125,7 +133,7 @@ pub(crate) fn track(conn: &Connection, TrackId(id): TrackId) -> Result<Option<Tr
 }
 
 const ALBUM_QUERY: &str =
-    "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id), a.artwork_hash
+    "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id), a.artwork_hash, a.mbid
     FROM albums a
     JOIN tracks t ON t.album_id = a.id AND t.available = 1
     LEFT JOIN artists ar ON ar.id = a.artist_id";
@@ -141,7 +149,20 @@ fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
         artwork: row
             .get::<_, Option<String>>(6)?
             .and_then(|key| store.get(&key)),
+        musicbrainz_id: row.get(7)?,
     })
+}
+
+/// One album, if it still has available tracks.
+pub(crate) fn album(
+    conn: &Connection,
+    store: &ArtworkStore,
+    AlbumId(id): AlbumId,
+) -> Result<Option<Album>> {
+    let sql = format!("{ALBUM_QUERY} WHERE a.id = ?1 GROUP BY a.id");
+    Ok(conn
+        .query_row(&sql, [id], |row| album_from(row, store))
+        .optional()?)
 }
 
 pub(crate) fn albums(
@@ -185,6 +206,11 @@ fn artist_from(row: &Row) -> rusqlite::Result<Artist> {
     })
 }
 
+pub(crate) fn artist(conn: &Connection, ArtistId(id): ArtistId) -> Result<Option<Artist>> {
+    let sql = format!("SELECT ar.id, ar.name, {ARTIST_STATS} FROM artists ar WHERE ar.id = ?1");
+    Ok(conn.query_row(&sql, [id], artist_from).optional()?)
+}
+
 pub(crate) fn artists(conn: &Connection) -> Result<Vec<Artist>> {
     let sql = format!(
         "SELECT id, name, album_count, track_count FROM (
@@ -198,15 +224,70 @@ pub(crate) fn artists(conn: &Connection) -> Result<Vec<Artist>> {
         .collect::<rusqlite::Result<_>>()?)
 }
 
-/// Turns typed text into an FTS5 query: every word must match the start of a word.
-fn fts_query(text: &str) -> Option<String> {
-    let terms: Vec<String> = text
-        .split_whitespace()
-        .map(|word| word.replace('"', ""))
-        .filter(|word| !word.is_empty())
-        .map(|word| format!("\"{word}\"*"))
-        .collect();
-    (!terms.is_empty()).then(|| terms.join(" "))
+/// Typed text as conditions on a trigram search table. Words of three characters
+/// or more go into one full-text query, which finds them anywhere in a name and
+/// ranks the rows. A trigram index cannot look up shorter words ("高坂"), so those
+/// become LIKE conditions over the table's columns.
+#[derive(Debug, PartialEq, Eq)]
+struct TextQuery {
+    full_text: Option<String>,
+    short: Vec<String>,
+}
+
+impl TextQuery {
+    fn parse(text: &str) -> Option<Self> {
+        let words: Vec<String> = text
+            .split_whitespace()
+            .map(|word| word.replace('"', ""))
+            .filter(|word| !word.is_empty())
+            .collect();
+        if words.is_empty() {
+            return None;
+        }
+        let (long, short): (Vec<String>, Vec<String>) = words
+            .into_iter()
+            .partition(|word| word.chars().count() >= 3);
+        let full_text = (!long.is_empty()).then(|| {
+            long.iter()
+                .map(|word| format!("\"{word}\""))
+                .collect::<Vec<_>>()
+                .join(" AND ")
+        });
+        Some(Self { full_text, short })
+    }
+
+    /// The WHERE clause for `table` (aliased `s`) and its parameters, and whether
+    /// `s.rank` can order the rows.
+    fn condition(&self, table: &str, columns: &[&str]) -> (String, Vec<String>, bool) {
+        let mut parts = Vec::new();
+        let mut params = Vec::new();
+        if let Some(full_text) = &self.full_text {
+            params.push(full_text.clone());
+            parts.push(format!("{table} MATCH ?{}", params.len()));
+        }
+        for word in &self.short {
+            params.push(format!("%{}%", escape_like(word)));
+            let n = params.len();
+            let any = columns
+                .iter()
+                .map(|column| format!("s.{column} LIKE ?{n} ESCAPE '\\'"))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            parts.push(format!("({any})"));
+        }
+        (parts.join(" AND "), params, self.full_text.is_some())
+    }
+}
+
+fn escape_like(word: &str) -> String {
+    let mut escaped = String::with_capacity(word.len());
+    for c in word.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
 }
 
 pub(crate) fn search(
@@ -215,40 +296,59 @@ pub(crate) fn search(
     text: &str,
     limit: usize,
 ) -> Result<SearchResults> {
-    let Some(query) = fts_query(text) else {
+    let Some(query) = TextQuery::parse(text) else {
         return Ok(SearchResults::default());
     };
-    let limit = limit as i64;
+    // Without a full-text query there is no rank; NULL leaves the order to the name.
+    let rank = |ranked: bool| if ranked { "s.rank" } else { "NULL" };
+    // The matches are found first, once: joined straight to the other tables, the
+    // planner may run the full-text query again for every album row (237 ms
+    // instead of a few on the owner's library).
+    let found = |table: &str, columns: &[&str]| {
+        let (condition, params, ranked) = query.condition(table, columns);
+        let sql = format!(
+            "WITH found AS MATERIALIZED (
+                SELECT s.rowid AS id, {} AS rank FROM {table} s WHERE {condition})",
+            rank(ranked)
+        );
+        (sql, params)
+    };
 
+    let (with, params) = found("artist_search", &["name"]);
     let artist_sql = format!(
-        "SELECT id, name, album_count, track_count FROM (
-            SELECT ar.id AS id, ar.name AS name, s.rank AS rank, {ARTIST_STATS}
-            FROM artist_search s JOIN artists ar ON ar.id = s.rowid
-            WHERE artist_search MATCH ?1)
+        "{with}
+         SELECT id, name, album_count, track_count FROM (
+            SELECT ar.id AS id, ar.name AS name, f.rank AS rank, {ARTIST_STATS}
+            FROM found f JOIN artists ar ON ar.id = f.id)
          WHERE album_count + track_count > 0
-         ORDER BY rank LIMIT ?2"
+         ORDER BY rank, name COLLATE NOCASE LIMIT {limit}"
     );
     let artists = conn
         .prepare(&artist_sql)?
-        .query_map(params![query, limit], artist_from)?
+        .query_map(params_from_iter(&params), artist_from)?
         .collect::<rusqlite::Result<_>>()?;
 
+    let (with, params) = found("album_search", &["title", "artist"]);
     let album_sql = format!(
-        "{ALBUM_QUERY} JOIN album_search s ON s.rowid = a.id
-         WHERE album_search MATCH ?1 GROUP BY a.id ORDER BY MIN(s.rank) LIMIT ?2"
+        "{with}
+         {ALBUM_QUERY} JOIN found f ON f.id = a.id
+         GROUP BY a.id ORDER BY MIN(f.rank), a.title COLLATE NOCASE LIMIT {limit}"
     );
     let albums = conn
         .prepare(&album_sql)?
-        .query_map(params![query, limit], |row| album_from(row, store))?
+        .query_map(params_from_iter(&params), |row| album_from(row, store))?
         .collect::<rusqlite::Result<_>>()?;
 
+    let (with, params) = found("track_search", &["title", "artist", "album"]);
     let track_sql = format!(
-        "SELECT {TRACK_COLUMNS} FROM track_search s JOIN tracks t ON t.id = s.rowid
-         WHERE track_search MATCH ?1 AND t.available = 1 ORDER BY s.rank LIMIT ?2"
+        "{with}
+         SELECT {TRACK_COLUMNS} FROM found f JOIN tracks t ON t.id = f.id
+         WHERE t.available = 1
+         ORDER BY f.rank, t.title COLLATE NOCASE LIMIT {limit}"
     );
     let tracks = conn
         .prepare(&track_sql)?
-        .query_map(params![query, limit], track_from)?
+        .query_map(params_from_iter(&params), track_from)?
         .collect::<rusqlite::Result<_>>()?;
 
     Ok(SearchResults {
@@ -260,19 +360,28 @@ pub(crate) fn search(
 
 #[cfg(test)]
 mod tests {
-    use super::fts_query;
+    use super::*;
 
     #[test]
-    fn builds_prefix_queries_and_drops_quotes() {
+    fn long_words_are_searched_short_ones_filtered() {
+        let query = TextQuery::parse("  pink  fl \"say\" 高坂 ").unwrap();
         assert_eq!(
-            fts_query("  pink  flo "),
-            Some("\"pink\"* \"flo\"*".to_string())
+            query,
+            TextQuery {
+                full_text: Some("\"pink\" AND \"say\"".into()),
+                short: vec!["fl".into(), "高坂".into()],
+            }
         );
+        let (condition, params, ranked) = query.condition("t", &["a", "b"]);
         assert_eq!(
-            fts_query("say \"hi\""),
-            Some("\"say\"* \"hi\"*".to_string())
+            condition,
+            "t MATCH ?1 AND (s.a LIKE ?2 ESCAPE '\\' OR s.b LIKE ?2 ESCAPE '\\') \
+             AND (s.a LIKE ?3 ESCAPE '\\' OR s.b LIKE ?3 ESCAPE '\\')"
         );
-        assert_eq!(fts_query("   "), None);
-        assert_eq!(fts_query("\"\""), None);
+        assert_eq!(params, ["\"pink\" AND \"say\"", "%fl%", "%高坂%"]);
+        assert!(ranked);
+        assert_eq!(TextQuery::parse("   "), None);
+        assert_eq!(TextQuery::parse("\"\""), None);
+        assert_eq!(escape_like("50%_a\\b"), "50\\%\\_a\\\\b");
     }
 }

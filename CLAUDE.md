@@ -8,7 +8,8 @@ Read it before changing anything structural.
 ## Branches
 
 - `main` is production: it only receives merged pull requests, and releases are tags
-  on `main` (`vX.Y.Z`).
+  on `main` (`vX.Y.Z`). Pushing such a tag runs `.github/workflows/release.yml`, which
+  drafts a GitHub Release with the installers; README "Releases" has the steps.
 - All work happens on `feature/<topic>` branches that merge into `main` through a PR.
 - Never commit directly to `main`.
 
@@ -19,9 +20,11 @@ Read it before changing anything structural.
 | Language | Rust, edition 2024, minimum Rust 1.92 |
 | UI | Slint 1.18, royalty-free license (the `AboutSlint` widget must stay on the About page) |
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
-| Storage | SQLite (bundled via rusqlite), FTS5 search; tags read with lofty |
+| Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty |
+| OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
-| CI | GitHub Actions on Ubuntu, Windows and macOS |
+| CI | GitHub Actions: Ubuntu, Windows and macOS for pull requests into `main` and pushes to it; Ubuntu only for pull requests between feature branches. A newer push to a pull request cancels its running checks |
+| Packaging | cargo-packager: MSI and NSIS setup exe, dmg, AppImage and .deb (`[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml`, icons in `packaging/icons/`) |
 | License | MIT OR Apache-2.0 |
 
 Workspace layout:
@@ -31,7 +34,7 @@ Workspace layout:
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
 | `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
-| `crates/vcmp-integrations` | OS media controls, Last.fm, web artwork, update check (placeholder) |
+| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup; planned: Last.fm, artist photos, update check |
 
 The core crates must never depend on `vcmp-app` or Slint.
 
@@ -40,6 +43,19 @@ The core crates must never depend on `vcmp-app` or Slint.
 ```bash
 cargo run -p vcmp-app
 ```
+
+`VCMP_HOME=<dir>` makes the app use `<dir>/library.sqlite3` and `<dir>/cache/`
+instead of the platform data and cache directories. For example,
+`VCMP_HOME=target/scan-example cargo run -p vcmp-app` opens the library that
+`cargo run --example scan` built.
+
+Debug builds optimise the dependencies (`[profile.dev.package."*"]` in
+`Cargo.toml`): unoptimised Slint, its renderer and image decoding made the album grid
+take 46 ms a frame. The first debug build is slower for it; later ones only rebuild
+VCMP's crates. Dependencies carry line tables only, and CI strips debug info from
+test binaries (`CARGO_PROFILE_DEV_*` in the workflow): with full debug info each test
+binary was 400 to 660 MB and filled the runner's disk. Measure performance with
+`--release`.
 
 On Linux, building needs the fontconfig, xkbcommon and ALSA development packages
 (`libfontconfig1-dev libxkbcommon-dev libasound2-dev` on Debian/Ubuntu;
@@ -62,7 +78,11 @@ window in each theme and focus state:
 cargo run -p vcmp-app --example screenshots
 ```
 
-The PNGs land in `target/screenshots/`.
+The PNGs land in `target/screenshots/`. Set `VCMP_HOME` to show a real library in
+the album shots. `--example grid_benchmark` scrolls the album grid through thousands
+of synthetic albums and reports render times and memory (see
+[docs/ui.md](docs/ui.md#album-grid)). `--example album_page_benchmark` (with
+`VCMP_HOME`) opens the library's longest album and scrolls its page.
 
 Library tests use the tiny silent files in `crates/vcmp-library/tests/fixtures/`
 (see the README there for how they were made) and write tags into temporary copies.
@@ -76,6 +96,10 @@ cargo run --release -p vcmp-library --example scan -- /path/to/music
 `--example scan_profile` breaks a scan down by step (tag reads per format, cover
 read, decode, resize, encode) on Linux. [docs/library.md](docs/library.md#measured)
 has the reference numbers.
+
+To check tag writing against real files, `--example edit_check -- /path/to/music 40`
+copies 40 files per format into `target/edit-check/` and edits only the copies.
+Never point a test or example that writes at the real collection itself.
 
 Playback tests need no sound card: the engine runs against a test device that the
 test pulls audio from. To hear the engine on the real device (or check it silently

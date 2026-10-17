@@ -511,7 +511,10 @@ fn album_year_is_the_earliest_track_year() {
     );
     setup.add_music_source();
     setup.scan();
-    assert_eq!(setup.library.albums().unwrap()[0].year, Some(1993));
+    let album = &setup.library.albums().unwrap()[0];
+    assert_eq!(album.year, Some(1993));
+    assert_eq!(setup.library.album(album.id).unwrap().as_ref(), Some(album));
+    assert_eq!(setup.library.available_track_count().unwrap(), 2);
 }
 
 #[test]
@@ -729,4 +732,127 @@ fn watcher_reports_a_new_file_once_things_are_quiet() {
         .expect("a change notification");
     // The burst of writes is reported once.
     assert!(receiver.recv_timeout(Duration::from_millis(800)).is_err());
+}
+
+#[test]
+fn an_artist_page_has_own_albums_and_appearances() {
+    let mut setup = Setup::new();
+    let dir = setup.music();
+    add_file(
+        &dir,
+        "1.flac",
+        "silence.flac",
+        song("Own", "Singer", "Solo"),
+    );
+    add_file(
+        &dir,
+        "2.flac",
+        "silence.flac",
+        Tags {
+            album_artist: Some("Band"),
+            ..song("Guest spot", "Singer", "Band Album")
+        },
+    );
+    add_file(
+        &dir,
+        "3.flac",
+        "silence.flac",
+        Tags {
+            album_artist: Some("Band"),
+            ..song("Band song", "Band", "Band Album")
+        },
+    );
+    add_file(
+        &dir,
+        "4.flac",
+        "silence.flac",
+        Tags {
+            title: Some("Loose"),
+            artist: Some("Singer"),
+            ..Tags::default()
+        },
+    );
+    setup.add_music_source();
+    setup.scan();
+
+    let singer = setup
+        .library
+        .artists()
+        .unwrap()
+        .into_iter()
+        .find(|artist| artist.name == "Singer")
+        .unwrap();
+    assert_eq!(
+        setup.library.artist(singer.id).unwrap(),
+        Some(singer.clone())
+    );
+    assert_eq!(
+        (singer.album_count, singer.track_count),
+        (1, 3),
+        "its own album, and every credited track"
+    );
+    let own: Vec<String> = setup
+        .library
+        .artist_albums(singer.id)
+        .unwrap()
+        .into_iter()
+        .map(|album| album.title)
+        .collect();
+    assert_eq!(own, ["Solo"]);
+    let mut appearances: Vec<String> = setup
+        .library
+        .artist_appearances(singer.id)
+        .unwrap()
+        .into_iter()
+        .map(|track| track.title)
+        .collect();
+    appearances.sort();
+    assert_eq!(appearances, ["Guest spot", "Loose"]);
+}
+
+#[test]
+fn search_finds_parts_of_words_in_any_script() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music(),
+        "1.flac",
+        "silence.flac",
+        Tags {
+            album_artist: Some("μ's"),
+            ..song("Music S.T.A.R.T!!", "高坂穂乃果", "ラブライブ! Solo Live!")
+        },
+    );
+    add_file(
+        &setup.music(),
+        "2.flac",
+        "silence.flac",
+        song(
+            "Butterfly Effect",
+            "Koven",
+            "Butterfly Effect (Deluxe Edition)",
+        ),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let titles = |text: &str| -> Vec<String> {
+        let results = setup.library.search(text, 10).unwrap();
+        results
+            .tracks
+            .into_iter()
+            .map(|track| track.title)
+            .collect()
+    };
+
+    // Inside a word without spaces, at three characters and more.
+    assert_eq!(titles("ライブ"), ["Music S.T.A.R.T!!"]);
+    assert_eq!(titles("穂乃果"), ["Music S.T.A.R.T!!"]);
+    // Shorter words are matched too, without the index.
+    assert_eq!(titles("高坂"), ["Music S.T.A.R.T!!"]);
+    assert_eq!(titles("μ"), ["Music S.T.A.R.T!!"], "by album artist");
+    // Inside Latin words, combined with a short word.
+    assert_eq!(titles("terfly ko"), ["Butterfly Effect"]);
+    // Wildcards in the text are plain characters.
+    assert!(titles("%").is_empty());
+    let results = setup.library.search("ライブ", 10).unwrap();
+    assert_eq!(results.albums.len(), 1);
 }

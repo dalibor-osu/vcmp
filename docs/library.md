@@ -17,12 +17,12 @@ The cache can be deleted at any time: the next scan rebuilds it. The database ru
 WAL mode, so one connection can scan while others read. Open one `Library` per
 thread.
 
-Music files are only ever read by this crate. Tag writing arrives with the tag editor
-(workstream 6).
+Music files are only read, except by `Library::write_tags`, the tag editor's write
+path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 1, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 3, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -32,7 +32,8 @@ migrations; a database from a newer build is refused instead of being altered.
 | `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration |
 | `albums` | Album groups, their artist, year and artwork state |
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
-| `track_search`, `album_search`, `artist_search` | FTS5 indexes, diacritics removed |
+| `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
+| `track_search`, `album_search`, `artist_search` | FTS5 trigram indexes, case and diacritics ignored (version 3; version 1 indexed words) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -87,19 +88,96 @@ artist and album stay empty.
 Display names for empty values ("Unknown artist") belong to the UI, so they can be
 translated.
 
+## Writing tags
+
+`Library::write_tags` takes `(TrackId, &TagEdit)` pairs: one track, or a batch that
+passes the same edit for many tracks (the album artist of a whole album). A
+`TagEdit` sets, clears or keeps each of title, artist, album, album artist, track
+number, disc number, year, genre and the embedded front cover. `TagEdit::validate`
+runs first, for every edit. An invalid edit (a control character, a year outside
+1 to 9999, a cover that isn't JPEG or PNG) fails the whole call before any file is
+touched. Values are trimmed, and an empty value clears the field.
+
+Each file is written through a verified copy:
+
+1. Follow a symlink to the real file. Refuse a read-only file, and read the tags the
+   way a scan does.
+2. Copy the file next to itself as `.<name>.<random>.vcmp-tmp`, with the same
+   permissions. The name hides it from scans and file managers. A failure at any
+   later step deletes the copy.
+3. Edit the tag VCMP reads in the copy: ID3v2 in MP3 and WAV, Vorbis comments in
+   FLAC and Ogg Vorbis. The tag is edited in place, so frames and fields the editor
+   doesn't know (comments, composer, lyrics, ReplayGain, MusicBrainz IDs, other
+   pictures) are kept. An ID3v2.3 tag stays ID3v2.3 when that loses nothing. Taggers
+   also put ID3v2.4 frames (full original and release dates) into ID3v2.3 tags, and
+   ID3v2.3 can hold only the year of those, so such a tag is written as ID3v2.4.
+   When the file has
+   no such tag, it is created with what the scan read from the file's other tags, so
+   an MP3 with only ID3v1 loses no values.
+4. Read the copy back and compare:
+   - every item and picture of the written tag with what was meant to be written;
+   - the scan's reading of every field, MusicBrainz IDs included, with the old reading
+     plus the edit;
+   - the file type and duration with the original's.
+5. Check that the original has not changed since it was copied (size and
+   modification time), then rename the copy over it. The rename is atomic, so the
+   original is either untouched or fully replaced. On Windows a failed rename is
+   retried for up to about a second, in case an antivirus scanner or the indexer
+   holds the new copy.
+
+A file that fails is reported in `TagWriteReport::failed` with a `TagWriteError`.
+Its variant is the reason, for the UI to translate, and the text is English detail
+for logs. The other files of the batch are still written. `cancel` stops before the
+next file.
+
+The cover edit replaces "the cover": every front-cover picture or, when there is
+none, a leading picture without a type, which is how many taggers store covers.
+Other pictures (back cover, artist) are kept. `Library::embedded_cover` reads the
+current cover from a track's file for the editor.
+
+Written files are then re-read into the database through the scan's own code. A
+changed album or album artist regroups the tracks, so an album can get a new id
+(`Library::track` gives it), and emptied albums and artists are removed. Every
+album involved looks for its artwork again, so a new embedded cover becomes the
+album artwork. Albums and artists match ignoring case, and a scan keeps the
+spelling it met first. A spelling the user typed in an edit replaces it, so
+"the wall" can be renamed to "The Wall".
+
+`examples/edit_check.rs` copies a sample of a real collection into
+`target/edit-check/`, then edits every copy twice: once setting every field and a
+cover, once restoring the fields and removing the cover. It prints every failure
+(the collection itself is only read):
+
+```bash
+cargo run --release -p vcmp-library --example edit_check -- /path/to/music 40
+```
+
 ## Watching
 
 `LibraryWatcher` watches the reachable sources and calls back once no change has
 arrived for a quiet period, so copying an album produces one notification. It never
-scans by itself. The app isn't wired to it yet: starting the watcher and scanning at
-startup while `library.auto_update` is on (the default) comes with the library views
-in workstream 4.
+scans by itself. The app's `LibraryService` (see [ui.md](ui.md#music-folders-and-scanning))
+starts it, and scans at startup, while `library.auto_update` is on (the default).
 
 ## Search
 
-`Library::search` matches every typed word as a word prefix, ignoring case and
-diacritics: `dvorak` finds "Dvořák", and `floyd wall` finds the album "The Wall" by
-Pink Floyd. Artists, albums and tracks are searched separately and ranked by FTS5.
+`Library::search` finds every typed word anywhere in a title, artist or album name,
+ignoring case and diacritics: `dvorak` finds "Dvořák", `floyd wall` finds the album
+"The Wall" by Pink Floyd, and `ライブ` finds "ラブライブ!". Artists, albums and
+tracks are searched separately.
+
+- **Why parts of words:** the first index matched word starts, and words end at
+  spaces and punctuation. Japanese and Chinese titles have no spaces, so on the
+  owner's library `ライブ` found 1 of the 88 tracks whose title or album contains it,
+  and `穂乃果` 3 of 135. The trigram tokenizer indexes every three-character run.
+- **Words of three characters or more** go into one full-text query, ranked by FTS5.
+  **Shorter words** (`高坂`, `μ`) cannot be looked up in a trigram index, so they
+  become `LIKE` conditions over the search table's columns, which scan it.
+- **Speed:** each full-text query runs once, in a `MATERIALIZED` CTE that the other
+  tables join. Joined directly, SQLite looked the full-text query up again for
+  every album row: 237 ms for one search instead of a few. On the owner's library
+  (3,621 tracks) searches take 7 to 16 ms, a one-letter search about 50 ms.
+  `examples/search.rs` times searches on any library.
 
 ## Measured
 
@@ -158,3 +236,17 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
 - Multi-value artist tags are joined with ", " into one artist name.
 - MP3 durations count whole frames, so they can be a fraction of a second longer
   than what plays.
+- Tag writing updates only the tag VCMP reads. An ID3v1 or APE tag in an MP3, or a
+  RIFF INFO list in a WAV file, keeps its old values, and players that prefer those
+  tags (Windows Explorer reads RIFF INFO in WAV files) show them.
+- On Windows a file that another program holds open cannot be replaced, so the
+  edit fails with `TagWriteError::Replace`. The app must release the playing track
+  before writing its tags.
+- Replacing a file gives it a new inode (Unix) or file ID (Windows). Hard links keep
+  the old content, and on Unix the file's owner becomes the user running VCMP.
+- A crash between the copy and the rename can leave a `.<name>.<random>.vcmp-tmp`
+  file next to the music file. Scans ignore it, and it can be deleted.
+- Setting the cover of one track doesn't change the album's other tracks. The album
+  artwork comes from its first two tracks, so to change it, edit the whole album.
+- A file whose tag lofty can only read in part (a damaged frame) may lose that part
+  when it is written. The read-back check compares what lofty can read.

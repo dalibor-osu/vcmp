@@ -1,0 +1,214 @@
+import { Theme } from "theme.slint";
+import { Button, ProgressBar, SectionHeading, Toggle } from "components.slint";
+import { LibraryError, LibraryState, ScanPhase, SourceFolder } from "library-state.slint";
+
+component FolderRow {
+    in property <SourceFolder> folder;
+    // Changing folders mid-scan would race the scan, so it waits until it is done.
+    in property <bool> locked;
+
+    HorizontalLayout {
+        spacing: Theme.space-xl;
+        padding-top: Theme.space-m;
+        padding-bottom: Theme.space-m;
+
+        VerticalLayout {
+            spacing: Theme.space-xs;
+            alignment: center;
+            horizontal-stretch: 1;
+
+            Text {
+                text: root.folder.name;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.folder.path;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+
+            if !root.folder.reachable: Text {
+                text: @tr("Can't be reached right now. Its tracks stay in the library and come back with the folder.");
+                color: Theme.colors.text;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            alignment: center;
+            horizontal-stretch: 0;
+
+            Text {
+                text: @tr("Subfolders");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+
+            VerticalLayout {
+                alignment: center;
+
+                Toggle {
+                    label: @tr("Include subfolders of {}", root.folder.name);
+                    checked: root.folder.recursive;
+                    enabled: !root.locked;
+                    toggled(on) => {
+                        LibraryState.set-recursive(root.folder.id, on);
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+
+            Button {
+                text: @tr("Remove");
+                label: @tr("Remove {}", root.folder.name);
+                enabled: !root.locked;
+                clicked => {
+                    LibraryState.remove-folder(root.folder.id);
+                }
+            }
+        }
+    }
+}
+
+// Settings for where music comes from, and the state of the last scan.
+export component LibrarySection inherits VerticalLayout {
+    private property <bool> show-unreadable;
+
+    spacing: Theme.space-xs;
+
+    SectionHeading {
+        text: @tr("Music folders");
+    }
+
+    Text {
+        text: LibraryState.folders.length == 0 ? @tr("VCMP has no music folders yet. Add the folder your music is in.") : @tr("VCMP builds your library from the music in these folders.");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+    }
+
+    for folder in LibraryState.folders: FolderRow {
+        folder: folder;
+        locked: LibraryState.scanning;
+    }
+
+    HorizontalLayout {
+        padding-top: Theme.space-s;
+        alignment: start;
+
+        Button {
+            text: @tr("Add folder…");
+            clicked => {
+                LibraryState.add-folder();
+            }
+        }
+    }
+
+    // Scan status and the rescan action, once there is something to scan.
+    if LibraryState.folders.length > 0: HorizontalLayout {
+        spacing: Theme.space-xl;
+        padding-top: Theme.space-l;
+
+        VerticalLayout {
+            spacing: Theme.space-xs;
+            alignment: center;
+            horizontal-stretch: 1;
+
+            Text {
+                text: LibraryState.phase == ScanPhase.discovering ? @tr("Looking for music files: {} found", LibraryState.done)
+                    : LibraryState.phase == ScanPhase.reading ? @tr("Reading tags: {0} of {1} files", LibraryState.done, LibraryState.total)
+                    : LibraryState.phase == ScanPhase.artwork ? @tr("Finding album covers: {0} of {1} albums", LibraryState.done, LibraryState.total)
+                    : LibraryState.scanned ? @tr("{n} track in the library" | "{n} tracks in the library" % LibraryState.track-count)
+                    : @tr("Rescan to pick up changes in your music folders.");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+            }
+
+            if LibraryState.scanning && LibraryState.total > 0: ProgressBar {
+                progress: LibraryState.progress;
+                label: @tr("Scan progress");
+            }
+
+            if LibraryState.error != LibraryError.none: Text {
+                text: LibraryState.error == LibraryError.add-folder ? @tr("That folder could not be added: {}", LibraryState.error-detail)
+                    : LibraryState.error == LibraryError.change-folder ? @tr("The folder could not be changed: {}", LibraryState.error-detail)
+                    : LibraryState.error == LibraryError.scan ? @tr("The scan stopped early: {}", LibraryState.error-detail)
+                    : @tr("The setting could not be saved: {}", LibraryState.error-detail);
+                color: Theme.colors.text;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+
+            Button {
+                text: @tr("Rescan");
+                enabled: !LibraryState.scanning;
+                clicked => {
+                    LibraryState.rescan();
+                }
+            }
+        }
+    }
+
+    if !LibraryState.scanning && LibraryState.unreadable.length > 0: VerticalLayout {
+        spacing: Theme.space-xs;
+        padding-top: Theme.space-s;
+
+        HorizontalLayout {
+            spacing: Theme.space-l;
+
+            Text {
+                text: @tr("{n} file could not be read" | "{n} files could not be read" % LibraryState.unreadable.length);
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                wrap: word-wrap;
+            }
+
+            Button {
+                text: root.show-unreadable ? @tr("Hide files") : @tr("Show files");
+                clicked => {
+                    root.show-unreadable = !root.show-unreadable;
+                }
+            }
+        }
+
+        if root.show-unreadable: VerticalLayout {
+            spacing: Theme.space-s;
+            padding-top: Theme.space-s;
+
+            for file in LibraryState.unreadable: VerticalLayout {
+                Text {
+                    text: file.path;
+                    color: Theme.colors.text;
+                    font-size: Theme.font-small;
+                    wrap: word-wrap;
+                }
+
+                Text {
+                    text: file.reason;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}

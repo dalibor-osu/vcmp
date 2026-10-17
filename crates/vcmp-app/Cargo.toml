@@ -15,14 +15,69 @@ path = "src/main.rs"
 [dependencies]
 directories = "6.0.0"
 env_logger = "0.11.11"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 log = "0.4.34"
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 slint.workspace = true
+vcmp-integrations = { version = "0.1.0", path = "../vcmp-integrations" }
 vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
+vcmp-playback = { version = "0.1.0", path = "../vcmp-playback" }
+
+# The Windows media controls attach to the window, by its native handle.
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6.2"
+slint = { workspace = true, features = ["raw-window-handle-06"] }
 
 [build-dependencies]
 slint-build.workspace = true
 
 [dev-dependencies]
+dunce = "1.0.5"
 i-slint-backend-testing = "=1.18.1"
+lofty = "0.25.4"
 png = "0.18.1"
 tempfile = "3.27.0"
+vcmp-integrations = { path = "../vcmp-integrations" }
+
+# Installers, built by cargo-packager (see "Releases" in the README and
+# .github/workflows/release.yml). Paths are relative to this file. Build the binary
+# first (`cargo build --release -p vcmp-app`), then run
+# `cargo packager --release -p vcmp-app`; the installers land in target/packages/.
+[package.metadata.packager]
+out-dir = "../../target/packages"
+product-name = "VCMP"
+identifier = "io.github.dalibor-osu.vcmp"
+publisher = "VCMP"
+authors = ["dalibor-osu"]
+homepage = "https://github.com/dalibor-osu/vcmp"
+category = "Music"
+long-description = "A music player for locally stored music."
+# Placeholder icons until VCMP has a logo: packaging/icons/make-placeholder.sh.
+icons = [
+    "../../packaging/icons/icon-32.png",
+    "../../packaging/icons/icon-128.png",
+    "../../packaging/icons/icon-256.png",
+    "../../packaging/icons/icon-512.png",
+    "../../packaging/icons/icon.ico",
+]
+# The Sora font and the UI icons are compiled into the binary; only the licence
+# texts travel next to it.
+resources = [
+    { src = "../../LICENSE-MIT", target = "LICENSE-MIT" },
+    { src = "../../LICENSE-APACHE", target = "LICENSE-APACHE" },
+    { src = "../../assets/fonts/sora/OFL.txt", target = "Sora-OFL.txt" },
+]
+
+[package.metadata.packager.deb]
+section = "sound"
+# Linked: ALSA and fontconfig. Loaded at run time by the window system: xkbcommon and
+# EGL or GL. Ubuntu 24.04 renamed libasound2 to libasound2t64.
+depends = [
+    "libasound2t64 | libasound2",
+    "libfontconfig1",
+    "libxkbcommon0",
+    "libxkbcommon-x11-0",
+    "libegl1 | libgl1",
+]

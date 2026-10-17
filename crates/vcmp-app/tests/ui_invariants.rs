@@ -5,9 +5,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// String literals that are not translatable text: the product name, the font family
-/// and a URL.
-const ALLOWED_LITERALS: &[&str] = &["\"VCMP\"", "\"Sora\"", "\"https://slint.dev\""];
+/// String literals that are not translatable text: the product name, the font family,
+/// a URL, and the empty string (used in comparisons).
+// Names, the font, a URL, the empty string, and the key in the Ctrl+F shortcut.
+const ALLOWED_LITERALS: &[&str] = &[
+    "\"VCMP\"",
+    "\"Sora\"",
+    "\"https://slint.dev\"",
+    "\"\"",
+    "\"f\"",
+    "\"F\"",
+];
 
 fn slint_sources() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui");
@@ -110,17 +118,65 @@ fn durations_only_in_theme() {
     );
 }
 
-/// Removes every `@tr("...")` call, leaving the rest of the line.
+/// Removes every `@tr(...)` call, including plural forms such as
+/// `@tr("{n} track" | "{n} tracks" % count)`, and every `@image-url(...)` (a file
+/// name), leaving the rest of the line.
 fn without_tr_calls(line: &str) -> String {
     let mut out = String::new();
-    let mut text = line;
-    while let Some(start) = text.find("@tr(\"") {
-        out.push_str(&text[..start]);
-        let after = &text[start + 5..];
-        let end = after.find('"').map_or(after.len(), |end| end + 1);
-        text = &after[end..];
+    let mut rest = line;
+    loop {
+        let next = ["@tr(", "@image-url("]
+            .iter()
+            .filter_map(|call| rest.find(call).map(|start| (start, call.len())))
+            .min();
+        let Some((start, opening)) = next else { break };
+        out.push_str(&rest[..start]);
+        let call = &rest[start + opening..];
+        let (mut depth, mut in_string, mut previous, mut end) = (1, false, '\0', call.len());
+        for (index, c) in call.char_indices() {
+            match c {
+                '"' if previous != '\\' => in_string = !in_string,
+                '(' if !in_string => depth += 1,
+                ')' if !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = index + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            previous = c;
+        }
+        rest = &call[end..];
     }
-    out.push_str(text);
+    out.push_str(rest);
+    out
+}
+
+/// Removes string literals that are SVG path data (icon shapes such as
+/// "M 7 4 L 20 12 Z"): drawing commands and numbers, not text.
+fn without_path_data(line: &str) -> String {
+    let is_path_data = |text: &str| {
+        text.starts_with('M')
+            && text
+                .chars()
+                .all(|c| "MLHVCQZmlhvcqz0123456789 .,-".contains(c))
+    };
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(start) = rest.find('"') {
+        let Some(length) = rest[start + 1..].find('"') else {
+            break;
+        };
+        let literal = &rest[start..start + length + 2];
+        out.push_str(&rest[..start]);
+        if !is_path_data(&literal[1..literal.len() - 1]) {
+            out.push_str(literal);
+        }
+        rest = &rest[start + length + 2..];
+    }
+    out.push_str(rest);
     out
 }
 
@@ -129,7 +185,7 @@ fn text_is_translatable() {
     let mut violations = Vec::new();
     for path in slint_sources() {
         for (number, line) in code_lines(&path) {
-            let mut remaining = without_tr_calls(&line);
+            let mut remaining = without_path_data(&without_tr_calls(&line));
             for literal in ALLOWED_LITERALS {
                 remaining = remaining.replace(literal, "");
             }

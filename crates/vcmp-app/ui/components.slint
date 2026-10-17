@@ -1,9 +1,11 @@
 import { Theme } from "theme.slint";
+import { Glyph, Icon } from "icons.slint";
 
 // Keyboard focus indicator drawn just outside the focused control. Place it as a
 // direct child of the control and pass the control's size.
 export component FocusRing inherits Rectangle {
     in property <length> radius;
+    visible: Theme.keyboard-navigation;
     in property <length> around-width;
     in property <length> around-height;
     x: -3px;
@@ -52,12 +54,18 @@ export component NavItem {
 
     touch := TouchArea {
         clicked => {
+            Theme.keyboard-navigation = false;
             root.activated();
         }
     }
 
     focus := FocusScope {
         focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
         key-pressed(event) => {
             if event.text == Key.Space || event.text == Key.Return {
                 root.activated();
@@ -80,6 +88,8 @@ export component SegmentedChoice {
     in property <string> label;
     in property <[string]> options;
     in property <int> current-index;
+    // Narrowest a segment may get; raise it for longer option names.
+    in property <length> segment-min: 88px;
     callback selected(int);
 
     private property <length> segment-width: self.width / max(1, root.options.length);
@@ -90,7 +100,7 @@ export component SegmentedChoice {
         }
     }
 
-    min-width: root.options.length * 88px;
+    min-width: root.options.length * root.segment-min;
     height: Theme.target-height;
     accessible-role: radio-group;
     accessible-label: root.label;
@@ -137,6 +147,7 @@ export component SegmentedChoice {
 
         TouchArea {
             clicked => {
+                Theme.keyboard-navigation = false;
                 root.choose(index);
             }
         }
@@ -144,6 +155,11 @@ export component SegmentedChoice {
 
     focus := FocusScope {
         focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
         key-pressed(event) => {
             if event.text == Key.LeftArrow {
                 root.choose(root.current-index - 1);
@@ -169,16 +185,20 @@ export component SegmentedChoice {
 export component Toggle {
     in property <string> label;
     in property <bool> checked;
+    in property <bool> enabled: true;
     callback toggled(bool);
 
     function flip() {
-        root.toggled(!root.checked);
+        if root.enabled {
+            root.toggled(!root.checked);
+        }
     }
 
     width: 48px;
     height: 28px;
     accessible-role: switch;
     accessible-label: root.label;
+    accessible-enabled: root.enabled;
     accessible-checkable: true;
     accessible-checked: root.checked;
     accessible-action-default => {
@@ -204,14 +224,23 @@ export component Toggle {
         animate x { duration: Theme.duration-fast; easing: ease-out; }
     }
 
+    // Disabled: drawn faded; the state stays readable from the knob position.
+    opacity: root.enabled ? 1 : 0.5;
+
     TouchArea {
         clicked => {
+            Theme.keyboard-navigation = false;
             root.flip();
         }
     }
 
     focus := FocusScope {
         focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
         key-pressed(event) => {
             if event.text == Key.Space || event.text == Key.Return {
                 root.flip();
@@ -263,6 +292,492 @@ export component SettingRow {
             alignment: center;
             horizontal-stretch: 0;
             @children
+        }
+    }
+}
+
+// A push button. `primary` fills it with the accent: reserved for the one action a
+// screen exists for, such as adding music to an empty library.
+export component Button {
+    in property <string> text;
+    // Spoken label when the visible text alone is ambiguous, e.g. several Remove buttons.
+    in property <string> label: root.text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    function press() {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    min-height: Theme.target-height;
+    min-width: caption.preferred-width + 2 * Theme.space-l;
+    horizontal-stretch: 0;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        root.press();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: root.primary ? Theme.colors.accent : touch.has-hover && root.enabled ? Theme.colors.surface : Theme.colors.base;
+        border-width: root.primary ? 0px : 1px;
+        border-color: Theme.colors.outline;
+        animate background { duration: Theme.duration-fast; }
+    }
+
+    caption := Text {
+        text: root.text;
+        color: !root.enabled ? Theme.colors.text-muted : root.primary ? Theme.colors.on-accent : Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: root.primary ? Theme.weight-strong : Theme.weight-regular;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.press();
+        }
+    }
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.press();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// Progress of a running task, 0 to 1. The fill is the accent: it marks something
+// happening now.
+export component ProgressBar {
+    in property <float> progress;
+    in property <string> label;
+
+    height: 4px;
+    accessible-role: progress-indicator;
+    accessible-label: root.label;
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-value: round(root.progress * 100);
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: Theme.colors.surface;
+    }
+
+    Rectangle {
+        x: 0;
+        width: parent.width * clamp(root.progress, 0, 1);
+        border-radius: self.height / 2;
+        background: Theme.colors.accent;
+        animate width { duration: Theme.duration-fast; }
+    }
+}
+
+export component SectionHeading inherits Text {
+    color: Theme.colors.text;
+    font-size: Theme.font-heading;
+    font-weight: Theme.weight-strong;
+}
+
+// A round button showing only an icon. `active` paints the icon in the accent, for
+// switches that are on (shuffle, repeat).
+export component IconButton {
+    in property <Glyph> glyph;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> active;
+    // Switch-like buttons report their state to assistive technology.
+    in property <bool> checkable;
+    // Off for buttons whose action the surrounding list also offers by key, so they
+    // do not add a tab stop per row.
+    in property <bool> tab-stop: true;
+    callback clicked;
+
+    function press() {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    width: Theme.target-height;
+    height: Theme.target-height;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.active;
+    accessible-action-default => {
+        root.press();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: touch.has-hover && root.enabled ? Theme.colors.surface : transparent;
+        animate background { duration: Theme.duration-fast; }
+    }
+
+    Icon {
+        width: 20px;
+        height: 20px;
+        glyph: root.glyph;
+        tint: !root.enabled ? Theme.colors.outline : root.active ? Theme.colors.accent : Theme.colors.text;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.press();
+        }
+    }
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        focus-on-tab-navigation: root.tab-stop;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.press();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: root.height / 2;
+    }
+}
+
+// One choice in a `Dropdown`'s list.
+component DropdownOption {
+    in property <string> text;
+    in property <bool> selected;
+    callback chosen();
+
+    height: Theme.target-height;
+    accessible-role: list-item;
+    accessible-label: root.text;
+    accessible-item-selected: root.selected;
+    accessible-action-default => {
+        root.chosen();
+    }
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+    }
+
+    Text {
+        x: Theme.space-m;
+        width: parent.width - 2 * Theme.space-m;
+        text: root.text;
+        color: root.selected ? Theme.colors.accent : Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: root.selected ? Theme.weight-strong : Theme.weight-regular;
+        vertical-alignment: center;
+        overflow: elide;
+        accessible-role: none;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.chosen();
+        }
+    }
+}
+
+// Picks one of a list that may be long or change, such as devices. Up and Down
+// change the choice directly; a click, Enter or Space opens the list. `first-option`
+// is a fixed first entry (index -1), such as a system default.
+export component Dropdown {
+    in property <string> label;
+    in property <string> first-option;
+    in property <[string]> options;
+    in property <int> current-index: -1;
+    callback selected(int);
+    // The list is about to open, so its options can be refreshed.
+    callback opening();
+
+    private property <string> current-text: root.current-index < 0 ? root.first-option : root.options[root.current-index];
+    private property <length> option-height: Theme.target-height;
+
+    function choose(index: int) {
+        if index != root.current-index {
+            root.selected(index);
+        }
+    }
+
+    function open() {
+        root.opening();
+        popup.show();
+    }
+
+    min-height: Theme.target-height;
+    min-width: 200px;
+    preferred-width: 280px;
+    max-width: 320px;
+    accessible-role: combobox;
+    accessible-label: root.label;
+    accessible-value: root.current-text;
+    accessible-action-default => {
+        root.open();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : Theme.colors.base;
+        border-width: 1px;
+        border-color: Theme.colors.outline;
+        animate background { duration: Theme.duration-fast; }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-m;
+        padding-right: Theme.space-s;
+        spacing: Theme.space-s;
+
+        Text {
+            text: root.current-text;
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+            accessible-role: none;
+        }
+
+        VerticalLayout {
+            alignment: center;
+
+            Icon {
+                width: 16px;
+                height: 16px;
+                glyph: Glyph.chevron-down;
+                tint: Theme.colors.text-muted;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.open();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.UpArrow {
+                root.choose(max(-1, root.current-index - 1));
+            } else if event.text == Key.DownArrow {
+                root.choose(min(root.options.length - 1, root.current-index + 1));
+            } else if event.text == Key.Space || event.text == Key.Return {
+                root.open();
+            } else {
+                return reject;
+            }
+            accept
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + Theme.space-xs;
+        width: root.width;
+        height: min(8, root.options.length + 1) * root.option-height + 2 * Theme.space-xs;
+
+        Rectangle {
+            border-radius: Theme.radius-m;
+            background: Theme.colors.base;
+            border-width: 1px;
+            border-color: Theme.colors.outline;
+            clip: true;
+
+            Flickable {
+                x: Theme.space-xs;
+                y: Theme.space-xs;
+                width: parent.width - 2 * Theme.space-xs;
+                height: parent.height - 2 * Theme.space-xs;
+                content-height: (root.options.length + 1) * root.option-height;
+
+                VerticalLayout {
+                    accessible-role: AccessibleRole.list;
+                    accessible-label: root.label;
+
+                    DropdownOption {
+                        text: root.first-option;
+                        selected: root.current-index < 0;
+                        chosen => {
+                            root.choose(-1);
+                            popup.close();
+                        }
+                    }
+                    for option[index] in root.options: DropdownOption {
+                        text: option;
+                        selected: index == root.current-index;
+                        chosen => {
+                            root.choose(index);
+                            popup.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A text field for searching. The placeholder shows while it is empty and a clear
+// button while it is not; Escape clears it too. `edited` reports every change.
+export component SearchField {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> text;
+    callback edited(string);
+
+    public function focus-text() {
+        input.focus();
+    }
+
+    function clear() {
+        if root.text != "" {
+            root.text = "";
+            root.edited("");
+        }
+    }
+
+    min-height: 48px;
+    forward-focus: input;
+
+    Rectangle {
+        border-radius: Theme.radius-l;
+        background: Theme.colors.base;
+        border-width: input.has-focus ? 2px : 1px;
+        border-color: input.has-focus ? Theme.colors.accent : Theme.colors.outline;
+    }
+
+    // Sees the keys the text input leaves, such as Escape.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape && root.text != "" {
+                root.clear();
+                return accept;
+            }
+            reject
+        }
+
+        HorizontalLayout {
+            padding-left: Theme.space-l;
+            padding-right: Theme.space-xs;
+            spacing: Theme.space-m;
+
+            VerticalLayout {
+                alignment: center;
+
+                Icon {
+                    width: 20px;
+                    height: 20px;
+                    glyph: Glyph.search;
+                    tint: Theme.colors.text-muted;
+                }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+
+                if root.text == "": Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.placeholder;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-heading;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: none;
+                }
+
+                input := TextInput {
+                    width: parent.width;
+                    height: parent.height;
+                    text <=> root.text;
+                    single-line: true;
+                    color: Theme.colors.text;
+                    font-size: Theme.font-heading;
+                    vertical-alignment: center;
+                    selection-background-color: Theme.colors.surface;
+                    selection-foreground-color: Theme.colors.text;
+                    accessible-label: root.label;
+                    accessible-placeholder-text: root.placeholder;
+                    edited => {
+                        root.edited(self.text);
+                    }
+                }
+            }
+
+            if root.text != "": VerticalLayout {
+                alignment: center;
+
+                IconButton {
+                    glyph: Glyph.remove;
+                    label: @tr("Clear the search");
+                    // Escape does the same from the keyboard.
+                    tab-stop: false;
+                    clicked => {
+                        root.clear();
+                        input.focus();
+                    }
+                }
+            }
         }
     }
 }

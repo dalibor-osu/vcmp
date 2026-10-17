@@ -1,0 +1,343 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Button, FocusRing, IconButton } from "components.slint";
+import { Glyph } from "icons.slint";
+import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
+
+// One track in the queue. A right click asks the panel for the track's menu.
+component QueueLine {
+    in property <QueueRow> entry;
+    // Tracks in Up next can be taken out; context tracks only played.
+    in property <bool> removable;
+    // The keyboard's current track in the focused list.
+    in property <bool> focused;
+    callback clicked();
+    callback remove();
+    // Window position of a right click.
+    callback menu-requested(length, length);
+    // Where the row is, so the list can scroll it into view.
+    callback shown-focused(length, length);
+
+    changed focused => {
+        if self.focused {
+            root.shown-focused(self.absolute-position.y, self.height);
+        }
+    }
+
+    min-height: Theme.target-height + Theme.space-s;
+    accessible-role: list-item;
+    accessible-label: root.entry.artist == "" ? root.entry.title : @tr("{0}, {1}", root.entry.title, root.entry.artist);
+    accessible-item-selected: root.focused;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.clicked();
+        }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                root.menu-requested(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-m;
+        padding-right: root.removable ? 0px : Theme.space-m;
+        spacing: Theme.space-m;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+
+            Text {
+                text: root.entry.title;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                overflow: elide;
+                accessible-role: none;
+            }
+            if root.entry.artist != "": Text {
+                text: root.entry.artist;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+                accessible-role: none;
+            }
+        }
+
+        Text {
+            text: root.entry.duration;
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            horizontal-stretch: 0;
+            accessible-role: none;
+        }
+
+        if root.removable: VerticalLayout {
+            alignment: center;
+
+            IconButton {
+                glyph: Glyph.remove;
+                label: @tr("Remove {} from the queue", root.entry.title);
+                // The list's Delete key does the same from the keyboard.
+                tab-stop: false;
+                clicked => {
+                    root.remove();
+                }
+            }
+        }
+    }
+
+    if root.focused: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+component SectionLabel inherits Text {
+    color: Theme.colors.text-muted;
+    font-size: Theme.font-small;
+    font-weight: Theme.weight-strong;
+    overflow: elide;
+}
+
+// The queue: the track playing, Up next, and what follows from the album or list
+// being played. The tracks are one tab stop: Up and Down move, Enter or Space plays,
+// Delete removes from Up next, Alt+Up and Alt+Down reorder it, and the Menu key (or
+// a right click) opens a track's menu.
+export component QueuePanel inherits Rectangle {
+    private property <int> up-next-count: PlayerState.up-next.length;
+    private property <int> count: self.up-next-count + PlayerState.upcoming.length;
+    // The keyboard's current track, counted over Up next then the context tracks.
+    private property <int> current: 0;
+
+    // Scrolls so the row at window y `top` with `height` is inside the view.
+    function ensure-visible(top: length, height: length) {
+        let view-top = scroll.absolute-position.y;
+        let view-bottom = view-top + scroll.visible-height;
+        if top < view-top {
+            scroll.content-y = min(0px, scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            scroll.content-y = scroll.content-y - (top + height - view-bottom);
+        }
+    }
+
+    function move-current(by: int) {
+        let to = root.current + by;
+        if root.current < root.up-next-count && to >= 0 && to < root.up-next-count {
+            PlayerState.move-in-up-next(root.current, to);
+            root.current = to;
+        }
+    }
+
+    function show-menu(index: int, x: length, y: length) {
+        root.current = index;
+        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
+    }
+
+    changed count => {
+        root.current = max(0, min(root.current, root.count - 1));
+    }
+
+    background: Theme.colors.mantle;
+    accessible-role: groupbox;
+    accessible-label: @tr("Queue");
+
+    // Separates the panel from the page beside it.
+    Rectangle {
+        x: 0;
+        width: 1px;
+        background: Theme.colors.surface;
+    }
+
+    VerticalLayout {
+        padding: Theme.space-l;
+        padding-left: Theme.space-l + 1px;
+        spacing: Theme.space-m;
+
+        Text {
+            text: @tr("Queue");
+            color: Theme.colors.text;
+            font-size: Theme.font-heading;
+            font-weight: Theme.weight-strong;
+        }
+
+        if PlayerState.has-track: VerticalLayout {
+            spacing: Theme.space-xs;
+
+            SectionLabel {
+                text: @tr("Now playing");
+            }
+            Text {
+                text: PlayerState.title;
+                color: Theme.colors.accent;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                overflow: elide;
+            }
+            if PlayerState.artist != "": Text {
+                text: PlayerState.artist;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+        }
+
+        if root.count == 0: Text {
+            text: @tr("Nothing comes next. Play an album, or choose Play next or Add to queue in a track's menu on an album page.");
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+        }
+
+        scroll := ScrollView {
+            vertical-stretch: 1;
+            visible: root.count > 0;
+
+            menu := ContextMenuArea {
+                Menu {
+                    MenuItem {
+                        title: @tr("Play");
+                        activated => {
+                            PlayerState.play-queue-entry(root.current);
+                        }
+                    }
+                    MenuItem {
+                        title: @tr("Remove from queue");
+                        enabled: root.current < root.up-next-count;
+                        activated => {
+                            PlayerState.remove-from-up-next(root.current);
+                        }
+                    }
+                    MenuItem {
+                        title: @tr("Move up");
+                        enabled: root.current > 0 && root.current < root.up-next-count;
+                        activated => {
+                            root.move-current(-1);
+                        }
+                    }
+                    MenuItem {
+                        title: @tr("Move down");
+                        enabled: root.current < root.up-next-count - 1;
+                        activated => {
+                            root.move-current(1);
+                        }
+                    }
+                }
+
+                list := FocusScope {
+                    focus-on-click: false;
+                    focus-gained(reason) => {
+                        if reason == FocusReason.tab-navigation {
+                            Theme.keyboard-navigation = true;
+                        }
+                    }
+                    key-pressed(event) => {
+                        if root.count == 0 {
+                            return reject;
+                        }
+                        if event.modifiers.alt && event.text == Key.UpArrow {
+                            root.move-current(-1);
+                        } else if event.modifiers.alt && event.text == Key.DownArrow {
+                            root.move-current(1);
+                        } else if event.text == Key.DownArrow {
+                            root.current = min(root.count - 1, root.current + 1);
+                        } else if event.text == Key.UpArrow {
+                            root.current = max(0, root.current - 1);
+                        } else if event.text == Key.Home {
+                            root.current = 0;
+                        } else if event.text == Key.End {
+                            root.current = root.count - 1;
+                        } else if event.text == Key.Return || event.text == Key.Space {
+                            PlayerState.play-queue-entry(root.current);
+                        } else if event.text == Key.Delete && root.current < root.up-next-count {
+                            PlayerState.remove-from-up-next(root.current);
+                        } else {
+                            return reject;
+                        }
+                        accept
+                    }
+
+                    VerticalLayout {
+                        spacing: Theme.space-xs;
+                        alignment: start;
+                        accessible-role: AccessibleRole.list;
+                        accessible-label: @tr("Coming up");
+
+                        if root.up-next-count > 0: HorizontalLayout {
+                            padding-top: Theme.space-s;
+                            spacing: Theme.space-m;
+
+                            SectionLabel {
+                                text: @tr("Next in queue");
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            Button {
+                                text: @tr("Clear");
+                                label: @tr("Clear the queue");
+                                clicked => {
+                                    PlayerState.clear-up-next();
+                                }
+                            }
+                        }
+
+                        for row[index] in PlayerState.up-next: QueueLine {
+                            entry: row;
+                            removable: true;
+                            focused: list.has-focus && index == root.current;
+                            clicked => {
+                                root.current = index;
+                                PlayerState.play-queue-entry(index);
+                            }
+                            remove => {
+                                PlayerState.remove-from-up-next(index);
+                            }
+                            menu-requested(x, y) => {
+                                root.show-menu(index, x, y);
+                            }
+                            shown-focused(top, height) => {
+                                root.ensure-visible(top, height);
+                            }
+                        }
+
+                        if PlayerState.upcoming.length > 0: SectionLabel {
+                            text: PlayerState.queue-source == QueueSource.search ? @tr("Next from your search")
+                                : PlayerState.queue-source == QueueSource.songs ? @tr("Next from all songs")
+                                : PlayerState.queue-origin != "" ? @tr("Next from {}", PlayerState.queue-origin) : @tr("Next up");
+                            height: Theme.target-height;
+                            vertical-alignment: bottom;
+                        }
+
+                        for row[index] in PlayerState.upcoming: QueueLine {
+                            entry: row;
+                            focused: list.has-focus && root.up-next-count + index == root.current;
+                            clicked => {
+                                root.current = root.up-next-count + index;
+                                PlayerState.play-queue-entry(root.up-next-count + index);
+                            }
+                            menu-requested(x, y) => {
+                                root.show-menu(root.up-next-count + index, x, y);
+                            }
+                            shown-focused(top, height) => {
+                                root.ensure-visible(top, height);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

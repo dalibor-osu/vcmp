@@ -32,6 +32,11 @@ fn press(window: &AppWindow, text: impl Into<SharedString>) {
         .dispatch_event(WindowEvent::KeyReleased { text });
 }
 
+/// Opens a page through its sidebar entry.
+fn open_page(window: &AppWindow, label: &str) {
+    find(window, AccessibleRole::Tab, label).invoke_accessible_default_action();
+}
+
 fn marker_y(window: &AppWindow) -> f32 {
     ElementHandle::find_by_element_id(window, "AppWindow::marker")
         .next()
@@ -50,7 +55,7 @@ fn page_opacity(window: &AppWindow, type_name: &str) -> f32 {
 #[test]
 fn clicking_navigation_switches_pages() {
     let window = open_window();
-    assert_eq!(window.get_current_page(), Page::Settings);
+    assert_eq!(window.get_current_page(), Page::Albums);
 
     find(&window, AccessibleRole::Tab, "About").mock_single_click(PointerEventButton::Left);
     assert_eq!(window.get_current_page(), Page::About);
@@ -68,6 +73,7 @@ fn clicking_navigation_switches_pages() {
 fn clicking_settings_controls_changes_them() {
     let window = open_window();
     let theme = window.global::<Theme>();
+    open_page(&window, "Settings");
 
     find(&window, AccessibleRole::RadioButton, "Dark").mock_single_click(PointerEventButton::Left);
     assert_eq!(theme.get_mode(), ThemeMode::Dark);
@@ -85,9 +91,11 @@ fn everything_works_from_the_keyboard() {
     let window = open_window();
     let theme = window.global::<Theme>();
 
-    // Tab order follows the visual order: Settings, About, theme choice, motion switch.
-    press(&window, Key::Tab);
-    press(&window, Key::Tab);
+    // Tab order follows the visual order: Search, Albums, Artists, Songs, Settings,
+    // About, then the page.
+    for _ in 0..6 {
+        press(&window, Key::Tab);
+    }
     press(&window, Key::Return);
     assert_eq!(window.get_current_page(), Page::About);
 
@@ -95,8 +103,12 @@ fn everything_works_from_the_keyboard() {
     press(&window, Key::Space);
     assert_eq!(window.get_current_page(), Page::Settings);
 
-    press(&window, Key::Tab);
-    press(&window, Key::Tab);
+    // From the Settings entry: About, Add folder, Update automatically, the shuffle
+    // choice, the output device, then the theme choice. Without folders there is no
+    // Rescan button, and without a player service no Discord switch.
+    for _ in 0..6 {
+        press(&window, Key::Tab);
+    }
     press(&window, Key::RightArrow);
     assert_eq!(theme.get_mode(), ThemeMode::Light);
     press(&window, Key::RightArrow);
@@ -120,6 +132,7 @@ fn everything_works_from_the_keyboard() {
 fn theme_choice_selects_the_palette() {
     let window = open_window();
     let theme = window.global::<Theme>();
+    open_page(&window, "Settings");
 
     find(&window, AccessibleRole::RadioButton, "Dark").invoke_accessible_default_action();
     assert!(theme.get_dark());
@@ -138,35 +151,39 @@ fn theme_choice_selects_the_palette() {
 #[test]
 fn transitions_animate_by_default() {
     let window = open_window();
-    let settings_marker = marker_y(&window);
-    assert_eq!(
-        page_opacity(&window, "SettingsPage"),
-        0.0,
-        "page starts its fade-in"
-    );
+    let albums_marker = marker_y(&window);
 
-    window.set_selected_index(1);
+    open_page(&window, "About");
     assert_eq!(
         marker_y(&window),
-        settings_marker,
-        "marker starts sliding from Settings"
+        albums_marker,
+        "marker starts sliding from Albums"
     );
     assert_eq!(
         page_opacity(&window, "AboutPage"),
         0.0,
         "page starts its fade-in"
     );
+
+    // The Albums page stays alive while hidden; a curtain fades it in again on return.
+    open_page(&window, "Albums");
+    assert_eq!(
+        page_opacity(&window, "FadeCurtain"),
+        1.0,
+        "curtain starts opaque"
+    );
 }
 
 #[test]
 fn reduced_motion_makes_transitions_instant() {
     let window = open_window();
-    let settings_marker = marker_y(&window);
+    let albums_marker = marker_y(&window);
+    open_page(&window, "Settings");
     find(&window, AccessibleRole::Switch, "Reduce motion").invoke_accessible_default_action();
 
-    window.set_selected_index(1);
+    open_page(&window, "About");
     assert!(
-        marker_y(&window) > settings_marker,
+        marker_y(&window) > albums_marker,
         "marker is already at About"
     );
     assert_eq!(
@@ -175,9 +192,13 @@ fn reduced_motion_makes_transitions_instant() {
         "page is fully shown"
     );
 
-    window.set_selected_index(0);
-    assert_eq!(marker_y(&window), settings_marker);
-    assert_eq!(page_opacity(&window, "SettingsPage"), 1.0);
+    open_page(&window, "Albums");
+    assert_eq!(marker_y(&window), albums_marker);
+    assert_eq!(
+        page_opacity(&window, "FadeCurtain"),
+        0.0,
+        "curtain already gone"
+    );
 }
 
 #[test]
@@ -186,13 +207,20 @@ fn smallest_window_keeps_everything_inside() {
     let width = 720.0;
     window.window().set_size(LogicalSize::new(width, 480.0));
 
-    for page in [0, 1] {
+    // Every page, with the queue panel closed and open.
+    for (page, queue_open) in [0, 1, 2, 3, 4, 5]
+        .into_iter()
+        .flat_map(|page| [(page, false), (page, true)])
+    {
         window.set_selected_index(page);
+        window.set_queue_open(queue_open);
         let roles = [
+            AccessibleRole::Combobox,
             AccessibleRole::Tab,
             AccessibleRole::RadioButton,
             AccessibleRole::Switch,
             AccessibleRole::Button,
+            AccessibleRole::Slider,
             AccessibleRole::Text,
         ];
         for role in roles {
@@ -207,9 +235,61 @@ fn smallest_window_keeps_everything_inside() {
                 let label = element.accessible_label().unwrap_or_default();
                 assert!(
                     left >= 0.0 && right <= width + 0.5,
-                    "page {page}: {role:?} {label:?} spans x {left}..{right} in a {width}px window",
+                    "page {page} (queue open: {queue_open}): {role:?} {label:?} spans x {left}..{right} in a {width}px window",
                 );
             }
         }
     }
+}
+
+#[test]
+fn focus_rings_show_only_after_keyboard_use() {
+    let window = open_window();
+    let theme = window.global::<Theme>();
+    assert!(!theme.get_keyboard_navigation(), "no ring before any input");
+
+    press(&window, Key::Tab);
+    assert!(theme.get_keyboard_navigation());
+
+    find(&window, AccessibleRole::Tab, "About").mock_single_click(PointerEventButton::Left);
+    assert!(!theme.get_keyboard_navigation(), "a click hides the ring");
+}
+
+#[test]
+fn a_library_that_failed_to_open_says_so() {
+    let window = open_window();
+    window.set_library_failed(true);
+    ElementHandle::find_by_accessible_label(
+        &window,
+        "The music library could not be opened, so no albums can be shown.",
+    )
+    .next()
+    .expect("error message instead of the empty state");
+}
+
+#[test]
+fn the_sidebar_shows_scan_progress_under_its_label() {
+    use vcmp_app::{LibraryState, ScanPhase};
+    let window = open_window();
+    let state = window.global::<LibraryState>();
+    state.set_phase(ScanPhase::Reading);
+    state.set_done(50);
+    state.set_total(100);
+
+    let label = ElementHandle::find_by_accessible_label(&window, "Scanning your music")
+        .next()
+        .expect("the scan label");
+    let bar = find(&window, AccessibleRole::ProgressIndicator, "Scan progress");
+    assert_eq!(bar.accessible_value().as_deref(), Some("50"));
+    assert!(
+        label.size().height < 40.0,
+        "the label is one line, not stretched over the sidebar: {:?}",
+        label.size()
+    );
+    let label_bottom = label.absolute_position().y + label.size().height;
+    let gap = bar.absolute_position().y - label_bottom;
+    assert!(
+        (0.0..=16.0).contains(&gap),
+        "the bar sits right under its label, not {gap} px below it"
+    );
 }

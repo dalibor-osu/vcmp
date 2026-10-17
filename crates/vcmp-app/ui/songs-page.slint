@@ -1,0 +1,380 @@
+import { Theme } from "theme.slint";
+import { FocusRing } from "components.slint";
+import { Glyph, Icon } from "icons.slint";
+import { PlayerState } from "player-state.slint";
+
+export enum SongColumn { title, artist, album, year, duration }
+
+// One track in the songs table.
+export struct SongRow {
+    title: string,
+    artist: string,
+    album: string,
+    // Empty when unknown.
+    year: string,
+    duration: string,
+    // File path, matched against the playing track.
+    path: string,
+}
+
+// A column header: sorts by its column, and shows the direction while it does.
+component ColumnHeader {
+    in property <string> text;
+    in property <bool> sorted;
+    in property <bool> descending;
+    in property <bool> right-aligned;
+    callback clicked();
+
+    min-height: Theme.target-height;
+    accessible-role: button;
+    accessible-label: !root.sorted ? @tr("Sort by {}", root.text)
+        : root.descending ? @tr("{}, sorted in reverse", root.text)
+        : @tr("{}, sorted", root.text);
+    accessible-action-default => {
+        root.clicked();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-s;
+        padding-right: Theme.space-s;
+        spacing: Theme.space-xs;
+        alignment: root.right-aligned ? end : start;
+
+        Text {
+            text: root.text;
+            color: root.sorted ? Theme.colors.text : Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            font-weight: root.sorted ? Theme.weight-strong : Theme.weight-regular;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: none;
+        }
+
+        if root.sorted: VerticalLayout {
+            alignment: center;
+
+            // Points down for A to Z (the list grows downward), up in reverse.
+            Icon {
+                width: 14px;
+                height: 14px;
+                glyph: Glyph.chevron-down;
+                tint: Theme.colors.text;
+                transform-rotation: root.descending ? 180deg : 0deg;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.clicked();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// The column widths, shared by the header and the rows so they line up. Zero
+// preferred widths make the text columns share space by stretch alone.
+component Columns inherits HorizontalLayout {
+    spacing: Theme.space-l;
+    padding-left: Theme.space-m;
+    padding-right: Theme.space-m;
+}
+
+// One row. A right click asks the table for the track's menu.
+component SongLine {
+    in property <SongRow> song;
+    in property <bool> playing;
+    in property <bool> focused;
+    callback clicked();
+    callback menu-requested(length, length);
+
+    height: Theme.target-height;
+    accessible-role: list-item;
+    accessible-label: root.song.artist == "" ? root.song.title : @tr("{0}, {1}", root.song.title, root.song.artist);
+    accessible-item-selected: root.focused;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.clicked();
+        }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                root.menu-requested(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+
+    Columns {
+        Text {
+            horizontal-stretch: 3;
+            preferred-width: 0;
+            text: root.song.title;
+            color: root.playing ? Theme.colors.accent : Theme.colors.text;
+            font-size: Theme.font-body;
+            font-weight: root.playing ? Theme.weight-strong : Theme.weight-regular;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: none;
+        }
+        Text {
+            horizontal-stretch: 2;
+            preferred-width: 0;
+            text: root.song.artist;
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: none;
+        }
+        Text {
+            horizontal-stretch: 2;
+            preferred-width: 0;
+            text: root.song.album;
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: none;
+        }
+        Text {
+            width: 56px;
+            text: root.song.year;
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-body;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+        Text {
+            width: 64px;
+            text: root.song.duration;
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-body;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+    }
+
+    if root.focused: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// Every track, in a table that only creates the rows in view. The headers sort; the
+// rows are one tab stop: arrow keys, Page Up/Down, Home/End move, Enter or Space
+// plays from there, and the Menu key (or a right click) opens the track's menu.
+export component SongTable {
+    in property <[SongRow]> songs;
+    in property <SongColumn> sort-column;
+    in property <bool> sort-descending;
+    callback sort(SongColumn);
+    // Plays every song in the table's order, from this one.
+    callback play(int);
+    // Puts a song into Up next: at its front (`next`), or at its end.
+    callback queue(int, bool);
+
+    private property <int> current: 0;
+    private property <length> row-height: Theme.target-height;
+    private property <int> first-row: max(0, floor(-flick.content-y / root.row-height));
+    private property <int> slot-count: ceil(flick.height / root.row-height) + 1;
+
+    function move-to(index: int) {
+        root.current = max(0, min(root.songs.length - 1, index));
+        let top = root.current * root.row-height;
+        if top < -flick.content-y {
+            flick.content-y = -top;
+        } else if top + root.row-height > -flick.content-y + flick.height {
+            flick.content-y = -(top + root.row-height - flick.height);
+        }
+    }
+
+    function show-menu(index: int, x: length, y: length) {
+        root.current = index;
+        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
+    }
+
+    changed songs => {
+        root.current = max(0, min(root.current, root.songs.length - 1));
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-xs;
+
+        Columns {
+            ColumnHeader {
+                horizontal-stretch: 3;
+                preferred-width: 0;
+                text: @tr("Title");
+                sorted: root.sort-column == SongColumn.title;
+                descending: root.sort-descending;
+                clicked => {
+                    root.sort(SongColumn.title);
+                }
+            }
+            ColumnHeader {
+                horizontal-stretch: 2;
+                preferred-width: 0;
+                text: @tr("Artist");
+                sorted: root.sort-column == SongColumn.artist;
+                descending: root.sort-descending;
+                clicked => {
+                    root.sort(SongColumn.artist);
+                }
+            }
+            ColumnHeader {
+                horizontal-stretch: 2;
+                preferred-width: 0;
+                text: @tr("Album");
+                sorted: root.sort-column == SongColumn.album;
+                descending: root.sort-descending;
+                clicked => {
+                    root.sort(SongColumn.album);
+                }
+            }
+            ColumnHeader {
+                width: 56px;
+                text: @tr("Year");
+                right-aligned: true;
+                sorted: root.sort-column == SongColumn.year;
+                descending: root.sort-descending;
+                clicked => {
+                    root.sort(SongColumn.year);
+                }
+            }
+            ColumnHeader {
+                width: 64px;
+                text: @tr("Time");
+                right-aligned: true;
+                sorted: root.sort-column == SongColumn.duration;
+                descending: root.sort-descending;
+                clicked => {
+                    root.sort(SongColumn.duration);
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.colors.surface;
+        }
+
+        menu := ContextMenuArea {
+            vertical-stretch: 1;
+
+            Menu {
+                MenuItem {
+                    title: @tr("Play now");
+                    activated => {
+                        root.play(root.current);
+                    }
+                }
+                MenuItem {
+                    title: @tr("Play next");
+                    activated => {
+                        root.queue(root.current, true);
+                    }
+                }
+                MenuItem {
+                    title: @tr("Add to queue");
+                    activated => {
+                        root.queue(root.current, false);
+                    }
+                }
+            }
+
+            list := FocusScope {
+                focus-on-click: false;
+                focus-on-tab-navigation: root.songs.length > 0;
+                accessible-role: AccessibleRole.list;
+                accessible-label: @tr("Songs");
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        Theme.keyboard-navigation = true;
+                    }
+                }
+                key-pressed(event) => {
+                    let page = max(1, root.slot-count - 2);
+                    if event.text == Key.DownArrow {
+                        root.move-to(root.current + 1);
+                    } else if event.text == Key.UpArrow {
+                        root.move-to(root.current - 1);
+                    } else if event.text == Key.PageDown {
+                        root.move-to(root.current + page);
+                    } else if event.text == Key.PageUp {
+                        root.move-to(root.current - page);
+                    } else if event.text == Key.Home {
+                        root.move-to(0);
+                    } else if event.text == Key.End {
+                        root.move-to(root.songs.length - 1);
+                    } else if event.text == Key.Return || event.text == Key.Space {
+                        root.play(root.current);
+                    } else {
+                        return reject;
+                    }
+                    accept
+                }
+
+                flick := Flickable {
+                    content-height: root.songs.length * root.row-height;
+
+                    for slot in root.slot-count: SongLine {
+                        property <int> index: root.first-row + slot;
+                        visible: self.index < root.songs.length;
+                        y: self.index * root.row-height;
+                        width: parent.width;
+                        song: root.songs[self.index];
+                        playing: self.song.path == PlayerState.track-path;
+                        focused: list.has-focus && self.index == root.current;
+                        clicked => {
+                            root.current = self.index;
+                            root.play(self.index);
+                        }
+                        menu-requested(x, y) => {
+                            root.show-menu(self.index, x, y);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

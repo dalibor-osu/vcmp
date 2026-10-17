@@ -5,8 +5,19 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same pull request (or branch) cancels the run it replaces.
+# Pushes to main always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
+  # Test binaries without debug info. With it, each took 400 to 660 MB, and the
+  # Linux runner's disk filled up until the linker crashed with a bus error. Panic
+  # messages still name the file and line.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_DEV_STRIP: debuginfo
 
 jobs:
   test:
@@ -14,7 +25,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Windows and macOS minutes cost two and ten times Linux ones on a private
+        # repository, so they run where code reaches main: pull requests into main
+        # and pushes to it. Pull requests between feature branches run on Linux.
+        os: ${{ fromJSON((github.event_name == 'push' || github.base_ref == 'main') && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

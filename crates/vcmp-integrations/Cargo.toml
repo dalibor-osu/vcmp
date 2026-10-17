@@ -6,3 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+
+[dependencies]
+discord-rich-presence = "1.1.0"
+log = "0.4.34"
+playwire = "2.0.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+unicode-normalization = "0.1.26"
+ureq = "3.4.2"
+url = "2.5.8"

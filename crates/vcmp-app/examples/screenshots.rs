@@ -4,6 +4,10 @@
 //! size; the smallest-size layout is covered by tests/ui_behaviour.rs instead.
 //!
 //!     cargo run -p vcmp-app --example screenshots
+//!
+//! With `VCMP_HOME` pointing at a library (for example `target/scan-example`), the
+//! shots show that library and its music folders; point it at an empty directory to
+//! see the empty states.
 
 use std::cell::Cell;
 use std::fs::File;
@@ -14,61 +18,93 @@ use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, SharedString, Timer, TimerMode};
+use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
+use vcmp_app::library_view::LibraryView;
+use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
 use vcmp_app::{AppWindow, Theme, ThemeMode};
+use vcmp_integrations::discord::Listening;
+use vcmp_integrations::musicbrainz::AlbumQuery;
+use vcmp_library::Library;
+use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, QueueView, TrackRef};
 
 struct Shot {
     name: &'static str,
     mode: ThemeMode,
+    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Songs, 4 Settings, 5 About.
     page: i32,
+    // Grid position of the album (or, on the Artists page, the artist) to open.
+    album: Option<i32>,
     // Tab presses before the frame, to show the keyboard focus ring. Focus carries
     // over between shots, so the count continues from the previous shot.
     tabs: usize,
 }
 
+const fn shot(
+    name: &'static str,
+    mode: ThemeMode,
+    page: i32,
+    album: Option<i32>,
+    tabs: usize,
+) -> Shot {
+    Shot {
+        name,
+        mode,
+        page,
+        album,
+        tabs,
+    }
+}
+
 const SHOTS: &[Shot] = &[
-    Shot {
-        name: "settings-light",
-        mode: ThemeMode::Light,
-        page: 0,
-        tabs: 0,
-    },
-    Shot {
-        name: "settings-dark",
-        mode: ThemeMode::Dark,
-        page: 0,
-        tabs: 0,
-    },
-    Shot {
-        name: "about-light",
-        mode: ThemeMode::Light,
-        page: 1,
-        tabs: 0,
-    },
-    Shot {
-        name: "about-dark",
-        mode: ThemeMode::Dark,
-        page: 1,
-        tabs: 0,
-    },
-    Shot {
-        name: "focus-nav-light",
-        mode: ThemeMode::Light,
-        page: 0,
-        tabs: 1,
-    },
-    Shot {
-        name: "focus-theme-dark",
-        mode: ThemeMode::Dark,
-        page: 0,
-        tabs: 2,
-    },
-    Shot {
-        name: "focus-switch-light",
-        mode: ThemeMode::Light,
-        page: 0,
-        tabs: 1,
-    },
+    // First, from the start: Search, Albums, Artists, Songs, Settings, About, then
+    // the grid.
+    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 7),
+    shot("albums-light", ThemeMode::Light, 1, None, 0),
+    shot("albums-dark", ThemeMode::Dark, 1, None, 0),
+    shot("album-light", ThemeMode::Light, 1, Some(ALBUM), 0),
+    shot("album-dark", ThemeMode::Dark, 1, Some(ALBUM), 0),
+    shot("artists-light", ThemeMode::Light, 2, None, 0),
+    shot("artists-dark", ThemeMode::Dark, 2, None, 0),
+    shot("artist-light", ThemeMode::Light, 2, Some(ARTIST), 0),
+    shot("artist-dark", ThemeMode::Dark, 2, Some(ARTIST), 0),
+    shot("search-light", ThemeMode::Light, 0, None, 0),
+    shot("search-dark", ThemeMode::Dark, 0, None, 0),
+    shot("songs-light", ThemeMode::Light, 3, None, 0),
+    shot("songs-dark", ThemeMode::Dark, 3, None, 0),
+    shot("settings-light", ThemeMode::Light, 4, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 4, None, 0),
+    shot("about-light", ThemeMode::Light, 5, None, 0),
+    shot("about-dark", ThemeMode::Dark, 5, None, 0),
+    shot("focus-nav-light", ThemeMode::Light, 4, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 4, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 4, None, 1),
 ];
+
+/// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
+/// another).
+const ARTIST: i32 = 0;
+
+/// Grid position of the album the album shots open (set `VCMP_SHOT_ALBUM` to pick
+/// another).
+const ALBUM: i32 = 0;
+
+/// Takes playback commands and plays nothing.
+struct Silent;
+
+impl PlayerControl for Silent {
+    fn send(&self, _: Command) {}
+}
+
+/// Shows nothing in Discord, so the shots never change the user's status.
+impl PresenceSink for Silent {
+    fn show(&self, _: Listening) {}
+    fn clear(&self) {}
+}
+
+/// Looks nothing up, so the shots send nothing to MusicBrainz.
+impl CoverSearch for Silent {
+    fn find(&self, _: vcmp_library::AlbumId, _: AlbumQuery) {}
+}
 
 fn press(window: &AppWindow, key: Key) {
     let text: SharedString = key.into();
@@ -84,6 +120,34 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     let theme = window.global::<Theme>();
     theme.set_mode(shot.mode);
     window.set_selected_index(shot.page);
+    if shot.page == 0 {
+        // Set `VCMP_SHOT_SEARCH` to search for something else.
+        let text = std::env::var("VCMP_SHOT_SEARCH").unwrap_or_else(|_| "ライブ".into());
+        window.set_search_text(text.clone().into());
+        window.invoke_search_edited(text.into());
+    }
+    match (shot.page, shot.album) {
+        (2, Some(index)) => {
+            let index = std::env::var("VCMP_SHOT_ARTIST")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(index);
+            window.invoke_artist_activated(index);
+        }
+        (_, Some(index)) => {
+            let index = std::env::var("VCMP_SHOT_ALBUM")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(index);
+            window.invoke_album_activated(index);
+        }
+        (_, None) => {
+            window.set_album_open(false);
+            window.set_artist_open(false);
+        }
+    }
+    // The album shots show the queue panel too.
+    window.set_queue_open(shot.album.is_some());
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
@@ -107,6 +171,63 @@ fn main() -> Result<(), slint::PlatformError> {
     std::fs::create_dir_all(&out_dir).expect("output directory");
 
     let window = vcmp_app::create_window()?;
+    // The same wiring as the app: the albums, plus music folders and scanning (an
+    // automatic-update library rescans at startup, as the app would). Playback goes
+    // to a silent stand-in, and the bar shows the shot album's first track as playing.
+    let _library = std::env::var_os("VCMP_HOME").map(|home| {
+        let home = PathBuf::from(home);
+        let paths = LibraryPaths {
+            database: home.join("library.sqlite3"),
+            cache: home.join("cache"),
+        };
+        let library = Rc::new(Library::open(&paths.database, &paths.cache).expect("library"));
+        let view = LibraryView::connect(&window, library.clone()).expect("albums");
+        let player = PlayerService::connect(
+            &window,
+            library.clone(),
+            view.clone(),
+            Box::new(Silent),
+            Some(Presence {
+                sink: Box::new(Silent),
+                covers: Box::new(Silent),
+            }),
+        );
+        let album_index = std::env::var("VCMP_SHOT_ALBUM")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        // Made-up devices, so the shots never list the real ones.
+        player.set_device_lister(|| {
+            Ok(vec![
+                "Built-in Audio Analog Stereo".into(),
+                "USB DAC".into(),
+            ])
+        });
+        if let Some(album) = view.browser().album(album_index)
+            && let tracks = library.album_tracks(album.id).expect("tracks")
+            && let Some(track) = tracks.first()
+        {
+            let entry = |track: &vcmp_library::Track| {
+                QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref()))
+            };
+            player.handle_event(Event::QueueChanged(QueueView {
+                up_next: tracks.iter().rev().take(1).map(entry).collect(),
+                upcoming: tracks.iter().skip(1).map(entry).collect(),
+                origin: Some(format!("album:{}", album.id.0)),
+                ..QueueView::default()
+            }));
+            player.handle_event(Event::TrackChanged(Some(NowPlaying {
+                entry: QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref())),
+                duration: Some(track.duration),
+            })));
+            player.handle_event(Event::StateChanged(PlaybackState::Playing));
+            player.handle_event(Event::Position(track.duration / 3));
+        }
+        (
+            LibraryService::connect(&window, library, paths, view, Delivery::EventLoop),
+            player,
+        )
+    });
     // Frames are taken without waiting for transitions to finish.
     window.global::<Theme>().set_reduced_motion(true);
 

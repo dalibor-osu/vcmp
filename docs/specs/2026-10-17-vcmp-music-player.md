@@ -45,6 +45,17 @@ Added after the spec was agreed, while setting the design direction: the author
 likes clean animations, and an option for reduced motion would be nice for users
 who dislike them. The visual direction itself lives in `docs/DESIGN.md`.
 
+Added later, during implementation: v1 should also have Discord Rich Presence. It
+should be fairly easy to implement. It is on by default for now; a future setup
+wizard that introduces the user to the app should mention it. The presence shows the
+album cover when the album is tagged; otherwise it should show the app logo, which
+does not exist yet, so for now it shows nothing.
+
+Added after that: the presence works, but most songs in the owner's library carry no
+MusicBrainz tag, so most albums showed no cover. Asked how to approach this, the
+owner chose an automatic MusicBrainz lookup, with a test on about 20 of their albums
+first.
+
 ## Decisions
 
 ### How should the spec scope the first release of VCMP?
@@ -275,6 +286,68 @@ who dislike them. The visual direction itself lives in `docs/DESIGN.md`.
 
 **Answer: Yes, add to v1 spec**
 
+### Discord Rich Presence (asked after agreement): on or off by default?
+
+| Option | What it means |
+|---|---|
+| Off, opt-in in Settings (Recommended) | Nothing about your listening leaves the machine until you switch it on. Respects privacy; fewer people discover the feature. |
+| On by default | Works out of the box for Discord users, like most players. Broadcasts what you play without being asked. |
+
+**Answer: "For now, make it on by default. It would be nice to add some kind of setup wizard in the future that would introduce the user to the app and mention this as well."**
+
+### Discord Rich Presence: which picture should the presence show?
+
+| Option | What it means |
+|---|---|
+| Album cover when tagged (Recommended) | Cover Art Archive URL for albums with a MusicBrainz release ID, else no picture. Discord fetches the image itself, so nothing is uploaded. |
+| No picture | Text only: track, artist, album and elapsed time. Simplest; looks plainer in Discord. |
+| Upload covers somewhere | Every album gets its cover shown. Needs an image host and sends your covers off the machine. |
+
+**Answer: "Let's go with cover when tagged and when not, it should show the app logo. Logo is non existent yet, so let's show nothing for now and add this later."**
+
+### Discord Rich Presence: where does the Discord application ID come from?
+
+| Option | What it means |
+|---|---|
+| Build it configurable (Recommended) | The ID comes from a build-time setting, like the Last.fm key; without it the feature is hidden. You create the app later in Discord's developer portal. |
+| I'll create it now | You create the 'VCMP' application at discord.com/developers and paste its Application ID here to put into the build. |
+
+**Answer: I'll create it now**
+
+### How should VCMP find covers for albums without a MusicBrainz ID? (asked during implementation)
+
+| Option | What it means |
+|---|---|
+| Auto MusicBrainz lookup (Recommended) | Look up the playing album once while Discord presence is on, cache the result, use Cover Art Archive. Covers most albums; sends album and artist names to MusicBrainz. |
+| Lookup on request | A 'Find on MusicBrainz' action on the album page; you confirm the match. Nothing leaves unasked; most albums stay coverless. |
+| Store catalogue (iTunes/Deezer) | Search a store for the cover URL directly. Very good mainstream coverage; their terms are not meant for this, and no ID for other features. |
+| Wait for tag editor | Leave it until tags can be fixed in VCMP. Cleanest data, slowest. |
+
+**Answer: Auto MusicBrainz lookup**
+
+### Before building it, may I test MusicBrainz matching on ~20 of your albums (sends their album and artist names to musicbrainz.org)?
+
+| Option | What it means |
+|---|---|
+| Yes, test first (Recommended) | Shows the real match rate on your collection before committing to the approach. |
+| No, just build it | Skip the measurement; nothing about your library is sent until the feature runs. |
+
+**Answer: Yes, test first.** The test drew 20 random albums without a MusicBrainz
+tag; 12 of them got a cover.
+
+### Which artists should the Artists page show? (asked during implementation)
+
+Asked with the owner's library as the example: 138 artists with their own albums,
+394 more who only appear in track credits on other artists' albums.
+
+| Option | What it means |
+|---|---|
+| Album artists + switch (Recommended) | Shows the 138 album artists by default; a switch on the page shows all 532. Clean grid, credits still browsable; one more control. |
+| Album artists only | Just the 138 with albums; credit-only artists are reached through search and album pages. Cleanest, but e.g. a character credit has no page. |
+| All artists | All 532 in one grid, each page listing the tracks they appear on. Complete, but compound credits like 'A, B, C, D' fill the grid. |
+
+**Answer: Album artists + switch**
+
 ## High-level plan
 
 v1 is one release with all core features. It is built in workstreams so that a
@@ -307,9 +380,9 @@ Depends on 2 and 3. This is the first point where VCMP is a usable player.
 followed by a re-read into the library. Depends on 2 and 4.
 
 **7. Integrations.** OS media controls (MPRIS / SMTC / MPNowPlaying), Last.fm
-scrobbling, artist photo search (MusicBrainz + fanart.tv) with a candidate picker,
-cover fetch (Cover Art Archive), update check. Depends on 3 (media controls,
-scrobbling) and 2/4 (artwork).
+scrobbling, Discord Rich Presence (with its MusicBrainz cover lookup), artist photo
+search (MusicBrainz + fanart.tv) with a candidate picker, cover fetch (Cover Art
+Archive), update check. Depends on 3 (media controls, scrobbling) and 2/4 (artwork).
 
 **8. Packaging and release.** Installers on GitHub Releases (MSI/exe, dmg, AppImage +
 .deb), code signing/notarization, build-time injection of API keys. It can start
@@ -388,9 +461,21 @@ reduced-motion setting (defaulting to the OS preference where the platform expos
 one) turns all motion off in one place. These rules are checked in code review or CI.
 
 **Network policy.** VCMP talks to the network only for things the user turned on
-(Last.fm, the update check, which can be disabled) or explicitly started (photo and
-cover search). MusicBrainz requests respect its 1 request/second limit and send an
-identifying User-Agent. The Last.fm key/secret and the fanart.tv key are injected at
+(Last.fm, the update check, which can be disabled, the Discord presence) or
+explicitly started (photo and cover search). MusicBrainz requests respect its 1
+request/second limit and send an identifying User-Agent.
+
+**Discord cover lookup.** While the Discord presence is on and Discord is running,
+VCMP looks up the playing album on MusicBrainz when its files carry no release ID,
+which sends the album title and album artist to musicbrainz.org. A match must agree
+on the normalised title and artist and have a high search score; a second try drops
+trailing edition notes such as "(Deluxe Edition)" and extra credited artists, and a
+last one searches release groups. The cover is the Cover Art Archive image of the
+release, or of its release group when the release has none. The result, found or
+not, is stored per album (by its grouping key, so it outlives rescans), so an album
+is looked up once; albums with no match are tried again after 30 days, and a failed
+request (offline, a server error) on a play at least ten minutes later. The found ID only picks the Discord picture: it does not
+change album grouping and is never written to files. The Last.fm key/secret and the fanart.tv key are injected at
 CI build time, never committed. Dev builds read them from the environment and turn
 the feature off when they are missing. The Last.fm session key is kept in the OS
 keyring, not in SQLite. Scrobbles are queued persistently and sent in batches when
@@ -414,6 +499,7 @@ dialog).
 | API keys shipped in binaries can be extracted and revoked | Low | Medium: Last.fm/fanart features break | Keys rotatable in CI; features degrade gracefully when a key is rejected |
 | Unsigned builds trigger SmartScreen/Gatekeeper warnings | High without certificates | Medium: trust and adoption | Decide on an Apple Developer account and a Windows signing certificate (open) |
 | librespot (future Spotify) is unofficial, Premium-only and may break or conflict with Spotify ToS | Medium | The v1 source seam may go unused | The seam is kept small; Spotify is a separate decision when it is planned |
+| The Discord cover lookup matches the wrong release, or finds nothing | Medium: 8 of 20 untagged albums in the owner's library found no cover | Low: a wrong or missing picture in Discord | Strict matching, so misses are more likely than wrong covers; tagging the files with a release ID always wins |
 | v1 scope is large (tag editor, 4 extra views, 3 OS integrations, web lookups) | High | Delayed release | Workstream order makes a usable player available by workstream 4; later workstreams can slip without blocking it |
 
 **Questions deliberately left open**
@@ -439,8 +525,12 @@ dialog).
 - ReplayGain/volume normalization and M3U import/export. Both were offered and not
   chosen for v1.
 - Online tag lookup (MusicBrainz autotagging) in the tag editor, and DB-only
-  metadata overrides.
+  metadata overrides. The Discord cover lookup is not tagging: its IDs stay in the
+  database and only pick the presence picture.
 - A self-updater, and Flatpak/winget/Homebrew distribution.
+- A first-run setup wizard (it would introduce the app and mention the Discord
+  presence), and the app logo in the Discord presence for untagged albums. Both are
+  planned for later.
 - UI languages other than English (the i18n layer is in v1, translations are not).
 - Formats beyond mp3, wav, flac and Ogg Vorbis. An equalizer/DSP, streaming
   services other than the future Spotify, network/DLNA sources, mobile platforms,

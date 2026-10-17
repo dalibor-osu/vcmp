@@ -1,0 +1,95 @@
+// What the UI knows about playback. Rust keeps the properties current from the
+// engine's events and implements the callbacks (src/player_service.rs).
+
+export enum PlayState { stopped, playing, paused }
+
+export enum Shuffle { off, on }
+
+// How shuffle picks tracks, chosen in Settings.
+export enum ShuffleKind { true-random, fewer-repeats }
+
+export enum Repeat { off, all, one }
+
+// The last playback problem; the UI words the sentence so it can be translated.
+export enum PlayerProblem { none, no-output, track-failed }
+
+// What the queue's context is: an album or artist (named in `queue-origin`), the
+// tracks a search found, or every song.
+export enum QueueSource { named, search, songs }
+
+// One track in the queue panel.
+export struct QueueRow {
+    title: string,
+    artist: string,
+    duration: string,
+}
+
+export global PlayerState {
+    in property <PlayState> state;
+    // A track is loaded (playing, paused, or stopped at its start).
+    in property <bool> has-track;
+    in property <string> title;
+    in property <string> artist;
+    in property <bool> has-cover;
+    in property <image> cover;
+    // First letter of the title, shown when there is no cover.
+    in property <string> initial;
+    // File path of the current track, to mark it in track lists.
+    in property <string> track-path;
+
+    in property <int> position-ms;
+    in property <int> duration-ms;
+    in property <string> position-text;
+    in property <string> duration-text;
+
+    // 0 to 1; kept while muted, to come back to.
+    in property <float> volume: 1;
+    in property <bool> muted;
+    in property <Shuffle> shuffle;
+    in property <ShuffleKind> shuffle-kind: ShuffleKind.fewer-repeats;
+    in property <Repeat> repeat;
+
+    // Discord Rich Presence: built with an application ID, and switched on.
+    in property <bool> discord-available;
+    in property <bool> discord: true;
+
+    in property <PlayerProblem> problem;
+    in property <string> problem-detail;
+
+    // The queue panel: Up next (played first), then what follows from the context,
+    // in play order. `queue-origin` names the context, such as its album title.
+    in property <[QueueRow]> up-next;
+    in property <[QueueRow]> upcoming;
+    in property <string> queue-origin;
+    in property <QueueSource> queue-source;
+
+    // Output devices by name, the chosen one included even while it is missing; the
+    // system default is not among them. `output-device` indexes the chosen one (-1
+    // for the default); `output-fallback` names the device playing instead while the
+    // chosen one is missing ("" otherwise).
+    in property <[string]> output-devices;
+    in property <int> output-device: -1;
+    in property <string> output-fallback;
+
+    callback toggle-play();
+    callback next();
+    callback previous();
+    callback seek(int);
+    // While the volume slider moves; `volume-committed` once it is let go.
+    callback volume-changed(float);
+    callback volume-committed(float);
+    callback toggle-mute();
+    callback set-shuffle(Shuffle);
+    callback set-shuffle-kind(ShuffleKind);
+    callback set-repeat(Repeat);
+    callback set-discord(bool);
+    // Plays a queue panel entry, counted over Up next followed by the context tracks.
+    callback play-queue-entry(int);
+    callback remove-from-up-next(int);
+    callback move-in-up-next(int, int);
+    callback clear-up-next();
+    // An index into `output-devices`, or -1 for the system default.
+    callback set-output-device(int);
+    // Lists the devices again; the answer arrives in `output-devices`.
+    callback refresh-output-devices();
+}

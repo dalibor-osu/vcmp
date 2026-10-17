@@ -5,7 +5,8 @@ use rusqlite::Connection;
 
 use crate::{Error, Result};
 
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -76,7 +77,46 @@ CREATE VIRTUAL TABLE album_search USING fts5(
     title, artist,
     tokenize = 'unicode61 remove_diacritics 2'
 );
-"#];
+"#,
+    r#"
+-- What an online lookup found for albums whose files carry no MusicBrainz release
+-- ID: a Cover Art Archive cover (its kind and MBID), or NULLs when nothing matched.
+-- Keyed by the album's group_key, which outlives album rows a scan removes and adds.
+CREATE TABLE cover_lookups (
+    group_key TEXT PRIMARY KEY,
+    cover_kind TEXT CHECK (cover_kind IN ('release', 'release-group')),
+    cover_mbid TEXT,
+    looked_up_ms INTEGER NOT NULL
+) STRICT;
+"#,
+    r#"
+-- Search finds any part of a name, not only word starts: titles in Japanese and
+-- Chinese have no spaces, so "ライブ" has to match inside "ラブライブ!". The
+-- trigram tokenizer indexes every three-character run, ignoring case and diacritics.
+DROP TABLE track_search;
+DROP TABLE artist_search;
+DROP TABLE album_search;
+CREATE VIRTUAL TABLE track_search USING fts5(
+    title, artist, album,
+    tokenize = 'trigram remove_diacritics 1'
+);
+CREATE VIRTUAL TABLE artist_search USING fts5(
+    name,
+    tokenize = 'trigram remove_diacritics 1'
+);
+CREATE VIRTUAL TABLE album_search USING fts5(
+    title, artist,
+    tokenize = 'trigram remove_diacritics 1'
+);
+INSERT INTO track_search (rowid, title, artist, album)
+    SELECT id, title, TRIM(IFNULL(artist, '') || ' ' || IFNULL(album_artist, '')), IFNULL(album, '')
+    FROM tracks;
+INSERT INTO artist_search (rowid, name) SELECT id, name FROM artists;
+INSERT INTO album_search (rowid, title, artist)
+    SELECT albums.id, albums.title, IFNULL(artists.name, '')
+    FROM albums LEFT JOIN artists ON artists.id = albums.artist_id;
+"#,
+];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;
 

@@ -1,0 +1,48 @@
+// What the UI knows about the music folders and scanning. Rust keeps the properties
+// current and implements the callbacks (src/library_service.rs).
+
+export struct SourceFolder {
+    id: int,
+    // Last component of the path, shown prominently.
+    name: string,
+    path: string,
+    recursive: bool,
+    // The directory exists right now (an unplugged drive does not).
+    reachable: bool,
+}
+
+export struct UnreadableFile {
+    path: string,
+    reason: string,
+}
+
+export enum ScanPhase { idle, discovering, reading, artwork }
+
+// What went wrong most recently; the UI words the sentence so it can be translated.
+export enum LibraryError { none, add-folder, change-folder, scan, settings }
+
+export global LibraryState {
+    in property <[SourceFolder]> folders;
+    in property <bool> auto-update: true;
+
+    in property <ScanPhase> phase: ScanPhase.idle;
+    // Progress within the phase; `total` is 0 while discovering.
+    in property <int> done;
+    in property <int> total;
+    out property <bool> scanning: self.phase != ScanPhase.idle;
+    out property <float> progress: self.total > 0 ? self.done / self.total : 0;
+
+    // Results of the last finished scan in this session.
+    in property <bool> scanned;
+    in property <int> track-count;
+    in property <[UnreadableFile]> unreadable;
+    // The last folder or scan error, and its technical detail from the system.
+    in property <LibraryError> error;
+    in property <string> error-detail;
+
+    callback add-folder();
+    callback remove-folder(int);
+    callback set-recursive(int, bool);
+    callback set-auto-update(bool);
+    callback rescan();
+}

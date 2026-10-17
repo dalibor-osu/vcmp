@@ -27,12 +27,15 @@ fn choices_are_saved_and_restored() {
     };
 
     let window = vcmp_app::create_window().unwrap();
+    // Shown, so the whole Settings page is laid out and its controls exist.
+    window.show().unwrap();
     preferences::connect(&window, Rc::new(open())).unwrap();
     assert_eq!(
         window.global::<Theme>().get_mode(),
         ThemeMode::System,
         "nothing saved yet"
     );
+    click(&window, AccessibleRole::Tab, "Settings");
     click(&window, AccessibleRole::RadioButton, "Dark");
     click(&window, AccessibleRole::Switch, "Reduce motion");
     drop(window);

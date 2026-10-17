@@ -1,0 +1,436 @@
+import { Theme } from "theme.slint";
+import { FocusRing, IconButton } from "components.slint";
+import { Glyph, Icon } from "icons.slint";
+import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle } from "player-state.slint";
+
+// The play/pause button: the focal point of the bar, filled with the accent.
+component PlayButton {
+    in property <bool> playing;
+    in property <bool> enabled;
+    callback clicked;
+
+    function press() {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    width: 48px;
+    height: 48px;
+    accessible-role: button;
+    accessible-label: root.playing ? @tr("Pause") : @tr("Play");
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        root.press();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: root.enabled ? Theme.colors.accent : Theme.colors.surface;
+    }
+
+    Icon {
+        width: 22px;
+        height: 22px;
+        glyph: root.playing ? Glyph.pause : Glyph.play;
+        tint: root.enabled ? Theme.colors.on-accent : Theme.colors.outline;
+    }
+
+    TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.press();
+        }
+    }
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.press();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: root.height / 2;
+    }
+}
+
+// A horizontal slider from 0 to 1. While dragged it follows the pointer and reports
+// `moved`; `released` gives the final value. Arrow keys step by `step`.
+export component Slider {
+    in property <float> value;
+    in property <string> label;
+    // Spoken value, e.g. "1:23 of 4:05".
+    in property <string> value-text;
+    in property <float> step: 0.05;
+    in property <bool> enabled: true;
+    // The fill is the accent for progress (something happening now), muted for a
+    // plain setting such as volume.
+    in property <bool> accent-fill: true;
+    callback moved(float);
+    callback released(float);
+
+    private property <bool> dragging: touch.pressed;
+    private property <float> drag-value;
+    private property <float> shown: self.dragging ? self.drag-value : clamp(self.value, 0, 1);
+
+    function set-from(x: length) {
+        root.drag-value = clamp(x / root.width, 0, 1);
+        root.moved(root.drag-value);
+    }
+    function step-by(delta: float) {
+        let next = clamp(root.value + delta, 0, 1);
+        root.moved(next);
+        root.released(next);
+    }
+
+    min-width: 64px;
+    height: Theme.target-height / 2;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: root.value-text;
+    accessible-enabled: root.enabled;
+    accessible-action-increment => {
+        root.step-by(root.step);
+    }
+    accessible-action-decrement => {
+        root.step-by(-root.step);
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.colors.surface;
+    }
+
+    Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: parent.width * root.shown;
+        height: 4px;
+        border-radius: 2px;
+        background: !root.enabled ? Theme.colors.outline : root.accent-fill ? Theme.colors.accent : Theme.colors.text-muted;
+    }
+
+    if root.enabled && (touch.has-hover || root.dragging || focus.has-focus): Rectangle {
+        x: parent.width * root.shown - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: Theme.colors.text;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                Theme.keyboard-navigation = false;
+                root.set-from(self.mouse-x);
+            } else if event.kind == PointerEventKind.up {
+                root.released(root.drag-value);
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.set-from(self.mouse-x);
+            }
+        }
+    }
+
+    focus := FocusScope {
+        enabled: root.enabled;
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.RightArrow {
+                root.step-by(root.step);
+            } else if event.text == Key.LeftArrow {
+                root.step-by(-root.step);
+            } else if event.text == Key.Home {
+                root.step-by(-1);
+            } else if event.text == Key.End {
+                root.step-by(1);
+            } else {
+                return reject;
+            }
+            accept
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// The bar along the bottom of the window: what is playing, the controls and the
+// volume.
+export component PlayerBar inherits Rectangle {
+    in-out property <bool> queue-open;
+
+    background: Theme.colors.mantle;
+    height: 88px;
+
+    // Separates the bar from the page above.
+    Rectangle {
+        y: 0;
+        height: 1px;
+        background: Theme.colors.surface;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-l;
+        padding-right: Theme.space-xl;
+        spacing: Theme.space-xl;
+
+        // What is playing.
+        HorizontalLayout {
+            min-width: 160px;
+            preferred-width: 280px;
+            horizontal-stretch: 1;
+            spacing: Theme.space-m;
+            alignment: start;
+
+            Rectangle {
+                width: 56px;
+                height: 56px;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-m;
+                clip: true;
+                background: Theme.colors.surface;
+
+                if PlayerState.has-cover: Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: PlayerState.cover;
+                    image-fit: ImageFit.cover;
+                    accessible-role: none;
+                }
+                if PlayerState.has-track && !PlayerState.has-cover: Text {
+                    text: PlayerState.initial;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-heading;
+                    font-weight: Theme.weight-strong;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                horizontal-stretch: 1;
+
+                Text {
+                    text: PlayerState.has-track ? PlayerState.title : @tr("Nothing playing");
+                    color: PlayerState.has-track ? Theme.colors.text : Theme.colors.text-muted;
+                    font-size: Theme.font-body;
+                    font-weight: PlayerState.has-track ? Theme.weight-strong : Theme.weight-regular;
+                    overflow: elide;
+                }
+
+                if PlayerState.has-track && PlayerState.artist != "": Text {
+                    text: PlayerState.artist;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    overflow: elide;
+                }
+
+                if PlayerState.problem != PlayerProblem.none: Text {
+                    text: PlayerState.problem == PlayerProblem.no-output ? @tr("No sound output: {}. Press play to try again.", PlayerState.problem-detail)
+                        : @tr("A track could not be played and was skipped: {}", PlayerState.problem-detail);
+                    color: Theme.colors.text;
+                    font-size: Theme.font-small;
+                    overflow: elide;
+                }
+            }
+        }
+
+        // Controls and the position in the track.
+        VerticalLayout {
+            min-width: 240px;
+            preferred-width: 520px;
+            horizontal-stretch: 2;
+            alignment: center;
+            spacing: 0px;
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: Theme.space-s;
+
+                VerticalLayout {
+                    alignment: center;
+
+                    IconButton {
+                        glyph: Glyph.shuffle;
+                        checkable: true;
+                        active: PlayerState.shuffle == Shuffle.on;
+                        label: @tr("Shuffle");
+                        clicked => {
+                            PlayerState.set-shuffle(PlayerState.shuffle == Shuffle.on ? Shuffle.off : Shuffle.on);
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+
+                    IconButton {
+                        glyph: Glyph.previous;
+                        label: @tr("Previous track");
+                        enabled: PlayerState.has-track;
+                        clicked => {
+                            PlayerState.previous();
+                        }
+                    }
+                }
+
+                PlayButton {
+                    playing: PlayerState.state == PlayState.playing;
+                    enabled: PlayerState.has-track;
+                    clicked => {
+                        PlayerState.toggle-play();
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+
+                    IconButton {
+                        glyph: Glyph.next;
+                        label: @tr("Next track");
+                        enabled: PlayerState.has-track;
+                        clicked => {
+                            PlayerState.next();
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+
+                    IconButton {
+                        glyph: PlayerState.repeat == Repeat.one ? Glyph.repeat-one : Glyph.repeat;
+                        checkable: true;
+                        active: PlayerState.repeat != Repeat.off;
+                        label: PlayerState.repeat == Repeat.one ? @tr("Repeat this track") : PlayerState.repeat == Repeat.all ? @tr("Repeat all") : @tr("Repeat");
+                        clicked => {
+                            PlayerState.set-repeat(PlayerState.repeat == Repeat.off ? Repeat.all : PlayerState.repeat == Repeat.all ? Repeat.one : Repeat.off);
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: Theme.space-s;
+
+                Text {
+                    width: 52px;
+                    text: PlayerState.position-text;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+
+                Slider {
+                    horizontal-stretch: 1;
+                    enabled: PlayerState.has-track && PlayerState.duration-ms > 0;
+                    value: PlayerState.duration-ms > 0 ? PlayerState.position-ms / PlayerState.duration-ms : 0;
+                    label: @tr("Position");
+                    value-text: @tr("{0} of {1}", PlayerState.position-text, PlayerState.duration-text);
+                    step: PlayerState.duration-ms > 0 ? 5000 / PlayerState.duration-ms : 0.05;
+                    released(fraction) => {
+                        PlayerState.seek(round(fraction * PlayerState.duration-ms));
+                    }
+                }
+
+                Text {
+                    width: 52px;
+                    text: PlayerState.duration-text;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+            }
+        }
+
+        // The queue panel's switch, and the volume.
+        HorizontalLayout {
+            min-width: 160px;
+            preferred-width: 240px;
+            horizontal-stretch: 1;
+            alignment: end;
+            spacing: Theme.space-s;
+
+            VerticalLayout {
+                alignment: center;
+
+                IconButton {
+                    glyph: Glyph.queue;
+                    checkable: true;
+                    active: root.queue-open;
+                    label: @tr("Queue");
+                    clicked => {
+                        root.queue-open = !root.queue-open;
+                        Theme.preferences-changed();
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+
+                IconButton {
+                    glyph: PlayerState.muted ? Glyph.muted : Glyph.volume;
+                    label: PlayerState.muted ? @tr("Unmute") : @tr("Mute");
+                    clicked => {
+                        PlayerState.toggle-mute();
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                max-width: 120px;
+
+                Slider {
+                    accent-fill: false;
+                    value: PlayerState.muted ? 0 : PlayerState.volume;
+                    label: @tr("Volume");
+                    value-text: PlayerState.muted ? @tr("Muted") : @tr("{}%", round(PlayerState.volume * 100));
+                    moved(volume) => {
+                        PlayerState.volume-changed(volume);
+                    }
+                    released(volume) => {
+                        PlayerState.volume-committed(volume);
+                    }
+                }
+            }
+        }
+    }
+}

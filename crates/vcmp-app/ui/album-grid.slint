@@ -1,0 +1,289 @@
+import { Theme } from "theme.slint";
+import { FocusRing } from "components.slint";
+
+export enum ArtworkState { none, loading, loaded }
+
+// A card in a grid: an album, or (with round covers) an artist, whose subtitle is
+// its number of albums, or tracks when it has no albums of its own.
+export struct AlbumTile {
+    id: int,
+    title: string,
+    artist: string,
+    album-count: int,
+    track-count: int,
+    // First letter of the title, shown while there is no cover.
+    initial: string,
+    artwork: ArtworkState,
+    cover: image,
+}
+
+export component AlbumCard {
+    in property <AlbumTile> album;
+    in property <length> cover-size;
+    // An artist: a round picture, and counts below the name.
+    in property <bool> round;
+    private property <string> subtitle: !root.round ? root.album.artist
+        : root.album.album-count > 0 ? @tr("{n} album" | "{n} albums" % root.album.album-count)
+        : @tr("{n} track" | "{n} tracks" % root.album.track-count);
+    // Drawn with a focus ring: the grid has keyboard focus and this is its current card.
+    in property <bool> focused;
+    callback clicked;
+
+    accessible-role: button;
+    accessible-item-selected: root.focused;
+    accessible-label: root.subtitle == "" ? root.album.title : @tr("{0}, {1}", root.album.title, root.subtitle);
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-s;
+        alignment: start;
+
+        Rectangle {
+            width: root.cover-size;
+            height: root.cover-size;
+            border-radius: root.round ? self.width / 2 : Theme.radius-m;
+            clip: true;
+            background: Theme.colors.surface;
+
+            if root.album.artwork == ArtworkState.none: Text {
+                text: root.album.initial;
+                color: Theme.colors.text-muted;
+                font-size: root.cover-size / 3;
+                font-weight: Theme.weight-strong;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+            if root.album.artwork == ArtworkState.loaded: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.album.cover;
+                image-fit: ImageFit.cover;
+                accessible-role: none;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            Text {
+                text: root.album.title;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                overflow: elide;
+                accessible-role: none;
+            }
+
+            Text {
+                text: root.subtitle;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+                accessible-role: none;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.clicked();
+        }
+    }
+
+    if root.focused: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// A grid of album covers that only creates cards for the rows in view. The owner
+// loads covers for the range reported through `visible-range-changed`. The grid is
+// one tab stop: arrow keys, Home/End and Page Up/Down move the current card, Enter or
+// Space opens it.
+export component AlbumGrid {
+    in property <[AlbumTile]> albums;
+    // Artists rather than albums: round pictures, counts as subtitles.
+    in property <bool> round;
+    // The keyboard's current card.
+    in-out property <int> current: 0;
+    callback visible-range-changed(int, int);
+    callback activated(int);
+
+    // Makes `index` the current card, scrolls it into view and focuses the grid.
+    public function focus-album(index: int) {
+        root.move-to(index);
+        focus.focus();
+    }
+
+    function move-to(index: int) {
+        root.current = max(0, min(root.albums.length - 1, index));
+        let top = root.edge + floor(root.current / root.columns) * root.row-height;
+        let bottom = top + root.row-height - root.gap + root.edge;
+        if top - root.edge < -flick.content-y {
+            flick.content-y = -(top - root.edge);
+        } else if bottom > -flick.content-y + flick.height {
+            flick.content-y = -(bottom - flick.height);
+        }
+    }
+
+    private property <length> edge: Theme.space-xxl;
+    private property <length> gap: Theme.space-xl;
+    private property <length> min-tile: 160px;
+    private property <length> text-height: 44px;
+    private property <int> columns: max(1, floor((self.width - 2 * self.edge + self.gap) / (self.min-tile + self.gap)));
+    private property <length> tile-width: (self.width - 2 * self.edge - (self.columns - 1) * self.gap) / self.columns;
+    private property <length> row-height: self.tile-width + Theme.space-s + self.text-height + self.gap;
+    private property <int> rows: ceil(self.albums.length / self.columns);
+    private property <int> first-row: max(0, floor((-flick.content-y - self.edge) / self.row-height));
+    private property <int> visible-rows: ceil(self.height / self.row-height) + 1;
+    private property <int> first-index: self.first-row * self.columns;
+    private property <int> slot-count: self.visible-rows * self.columns;
+
+    changed first-index => {
+        root.visible-range-changed(self.first-index, self.slot-count);
+    }
+    changed slot-count => {
+        root.visible-range-changed(self.first-index, self.slot-count);
+    }
+    init => {
+        root.visible-range-changed(self.first-index, self.slot-count);
+    }
+
+    accessible-role: list;
+    forward-focus: focus;
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            let page = root.columns * max(1, root.visible-rows - 2);
+            if event.text == Key.RightArrow {
+                root.move-to(root.current + 1);
+            } else if event.text == Key.LeftArrow {
+                root.move-to(root.current - 1);
+            } else if event.text == Key.DownArrow {
+                root.move-to(root.current + root.columns);
+            } else if event.text == Key.UpArrow {
+                root.move-to(root.current - root.columns);
+            } else if event.text == Key.PageDown {
+                root.move-to(root.current + page);
+            } else if event.text == Key.PageUp {
+                root.move-to(root.current - page);
+            } else if event.text == Key.Home {
+                root.move-to(0);
+            } else if event.text == Key.End {
+                root.move-to(root.albums.length - 1);
+            } else if event.text == Key.Return || event.text == Key.Space {
+                root.activated(root.current);
+            } else {
+                return reject;
+            }
+            accept
+        }
+    }
+
+    flick := Flickable {
+        content-height: root.rows * root.row-height + 2 * root.edge;
+
+        for slot in root.slot-count: AlbumCard {
+            property <int> index: root.first-index + slot;
+            visible: self.index < root.albums.length;
+            x: root.edge + mod(self.index, root.columns) * (root.tile-width + root.gap);
+            y: root.edge + floor(self.index / root.columns) * root.row-height;
+            width: root.tile-width;
+            cover-size: root.tile-width;
+            round: root.round;
+            album: root.albums[self.index];
+            focused: focus.has-focus && self.index == root.current;
+            clicked => {
+                root.current = self.index;
+                root.activated(self.index);
+            }
+        }
+    }
+}
+
+// A grid that is as tall as its cards, for a few cards inside a scrolling page (an
+// artist's albums). `available-width` comes from the page, so the height can follow
+// it without a layout loop. One tab stop: arrow keys, Home/End, Enter or Space.
+export component CardGrid {
+    in property <[AlbumTile]> tiles;
+    // Artists rather than albums.
+    in property <bool> round;
+    in property <length> available-width;
+    in property <string> label;
+    in-out property <int> current: 0;
+    callback activated(int);
+
+    // Makes `index` the current card and focuses the grid.
+    public function focus-card(index: int) {
+        root.current = max(0, min(root.tiles.length - 1, index));
+        focus.focus();
+    }
+
+    private property <length> gap: Theme.space-xl;
+    private property <length> min-tile: 160px;
+    private property <length> text-height: 44px;
+    private property <int> columns: max(1, floor((root.available-width + root.gap) / (root.min-tile + root.gap)));
+    private property <length> tile-width: (root.available-width - (root.columns - 1) * root.gap) / root.columns;
+    private property <length> row-height: root.tile-width + Theme.space-s + root.text-height + root.gap;
+
+    width: root.available-width;
+    height: max(0px, ceil(root.tiles.length / root.columns) * root.row-height - root.gap);
+    accessible-role: list;
+    accessible-label: root.label;
+    forward-focus: focus;
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            let last = root.tiles.length - 1;
+            if event.text == Key.RightArrow {
+                root.current = min(last, root.current + 1);
+            } else if event.text == Key.LeftArrow {
+                root.current = max(0, root.current - 1);
+            } else if event.text == Key.DownArrow {
+                root.current = min(last, root.current + root.columns);
+            } else if event.text == Key.UpArrow {
+                root.current = max(0, root.current - root.columns);
+            } else if event.text == Key.Home {
+                root.current = 0;
+            } else if event.text == Key.End {
+                root.current = last;
+            } else if event.text == Key.Return || event.text == Key.Space {
+                root.activated(root.current);
+            } else {
+                return reject;
+            }
+            accept
+        }
+    }
+
+    for tile[index] in root.tiles: AlbumCard {
+        x: mod(index, root.columns) * (root.tile-width + root.gap);
+        y: floor(index / root.columns) * root.row-height;
+        width: root.tile-width;
+        cover-size: root.tile-width;
+        round: root.round;
+        album: tile;
+        focused: focus.has-focus && index == root.current;
+        clicked => {
+            root.current = index;
+            root.activated(index);
+        }
+    }
+}

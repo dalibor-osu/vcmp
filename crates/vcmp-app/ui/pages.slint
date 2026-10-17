@@ -1,6 +1,13 @@
-import { AboutSlint, Palette } from "std-widgets.slint";
+import { AboutSlint, Palette, ScrollView } from "std-widgets.slint";
 import { Theme, ThemeMode } from "theme.slint";
-import { FocusRing, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { Button, Dropdown, FocusRing, SearchField, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { LibraryState } from "library-state.slint";
+import { LibrarySection } from "library-settings.slint";
+import { PlayerState, ShuffleKind } from "player-state.slint";
+import { AlbumGrid, AlbumTile, CardGrid } from "album-grid.slint";
+import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
+import { ArtistDetail, ArtistView } from "artist-page.slint";
+import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -26,14 +33,92 @@ component Page inherits VerticalLayout {
     @children
 }
 
-component SectionHeading inherits Text {
-    color: Theme.colors.text;
-    font-size: Theme.font-heading;
-    font-weight: Theme.weight-strong;
-}
 
 export component SettingsPage inherits Page {
     title: @tr("Settings");
+
+    // Devices come and go; list them each time the page opens.
+    init => {
+        PlayerState.refresh-output-devices();
+    }
+
+    LibrarySection {
+        max-width: Theme.content-max-width;
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-xs;
+        max-width: Theme.content-max-width;
+
+        SettingRow {
+            title: @tr("Update automatically");
+            description: @tr("Scan the music folders when VCMP starts, and whenever their contents change.");
+
+            Toggle {
+                label: @tr("Update automatically");
+                checked: LibraryState.auto-update;
+                toggled(on) => {
+                    LibraryState.set-auto-update(on);
+                }
+            }
+        }
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-xs;
+        max-width: Theme.content-max-width;
+
+        SectionHeading {
+            text: @tr("Playback");
+        }
+
+        SettingRow {
+            title: @tr("Shuffle");
+            description: @tr("Fewer repeats plays every track once before any comes back, and keeps the same artist apart. Fully random may play a track again soon.");
+
+            SegmentedChoice {
+                label: @tr("Shuffle");
+                segment-min: 128px;
+                options: [@tr("Fewer repeats"), @tr("Fully random")];
+                current-index: PlayerState.shuffle-kind == ShuffleKind.true-random ? 1 : 0;
+                selected(index) => {
+                    PlayerState.set-shuffle-kind(index == 1 ? ShuffleKind.true-random : ShuffleKind.fewer-repeats);
+                }
+            }
+        }
+
+        SettingRow {
+            title: @tr("Output device");
+            description: PlayerState.output-fallback != "" ? @tr("The chosen device isn't connected, so sound plays through {} until it is.", PlayerState.output-fallback)
+                : @tr("Where VCMP plays its sound. The system default follows your operating system's choice.");
+
+            Dropdown {
+                label: @tr("Output device");
+                first-option: @tr("System default");
+                options: PlayerState.output-devices;
+                current-index: PlayerState.output-device;
+                selected(index) => {
+                    PlayerState.set-output-device(index);
+                }
+                opening => {
+                    PlayerState.refresh-output-devices();
+                }
+            }
+        }
+
+        if PlayerState.discord-available: SettingRow {
+            title: @tr("Show on Discord");
+            description: @tr("While Discord runs, your status shows the track you're listening to and its album cover. For albums without a MusicBrainz ID, the cover is looked up on musicbrainz.org, which receives the album title and artist.");
+
+            Toggle {
+                label: @tr("Show on Discord");
+                checked: PlayerState.discord;
+                toggled(on) => {
+                    PlayerState.set-discord(on);
+                }
+            }
+        }
+    }
 
     VerticalLayout {
         spacing: Theme.space-xs;
@@ -137,6 +222,11 @@ export component AboutPage inherits Page {
 
             link-focus := FocusScope {
                 focus-on-click: false;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        Theme.keyboard-navigation = true;
+                    }
+                }
                 key-pressed(event) => {
                     if event.text == Key.Space || event.text == Key.Return {
                         Platform.open-url("https://slint.dev");
@@ -153,4 +243,533 @@ export component AboutPage inherits Page {
             }
         }
     }
+}
+
+// Fades a page in that stays alive while hidden: created each time the page is
+// shown, it starts in the page background colour and turns transparent.
+component FadeCurtain inherits Rectangle {
+    background: Theme.colors.base;
+    opacity: 1;
+    init => {
+        self.opacity = 0;
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+}
+
+export component AlbumsPage inherits Rectangle {
+    in property <[AlbumTile]> albums;
+    in property <AlbumDetail> album;
+    in property <[TrackRow]> tracks;
+    in property <bool> multi-disc;
+    // The page is selected in the sidebar. It stays alive while hidden, so the grid
+    // keeps its scroll position.
+    in property <bool> shown;
+    // Showing one album instead of the grid.
+    in-out property <bool> album-open;
+    // The open album came from search, so going back returns there.
+    in property <bool> from-search;
+    callback back-to-search();
+    // Plays the open album from a track (-1: from its start), shuffled or not.
+    callback play-album(int, bool);
+    callback queue-album-track(int, bool);
+    // The library database could not be opened or read.
+    in property <bool> library-failed;
+    callback range-changed(int, int);
+    callback activated(int);
+
+    // Shows the grid again, with the album that was open as its current card.
+    public function close-album() {
+        root.album-open = false;
+        grid.focus-album(grid.current);
+    }
+
+    changed album-open => {
+        if self.album-open {
+            view.focus-back();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        visible: !root.album-open;
+
+        HorizontalLayout {
+            padding-left: Theme.space-xxl;
+            padding-right: Theme.space-xxl;
+            padding-top: Theme.space-xxl;
+
+            Text {
+                text: @tr("Albums");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+            }
+        }
+
+        // Empty states: why there is nothing to show, and what fills the page.
+        if root.albums.length == 0: VerticalLayout {
+            padding: Theme.space-xxl;
+            spacing: Theme.space-l;
+            alignment: start;
+
+            Text {
+                text: root.library-failed ? @tr("The music library could not be opened, so no albums can be shown.")
+                    : LibraryState.scanning ? @tr("Looking for albums in your music folders. They appear here as they are found.")
+                    : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in, and VCMP finds your albums.")
+                    : @tr("No albums found in your music folders. Tracks without an album tag don't appear here.");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                max-width: Theme.content-max-width;
+            }
+
+            if !root.library-failed && !LibraryState.scanning && LibraryState.folders.length == 0: HorizontalLayout {
+                alignment: start;
+
+                Button {
+                    text: @tr("Add music folder…");
+                    primary: true;
+                    clicked => {
+                        LibraryState.add-folder();
+                    }
+                }
+            }
+        }
+
+        // Kept while an album is open, so its scroll position survives.
+        grid := AlbumGrid {
+            visible: root.albums.length > 0;
+            vertical-stretch: 1;
+            albums: root.albums;
+            visible-range-changed(first, count) => {
+                root.range-changed(first, count);
+            }
+            activated(index) => {
+                root.activated(index);
+            }
+        }
+    }
+
+    view := AlbumView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.album-open;
+        playing-path: PlayerState.track-path;
+        play(start, shuffle) => {
+            root.play-album(start, shuffle);
+        }
+        queue-track(index, next) => {
+            root.queue-album-track(index, next);
+        }
+        album: root.album;
+        tracks: root.tracks;
+        multi-disc: root.multi-disc;
+        back-label: root.from-search ? @tr("Search") : @tr("Albums");
+        back => {
+            if root.from-search {
+                root.back-to-search();
+            } else {
+                root.close-album();
+            }
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
+// The artists: a grid of album artists, or of everyone credited on a track. Choosing
+// one shows the artist; an album chosen there opens in this page too, so going back
+// returns to the artist.
+export component ArtistsPage inherits Rectangle {
+    in property <[AlbumTile]> artists;
+    // Everyone credited on a track, rather than album artists only.
+    in-out property <bool> show-all;
+    in property <bool> shown;
+    in property <bool> library-failed;
+    in-out property <bool> artist-open;
+    // An album opened from the artist's page.
+    in-out property <bool> album-open;
+    // The open artist came from search, so going back returns there.
+    in property <bool> from-search;
+    callback back-to-search();
+    in property <ArtistDetail> artist;
+    in property <[AlbumTile]> artist-albums;
+    in property <[TrackRow]> appearances;
+    in property <AlbumDetail> album;
+    in property <[TrackRow]> tracks;
+    in property <bool> multi-disc;
+    callback activated(int);
+    // The artist grid's cards in view changed: first index and how many fit.
+    callback range-changed(int, int);
+    callback filter-changed();
+    callback album-activated(int);
+    callback play-artist(bool);
+    callback play-appearance(int);
+    callback queue-appearance(int, bool);
+    callback play-album(int, bool);
+    callback queue-album-track(int, bool);
+
+    // Leaves an open artist or album for the grid.
+    public function show-grid() {
+        root.album-open = false;
+        root.close-artist();
+    }
+
+    // Shows the grid again, with the artist that was open as its current card.
+    public function close-artist() {
+        root.artist-open = false;
+        grid.focus-album(grid.current);
+    }
+
+    // Shows the artist again, with the album that was open as the current card.
+    public function close-album() {
+        root.album-open = false;
+        artist-view.focus-album(root.album-index);
+    }
+
+    private property <int> album-index: 0;
+
+    changed artist-open => {
+        if self.artist-open {
+            artist-view.focus-back();
+        }
+    }
+    changed album-open => {
+        if self.album-open {
+            album-view.focus-back();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        visible: !root.artist-open && !root.album-open;
+
+        HorizontalLayout {
+            padding-left: Theme.space-xxl;
+            padding-right: Theme.space-xxl;
+            padding-top: Theme.space-xxl;
+            spacing: Theme.space-xl;
+
+            Text {
+                text: @tr("Artists");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            SegmentedChoice {
+                label: @tr("Artists shown");
+                segment-min: 120px;
+                options: [@tr("Album artists"), @tr("All artists")];
+                current-index: root.show-all ? 1 : 0;
+                selected(index) => {
+                    root.show-all = index == 1;
+                    root.filter-changed();
+                    Theme.preferences-changed();
+                }
+            }
+        }
+
+        if root.artists.length == 0: VerticalLayout {
+            padding: Theme.space-xxl;
+            alignment: start;
+
+            Text {
+                text: root.library-failed ? @tr("The music library could not be opened, so no artists can be shown.")
+                    : LibraryState.scanning ? @tr("Looking for artists in your music folders. They appear here as they are found.")
+                    : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in in Settings, and VCMP finds your artists.")
+                    : root.show-all ? @tr("No artists found in your music folders.")
+                    : @tr("No album artists found. Choose All artists to see everyone credited on a track.");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                max-width: Theme.content-max-width;
+            }
+        }
+
+        // Kept while an artist is open, so its scroll position survives.
+        grid := AlbumGrid {
+            visible: root.artists.length > 0;
+            vertical-stretch: 1;
+            round: true;
+            albums: root.artists;
+            visible-range-changed(first, count) => {
+                root.range-changed(first, count);
+            }
+            activated(index) => {
+                root.activated(index);
+            }
+        }
+    }
+
+    artist-view := ArtistView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.artist-open && !root.album-open;
+        artist: root.artist;
+        albums: root.artist-albums;
+        appearances: root.appearances;
+        back-label: root.from-search ? @tr("Search") : @tr("Artists");
+        back => {
+            if root.from-search {
+                root.back-to-search();
+            } else {
+                root.close-artist();
+            }
+        }
+        album-activated(index) => {
+            root.album-index = index;
+            root.album-activated(index);
+        }
+        play(shuffle) => {
+            root.play-artist(shuffle);
+        }
+        play-appearance(index) => {
+            root.play-appearance(index);
+        }
+        queue-appearance(index, next) => {
+            root.queue-appearance(index, next);
+        }
+    }
+
+    album-view := AlbumView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.album-open;
+        back-label: root.artist.name;
+        playing-path: PlayerState.track-path;
+        album: root.album;
+        tracks: root.tracks;
+        multi-disc: root.multi-disc;
+        play(start, shuffle) => {
+            root.play-album(start, shuffle);
+        }
+        queue-track(index, next) => {
+            root.queue-album-track(index, next);
+        }
+        back => {
+            root.close-album();
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
+// Search over the whole library: artists, albums and tracks whose names contain the
+// typed words (any part of a name, in any script). The page stays alive while
+// hidden, so the search and its results are still there when the user comes back.
+export component SearchPage inherits Rectangle {
+    in property <bool> shown;
+    in-out property <string> text;
+    in property <[AlbumTile]> artists;
+    in property <[AlbumTile]> albums;
+    in property <[TrackRow]> tracks;
+    callback edited(string);
+    callback artist-activated(int);
+    callback album-activated(int);
+    callback play-track(int);
+    callback queue-track(int, bool);
+
+    public function focus-field() {
+        field.focus-text();
+    }
+
+    private property <bool> found: root.artists.length + root.albums.length + root.tracks.length > 0;
+
+    // Scrolls so the row at window y `top` with `height` is inside the view.
+    function ensure-visible(top: length, height: length) {
+        let view-top = scroll.absolute-position.y;
+        let view-bottom = view-top + scroll.visible-height;
+        if top < view-top {
+            scroll.content-y = min(0px, scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            scroll.content-y = scroll.content-y - (top + height - view-bottom);
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        padding: Theme.space-xxl;
+        padding-bottom: 0;
+        spacing: Theme.space-xl;
+
+        Text {
+            text: @tr("Search");
+            color: Theme.colors.text;
+            font-size: Theme.font-title;
+            font-weight: Theme.weight-strong;
+        }
+
+        field := SearchField {
+            max-width: Theme.content-max-width;
+            label: @tr("Search");
+            placeholder: @tr("Artists, albums and tracks");
+            text <=> root.text;
+            edited(text) => {
+                root.edited(text);
+            }
+        }
+
+        scroll := ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                padding-bottom: Theme.space-xxl;
+                spacing: Theme.space-l;
+                alignment: start;
+
+                if root.text == "": Text {
+                    text: @tr("Finds artists, albums and tracks by any part of their names, in any language.");
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    max-width: Theme.content-max-width;
+                }
+
+                if root.text != "" && !root.found: Text {
+                    text: @tr("Nothing in your library matches “{}”.", root.text);
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    max-width: Theme.content-max-width;
+                }
+
+                if root.artists.length > 0: SectionHeading {
+                    text: @tr("Artists");
+                }
+                if root.artists.length > 0: CardGrid {
+                    tiles: root.artists;
+                    round: true;
+                    label: @tr("Artists");
+                    available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
+                    activated(index) => {
+                        root.artist-activated(index);
+                    }
+                }
+
+                if root.albums.length > 0: SectionHeading {
+                    text: @tr("Albums");
+                }
+                if root.albums.length > 0: CardGrid {
+                    tiles: root.albums;
+                    label: @tr("Albums");
+                    available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
+                    activated(index) => {
+                        root.album-activated(index);
+                    }
+                }
+
+                if root.tracks.length > 0: SectionHeading {
+                    text: @tr("Tracks");
+                }
+                TrackList {
+                    max-width: Theme.content-max-width;
+                    label: @tr("Tracks");
+                    tracks: root.tracks;
+                    playing-path: PlayerState.track-path;
+                    play(index) => {
+                        root.play-track(index);
+                    }
+                    queue(index, next) => {
+                        root.queue-track(index, next);
+                    }
+                    shown-focused(top, height) => {
+                        root.ensure-visible(top, height);
+                    }
+                }
+            }
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
+// Every track in a sortable table. The tracks are loaded the first time the page
+// is shown, so a large library does not slow the start.
+export component SongsPage inherits Rectangle {
+    in property <bool> shown;
+    in property <[SongRow]> songs;
+    in property <SongColumn> sort-column;
+    in property <bool> sort-descending;
+    in property <bool> library-failed;
+    // The page is shown and wants its tracks.
+    callback needed();
+    callback sort(SongColumn);
+    callback play(int);
+    callback queue(int, bool);
+
+    changed shown => {
+        if self.shown {
+            root.needed();
+        }
+    }
+    init => {
+        if self.shown {
+            root.needed();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        padding: Theme.space-xxl;
+        padding-bottom: 0;
+        spacing: Theme.space-xl;
+
+        HorizontalLayout {
+            spacing: Theme.space-l;
+            alignment: start;
+
+            Text {
+                text: @tr("Songs");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+            }
+            if root.songs.length > 0: Text {
+                text: @tr("{n} song" | "{n} songs" % root.songs.length);
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.songs.length == 0: Text {
+            text: root.library-failed ? @tr("The music library could not be opened, so no songs can be shown.")
+                : LibraryState.scanning ? @tr("Looking for songs in your music folders. They appear here as they are found.")
+                : @tr("No songs yet. Add the folder your music is in in Settings.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            max-width: Theme.content-max-width;
+        }
+
+        SongTable {
+            vertical-stretch: 1;
+            visible: root.songs.length > 0;
+            songs: root.songs;
+            sort-column: root.sort-column;
+            sort-descending: root.sort-descending;
+            sort(column) => {
+                root.sort(column);
+            }
+            play(index) => {
+                root.play(index);
+            }
+            queue(index, next) => {
+                root.queue(index, next);
+            }
+        }
+    }
+
+    if root.shown: FadeCurtain { }
 }
