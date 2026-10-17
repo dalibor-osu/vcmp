@@ -16,6 +16,8 @@ pub enum Error {
         "the database was written by a newer VCMP (schema {found}, this build knows {supported})"
     )]
     SchemaTooNew { found: i64, supported: i64 },
+    #[error("invalid tag edit: {0}")]
+    InvalidTagEdit(#[from] crate::edit::InvalidTagEdit),
     #[error("file watcher: {0}")]
     Watch(#[from] notify::Error),
 }

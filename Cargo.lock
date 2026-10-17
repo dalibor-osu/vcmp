@@ -5755,6 +5755,7 @@ dependencies = [
  "lofty",
  "log",
  "notify",
+ "ogg_pager",
  "rusqlite",
  "tempfile",
  "thiserror 2.0.21",

@@ -11,6 +11,8 @@ Early development. In place so far:
   About pages;
 - the library core: source directories, scanning with tag reading, album and artist
   grouping, moved-file re-linking, artwork caching, search and a file watcher;
+- tag writing in the library core (single and batch, with embedded covers, through a
+  verified copy of each file); the tag editor UI is still to come;
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
   pages with tracks by disc;
 - music folders in Settings: add and remove folders, scans in the background with

@@ -57,7 +57,7 @@ impl Format {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TrackTags {
     pub title: Option<String>,
     pub artist: Option<String>,
