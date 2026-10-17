@@ -14,6 +14,7 @@ crate.
 | Thumbnails | cache directory, `thumbnails/<hash>.jpg`, longest side 400 px |
 | Playlist pictures made from covers | cache directory, `mosaics/<hash>.jpg`, 400 px |
 | Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px |
+| Artist photos the owner chose | data directory, `images/artists/<hash>.jpg`, longest side 800 px |
 
 Covers fetched online (see [Covers fetched online](#covers-fetched-online)) are cached
 the same way.
@@ -30,7 +31,7 @@ path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 7, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 8, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -47,6 +48,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `fetched_covers` | Covers the user fetched for albums whose files have no art: the cached image's key, the Cover Art Archive release or release group it came from, and when, keyed by the album's group key (version 5) |
 | `scrobble_queue` | Plays waiting to be sent to Last.fm: artist, title, album, album artist, track number, length and when the play started, oldest first (version 6). They copy the tags rather than reference tracks, so a rescan or tag edit can't change what was listened to |
 | `folder_art` | Each music folder's cover images (`cover.jpg` and the like) as a fingerprint of their names, sizes and modification times, so a scan notices one added, replaced or removed (version 7) |
+| `artist_photos` | The photo chosen for an artist: the file under `images/artists/`, the web address it came from (NULL for a file of the owner's) and when. Keyed by the artist's name, ignoring case, so it outlives artist rows a scan removes and adds (version 8) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.

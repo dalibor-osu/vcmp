@@ -28,7 +28,8 @@ use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
     AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
-    LastfmStatus, PlayerState, ReduceMotion, TagEditorState, Theme, ThemeMode, UpdateState,
+    LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, TagEditorState, Theme,
+    ThemeMode, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -58,6 +59,8 @@ struct Shot {
     cover_picker: bool,
     // The tag editor is open for the album (a library is needed).
     tags: bool,
+    // The artist photo picker is open, with stand-in photos.
+    photo_picker: bool,
 }
 
 const fn shot(
@@ -78,6 +81,14 @@ const fn shot(
         update: false,
         cover_picker: false,
         tags: false,
+        photo_picker: false,
+    }
+}
+
+const fn photo_picker(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        photo_picker: true,
+        ..shot(name, mode, 2, None, 0)
     }
 }
 
@@ -143,6 +154,8 @@ const SHOTS: &[Shot] = &[
     now_playing("now-playing-dark", ThemeMode::Dark),
     cover_picker("cover-picker-light", ThemeMode::Light),
     cover_picker("cover-picker-dark", ThemeMode::Dark),
+    photo_picker("photo-picker-light", ThemeMode::Light),
+    photo_picker("photo-picker-dark", ThemeMode::Dark),
     tags("tags-light", ThemeMode::Light),
     tags("tags-dark", ThemeMode::Dark),
     shot("settings-light", ThemeMode::Light, 6, None, 0),
@@ -234,6 +247,10 @@ fn prepare(window: &AppWindow, shot: &Shot) {
         show_cover_picker(window);
     }
     window.global::<CoverPicker>().set_open(shot.cover_picker);
+    if shot.photo_picker {
+        show_photo_picker(window);
+    }
+    window.global::<PhotoSearch>().set_open(shot.photo_picker);
     if shot.page == 5 {
         // Inside the first music folder, where there is more than one row.
         window.invoke_folders_needed();
@@ -305,6 +322,31 @@ fn show_cover_picker(window: &AppWindow) {
         tile("2020", [166, 227, 161]),
         tile("2019 · GB", [250, 179, 135]),
         tile("", [203, 166, 247]),
+    ])));
+}
+
+/// Fills the photo picker with plain squares for photos, so the shots download
+/// nothing.
+fn show_photo_picker(window: &AppWindow) {
+    let tile = |details: &str, [r, g, b]: [u8; 3]| {
+        let mut pixels = SharedPixelBuffer::<Rgba8Pixel>::new(240, 240);
+        pixels.make_mut_slice().fill(Rgba8Pixel { r, g, b, a: 255 });
+        AlbumTile {
+            title: "Artist".into(),
+            artist: details.into(),
+            initial: "A".into(),
+            artwork: ArtworkState::Loaded,
+            cover: Image::from_rgba8(pixels),
+            ..AlbumTile::default()
+        }
+    };
+    let picker = window.global::<PhotoSearch>();
+    picker.set_artist_name("Artist".into());
+    picker.set_status(PhotoSearchStatus::Found);
+    picker.set_photos(ModelRc::new(VecModel::from(vec![
+        tile("UK rock band", [137, 180, 250]),
+        tile("UK rock band", [166, 227, 161]),
+        tile("Japanese singer", [250, 179, 135]),
     ])));
 }
 

@@ -27,6 +27,8 @@ dials come from DESIGN.md).
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
 | `ui/cover-picker.slint` | `CoverSearch` global and `CoverPicker`: "Find cover online" and the covers to pick from |
 | `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
+| `ui/photo-picker.slint` | `PhotoSearch` global and `PhotoPicker`: an artist's photo, found online or from a file |
+| `src/artist_photos.rs` | `ArtistPhotos`: runs the photo search, keeps the chosen photo and shows it on the page and the cards |
 | `ui/tag-editor.slint` | `TagEditorState` global and `TagEditorView`: one track's or an album's tags and cover |
 | `src/tag_editor.rs` | `TagEditor`: fills the editor, works out what changed, writes it in the background and refreshes the views |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist and playlist grids, an artist's albums and search |
@@ -100,7 +102,7 @@ subtext1 and overlay2 instead.
 | Songs table without a track-number column, missing values sorted last | Numbers only mean something within an album, which the Album column already orders; untagged files at the top would hide the library behind them |
 | Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
 | Artists in round frames, albums in rounded squares | The shape tells the two grids apart at a glance, as people know it from other players |
-| An artist's picture is their newest album's cover until there are artist photos | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists keep the initial |
+| An artist's picture is their photo, or without one their newest album's cover | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists without a photo keep the initial |
 | Album artists by default, everyone behind a switch | The owner's choice: 391 of 532 artists in their library are only credited on others' albums, and would crowd the grid |
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
@@ -114,6 +116,7 @@ subtext1 and overlay2 instead.
 | Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
 | "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
 | The cover picker covers the sidebar and pages like the now playing view | One overlay pattern in the app; the covers get the room, and the player bar stays usable |
+| Artist photo actions sit under the picture, and their picker is the cover picker's twin | The same place and pattern as an album's "Find cover online", so one way of working covers both |
 | The tag editor is the same kind of overlay, not a separate window | One overlay pattern again. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
 | An album's differing values show as empty fields saying "Several values" | Writing only the fields the user changed is the safe default for a batch: a field left alone can't flatten twelve track numbers into one |
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
@@ -207,7 +210,8 @@ shown, because the page itself stays alive while hidden.
 - **The grid** lists album artists by default (138 in the owner's library). The
   "All artists" choice adds everyone credited on a track (532), saved as
   `ui.artists_all`. A card says how many albums an artist has, or how many tracks
-  for an artist with no albums of their own. Pictures load in the background like
+  for an artist with no albums of their own. Its picture is the artist's photo, or
+  without one the cover of their newest album; pictures load in the background like
   album covers (`CoverGrid`).
 - **An artist's page** (`ArtistView`) shows their picture, name and counts, Play
   and Shuffle, their albums as a small grid (`CardGrid`, one tab stop with arrow
@@ -222,6 +226,20 @@ shown, because the page itself stays alive while hidden.
     page's.
   - An artist who leaves the library while their page is open stays on screen,
     marked as gone, until the user leaves.
+- **The artist's photo:** under the picture, "Find photo online", "Choose photo…"
+  and, once there is one, "Remove photo".
+  - "Find photo online" opens a picker over the sidebar and pages, like the cover
+    picker. The artist is looked up on MusicBrainz (by the ID the files are tagged
+    with, then by name; only sure, same-name matches), and their photos come from
+    fanart.tv, the best liked first, up to 8. Each shows the name MusicBrainz has
+    and its disambiguation ("UK rock band"), so two artists of the same name can be
+    told apart. A click or Enter picks one, which is downloaded in full; Escape or
+    Cancel closes. Nothing is sent until the button is used, and the button is
+    there only in builds with VCMP's fanart.tv key (`VCMP_FANARTTV_API_KEY`).
+  - "Choose photo…" takes a JPEG, PNG or WebP file. One that can't be read says so
+    under the buttons.
+  - The photo is kept by the library (see `docs/library.md`) and shows at once on
+    the page, the artist cards and search.
 - **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
   returns to the grid from anywhere on the page.
 
@@ -634,8 +652,10 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - Going back is one step: an album opened from an artist found by search returns
   to the artist, and the artist to Search, but there is no general history.
 - The queue panel appears without an animation; one is planned.
-- Artists have no photos of their own yet: choosing a photo, and the web search for
-  one (fanart.tv), come with the integrations.
+- An artist's photo is keyed by their name: two different artists with the same
+  name in one library share it.
+- Photos found online were tried only against scripted answers; a real search needs
+  a build with VCMP's fanart.tv key.
 - A fetched cover can't be replaced or removed from the UI yet: "Find cover
   online" is offered only while an album has no cover.
 - The track menus are Slint's own, styled by the operating system's colour scheme

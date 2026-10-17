@@ -4,6 +4,7 @@ import { Button, SectionHeading } from "components.slint";
 import { PlayerState } from "player-state.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
+import { PhotoSearch } from "photo-picker.slint";
 
 export struct ArtistDetail {
     name: string,
@@ -11,9 +12,11 @@ export struct ArtistDetail {
     initial: string,
     album-count: int,
     track-count: int,
-    // Until artists have photos, the cover of their newest album.
+    // Their photo, or without one, the cover of their newest album.
     has-picture: bool,
     picture: image,
+    // The picture is a photo chosen for the artist.
+    has-photo: bool,
     // The artist left the library while the page was open.
     missing: bool,
 }
@@ -39,6 +42,17 @@ export component ArtistView {
 
     public function focus-back() {
         back-button.focus();
+    }
+
+    // The photo picker opened from this page closed: the focus comes back to the
+    // page, so its keys work again.
+    private property <bool> asked-for-photo;
+    private property <bool> picker-open: PhotoSearch.open;
+    changed picker-open => {
+        if !self.picker-open && self.asked-for-photo {
+            self.asked-for-photo = false;
+            back-button.focus();
+        }
     }
 
     // Shows the albums with `index` as the current card, focused.
@@ -98,35 +112,73 @@ export component ArtistView {
                     spacing: Theme.space-xl;
                     alignment: start;
 
-                    Rectangle {
-                        width: 200px;
-                        height: 200px;
-                        border-radius: self.width / 2;
-                        clip: true;
-                        background: Theme.colors.surface;
+                    // The picture, and under it the ways to change it.
+                    VerticalLayout {
+                        spacing: Theme.space-m;
+                        alignment: start;
 
-                        if root.artist.has-picture: Image {
-                            width: parent.width;
-                            height: parent.height;
-                            source: root.artist.picture;
-                            image-fit: ImageFit.cover;
-                            accessible-role: none;
+                        Rectangle {
+                            width: 200px;
+                            height: 200px;
+                            border-radius: self.width / 2;
+                            clip: true;
+                            background: Theme.colors.surface;
+
+                            if root.artist.has-picture: Image {
+                                width: parent.width;
+                                height: parent.height;
+                                source: root.artist.picture;
+                                image-fit: ImageFit.cover;
+                                accessible-role: none;
+                            }
+                            if !root.artist.has-picture: Text {
+                                text: root.artist.initial;
+                                color: Theme.colors.text-muted;
+                                font-size: 64px;
+                                font-weight: Theme.weight-strong;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
                         }
-                        if !root.artist.has-picture: Text {
-                            text: root.artist.initial;
-                            color: Theme.colors.text-muted;
-                            font-size: 64px;
-                            font-weight: Theme.weight-strong;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                            accessible-role: none;
+
+                        if !root.artist.missing && PhotoSearch.available: Button {
+                            text: @tr("Find photo online");
+                            label: @tr("Find a photo of {} online", root.artist.name);
+                            clicked => {
+                                root.asked-for-photo = true;
+                                PhotoSearch.find();
+                            }
+                        }
+                        if !root.artist.missing: Button {
+                            text: @tr("Choose photo…");
+                            label: @tr("Choose a photo of {} from a file", root.artist.name);
+                            clicked => {
+                                PhotoSearch.choose-file();
+                            }
+                        }
+                        if root.artist.has-photo && !root.artist.missing: Button {
+                            text: @tr("Remove photo");
+                            label: @tr("Remove the photo of {}", root.artist.name);
+                            clicked => {
+                                PhotoSearch.remove();
+                            }
+                        }
+                        if PhotoSearch.file-failed: Text {
+                            width: 200px;
+                            text: @tr("That file isn't a picture VCMP can read.");
+                            color: Theme.colors.text;
+                            font-size: Theme.font-small;
+                            wrap: word-wrap;
                         }
                     }
 
+                    // Beside the picture, whatever is under it.
                     VerticalLayout {
                         spacing: Theme.space-s;
                         alignment: end;
                         max-width: Theme.content-max-width;
+                        max-height: 200px;
 
                         Text {
                             text: root.artist.name;

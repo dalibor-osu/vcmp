@@ -1,0 +1,168 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Button } from "components.slint";
+import { AlbumTile, CardGrid } from "album-grid.slint";
+
+// Where a photo search stands; the picker words it.
+export enum PhotoSearchStatus {
+    // Looking; photos appear as they are found.
+    searching,
+    // Done, with photos to pick from.
+    found,
+    // Done, and nothing was found.
+    nothing-found,
+    // The services could not be reached, or fanart.tv refused, and nothing was found.
+    failed,
+    // The picked photo is being downloaded.
+    downloading,
+    // The picked photo could not be downloaded or saved.
+    download-failed,
+}
+
+// The artist page's photo: found online ("Find photo online"), picked from a file, or
+// removed. src/artist_photos.rs fills it in and implements the callbacks; nothing is
+// fetched until `find` is called.
+export global PhotoSearch {
+    // This build can search fanart.tv (it has VCMP's key).
+    in property <bool> available;
+    // The picker is shown.
+    in-out property <bool> open;
+    // The artist the photos are for.
+    in property <string> artist-name;
+    in property <PhotoSearchStatus> status;
+    // The photos found: the artist as MusicBrainz names them, and what tells them
+    // apart from others of the same name.
+    in property <[AlbumTile]> photos;
+    // The last file chosen could not be read as a picture.
+    in property <bool> file-failed;
+    // Searches photos of the artist on the artist page, and opens the picker.
+    callback find();
+    // Downloads photo `n` and makes it the artist's.
+    callback choose(int);
+    // Closes the picker, stopping the search.
+    callback cancel();
+    // Makes an image file the artist's photo.
+    callback choose-file();
+    // Goes back to no photo of the artist's own.
+    callback remove();
+}
+
+// The picker, over the sidebar and pages like the cover picker. The photos are one
+// tab stop (arrow keys, Enter or a click picks one); Escape or Cancel closes it. The
+// focus starts on Cancel and moves to the first photo when it arrives.
+export component PhotoPicker inherits Rectangle {
+    private property <int> count: PhotoSearch.photos.length;
+    private property <bool> photos-focused;
+    private property <bool> busy: PhotoSearch.status == PhotoSearchStatus.downloading;
+
+    changed count => {
+        if self.count == 0 {
+            self.photos-focused = false;
+        } else if !self.photos-focused {
+            self.photos-focused = true;
+            grid.focus-card(0);
+        }
+    }
+
+    background: Theme.colors.base;
+    accessible-role: groupbox;
+    accessible-label: @tr("Find a photo of {}", PhotoSearch.artist-name);
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+        // Photos that arrived before the picker was drawn take the focus at once.
+        if root.count > 0 {
+            root.photos-focused = true;
+            grid.focus-card(0);
+        } else {
+            cancel-button.focus();
+        }
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    // Escape closes, wherever the focus is in the picker.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                PhotoSearch.cancel();
+                return accept;
+            }
+            reject
+        }
+
+        ScrollView {
+            width: parent.width;
+            height: parent.height;
+
+            VerticalLayout {
+                padding: Theme.space-xxl;
+                padding-top: Theme.space-xl;
+                spacing: Theme.space-xl;
+                alignment: start;
+
+                VerticalLayout {
+                    spacing: Theme.space-s;
+                    max-width: Theme.content-max-width;
+
+                    Text {
+                        text: @tr("Choose a photo");
+                        color: Theme.colors.text;
+                        font-size: Theme.font-title;
+                        font-weight: Theme.weight-strong;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: PhotoSearch.artist-name;
+                        color: Theme.colors.text;
+                        font-size: Theme.font-heading;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: PhotoSearch.status == PhotoSearchStatus.searching ? @tr("Looking on MusicBrainz and fanart.tv. Photos appear here as they are found.")
+                            : PhotoSearch.status == PhotoSearchStatus.found ? @tr("Pick the photo to use for this artist. The photos come from fanart.tv; the name under each is the artist MusicBrainz matched.")
+                            : PhotoSearch.status == PhotoSearchStatus.nothing-found ? @tr("No photos turned up for this artist. fanart.tv may not have any yet, or MusicBrainz knows the artist under another name.")
+                            : PhotoSearch.status == PhotoSearchStatus.failed ? @tr("MusicBrainz or fanart.tv could not be reached. Check the internet connection and search again.")
+                            : PhotoSearch.status == PhotoSearchStatus.downloading ? @tr("Downloading the photo…")
+                            : @tr("That photo could not be downloaded. Pick it again, or another one.");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-m;
+                    alignment: start;
+
+                    if PhotoSearch.status == PhotoSearchStatus.failed: Button {
+                        text: @tr("Search again");
+                        clicked => {
+                            PhotoSearch.find();
+                        }
+                    }
+                    cancel-button := Button {
+                        text: @tr("Cancel");
+                        clicked => {
+                            PhotoSearch.cancel();
+                        }
+                    }
+                }
+
+                grid := CardGrid {
+                    tiles: PhotoSearch.photos;
+                    round: true;
+                    photos: true;
+                    label: @tr("Photos found");
+                    available-width: min(Theme.content-max-width, root.width - 2 * Theme.space-xxl - Theme.space-l);
+                    activated(index) => {
+                        if !root.busy {
+                            PhotoSearch.choose(index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
