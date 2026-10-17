@@ -17,11 +17,17 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
-use slint::{ComponentHandle, SharedString, Timer, TimerMode};
+use slint::{
+    ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer, TimerMode,
+    VecModel,
+};
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
-use vcmp_app::{AppWindow, PlayerState, Theme, ThemeMode};
+use vcmp_app::{
+    AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, PlayerState,
+    Theme, ThemeMode,
+};
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
 use vcmp_library::Library;
@@ -40,6 +46,8 @@ struct Shot {
     tabs: usize,
     // The now playing view is open over the page.
     now_playing: bool,
+    // The cover picker is open, with stand-in covers.
+    cover_picker: bool,
 }
 
 const fn shot(
@@ -56,12 +64,20 @@ const fn shot(
         album,
         tabs,
         now_playing: false,
+        cover_picker: false,
     }
 }
 
 const fn now_playing(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         now_playing: true,
+        ..shot(name, mode, 1, None, 0)
+    }
+}
+
+const fn cover_picker(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        cover_picker: true,
         ..shot(name, mode, 1, None, 0)
     }
 }
@@ -86,6 +102,8 @@ const SHOTS: &[Shot] = &[
     shot("folders-dark", ThemeMode::Dark, 4, None, 0),
     now_playing("now-playing-light", ThemeMode::Light),
     now_playing("now-playing-dark", ThemeMode::Dark),
+    cover_picker("cover-picker-light", ThemeMode::Light),
+    cover_picker("cover-picker-dark", ThemeMode::Dark),
     shot("settings-light", ThemeMode::Light, 5, None, 0),
     shot("settings-dark", ThemeMode::Dark, 5, None, 0),
     shot("about-light", ThemeMode::Light, 6, None, 0),
@@ -140,6 +158,10 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     if shot.now_playing {
         player.invoke_load_large_cover();
     }
+    if shot.cover_picker {
+        show_cover_picker(window);
+    }
+    window.global::<CoverPicker>().set_open(shot.cover_picker);
     if shot.page == 4 {
         // Inside the first music folder, where there is more than one row.
         window.invoke_folders_needed();
@@ -177,6 +199,33 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
+}
+
+/// Fills the cover picker with plain squares for covers, so the shots download
+/// nothing.
+fn show_cover_picker(window: &AppWindow) {
+    let tile = |details: &str, [r, g, b]: [u8; 3]| {
+        let mut pixels = SharedPixelBuffer::<Rgba8Pixel>::new(240, 240);
+        pixels.make_mut_slice().fill(Rgba8Pixel { r, g, b, a: 255 });
+        AlbumTile {
+            title: "Album title".into(),
+            artist: details.into(),
+            initial: "A".into(),
+            artwork: ArtworkState::Loaded,
+            cover: Image::from_rgba8(pixels),
+            ..AlbumTile::default()
+        }
+    };
+    let picker = window.global::<CoverPicker>();
+    picker.set_album_title("Album title".into());
+    picker.set_album_artist("Artist".into());
+    picker.set_status(CoverSearchStatus::Found);
+    picker.set_covers(ModelRc::new(VecModel::from(vec![
+        tile("2019 · JP", [137, 180, 250]),
+        tile("2020", [166, 227, 161]),
+        tile("2019 · GB", [250, 179, 135]),
+        tile("", [203, 166, 247]),
+    ])));
 }
 
 fn save(window: &AppWindow, path: &Path) {

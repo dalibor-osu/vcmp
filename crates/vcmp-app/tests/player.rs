@@ -552,6 +552,34 @@ fn an_untagged_album_is_looked_up_once_discord_is_there() {
 }
 
 #[test]
+fn a_fetched_cover_reaches_the_bar_and_discord_at_once() {
+    let app = start(|_| {});
+    app.play_with_discord("1.flac");
+    let album = app.album();
+    assert!(!app.state().get_has_cover());
+
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(16, 16, image::Rgb([30, 102, 245]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let source = CoverArtId::ReleaseGroup("rg-1".into());
+    app.library
+        .set_fetched_cover(album, png.get_ref(), &source)
+        .unwrap()
+        .unwrap();
+    app.library
+        .set_cover_lookup(album, Some(&source), SystemTime::now())
+        .unwrap();
+    app.service.artwork_changed(album);
+    assert!(app.state().get_has_cover(), "the bar shows it");
+    assert_eq!(
+        app.shown.cover(),
+        Some(Cover::ReleaseGroup("rg-1".into()).url()),
+        "so does Discord"
+    );
+}
+
+#[test]
 fn nothing_is_looked_up_while_the_presence_is_off() {
     let app = start(|library| {
         library.set_setting(SETTING_DISCORD, "false").unwrap();

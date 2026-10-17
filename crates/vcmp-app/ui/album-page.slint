@@ -2,6 +2,7 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Button, FocusRing } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
+import { CoverSearch } from "cover-picker.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -333,7 +334,8 @@ export component TrackList {
     }
 }
 
-// One album: its cover and details, then its tracks grouped by disc.
+// One album: its cover and details, then its tracks grouped by disc. An album
+// without a cover offers to find one online.
 export component AlbumView {
     in property <AlbumDetail> album;
     // Names the page the back button returns to.
@@ -350,6 +352,17 @@ export component AlbumView {
 
     public function focus-back() {
         back-button.focus();
+    }
+
+    // The cover picker opened from this page closed: the focus comes back to the
+    // page, so its keys work again.
+    private property <bool> asked-for-cover;
+    private property <bool> picker-open: CoverSearch.open;
+    changed picker-open => {
+        if !self.picker-open && self.asked-for-cover {
+            self.asked-for-cover = false;
+            back-button.focus();
+        }
     }
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
@@ -404,28 +417,43 @@ export component AlbumView {
                     spacing: Theme.space-xl;
                     alignment: start;
 
-                    Rectangle {
-                        width: 200px;
-                        height: 200px;
-                        border-radius: Theme.radius-l;
-                        clip: true;
-                        background: Theme.colors.surface;
+                    VerticalLayout {
+                        spacing: Theme.space-m;
+                        alignment: start;
 
-                        if root.album.has-cover: Image {
-                            width: parent.width;
-                            height: parent.height;
-                            source: root.album.cover;
-                            image-fit: ImageFit.cover;
-                            accessible-role: none;
+                        Rectangle {
+                            width: 200px;
+                            height: 200px;
+                            border-radius: Theme.radius-l;
+                            clip: true;
+                            background: Theme.colors.surface;
+
+                            if root.album.has-cover: Image {
+                                width: parent.width;
+                                height: parent.height;
+                                source: root.album.cover;
+                                image-fit: ImageFit.cover;
+                                accessible-role: none;
+                            }
+                            if !root.album.has-cover: Text {
+                                text: root.album.initial;
+                                color: Theme.colors.text-muted;
+                                font-size: 64px;
+                                font-weight: Theme.weight-strong;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
                         }
-                        if !root.album.has-cover: Text {
-                            text: root.album.initial;
-                            color: Theme.colors.text-muted;
-                            font-size: 64px;
-                            font-weight: Theme.weight-strong;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                            accessible-role: none;
+
+                        // Under the missing cover, so the action sits where it is needed.
+                        if !root.album.has-cover && !root.album.missing: Button {
+                            text: @tr("Find cover online");
+                            label: @tr("Find a cover for {} online", root.album.title);
+                            clicked => {
+                                root.asked-for-cover = true;
+                                CoverSearch.find();
+                            }
                         }
                     }
 

@@ -1,0 +1,155 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Button } from "components.slint";
+import { AlbumTile, CardGrid } from "album-grid.slint";
+
+// Where a cover search stands; the picker words it.
+export enum CoverSearchStatus {
+    // Looking; covers appear as they are found.
+    searching,
+    // Done, with covers to pick from.
+    found,
+    // Done, and nothing was found.
+    nothing-found,
+    // The services could not be reached, and nothing was found.
+    failed,
+    // The search broke off after finding some covers.
+    cut-short,
+    // The picked cover is being downloaded.
+    downloading,
+    // The picked cover could not be downloaded or saved.
+    download-failed,
+}
+
+// "Find cover online" for the album the album page shows: the search, the covers it
+// found and what the user does with them. src/cover_fetch.rs fills it in and
+// implements the callbacks; nothing is fetched until `find` is called.
+export global CoverSearch {
+    // The picker is shown.
+    in-out property <bool> open;
+    // The album the covers are for.
+    in property <string> album-title;
+    in property <string> album-artist;
+    in property <CoverSearchStatus> status;
+    // The covers found: the release's title, its year and country, its image.
+    in property <[AlbumTile]> covers;
+    // Searches covers for the album on the album page, and opens the picker.
+    callback find();
+    // Downloads cover `n` and makes it the album's cover.
+    callback choose(int);
+    // Closes the picker, stopping the search.
+    callback cancel();
+}
+
+// The picker, over the sidebar and pages like the now playing view. The covers are
+// one tab stop (arrow keys, Enter or a click picks one); Escape or Cancel closes
+// it. The focus starts on Cancel and moves to the first cover when it arrives.
+export component CoverPicker inherits Rectangle {
+    private property <int> count: CoverSearch.covers.length;
+    private property <bool> covers-focused;
+    private property <bool> busy: CoverSearch.status == CoverSearchStatus.downloading;
+
+    changed count => {
+        if self.count == 0 {
+            self.covers-focused = false;
+        } else if !self.covers-focused {
+            self.covers-focused = true;
+            grid.focus-card(0);
+        }
+    }
+
+    background: Theme.colors.base;
+    accessible-role: groupbox;
+    accessible-label: @tr("Find a cover for {}", CoverSearch.album-title);
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+        cancel-button.focus();
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    // Escape closes, wherever the focus is in the picker.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                CoverSearch.cancel();
+                return accept;
+            }
+            reject
+        }
+
+        scroll := ScrollView {
+            width: parent.width;
+            height: parent.height;
+
+            VerticalLayout {
+                padding: Theme.space-xxl;
+                padding-top: Theme.space-xl;
+                spacing: Theme.space-xl;
+                alignment: start;
+
+                VerticalLayout {
+                    spacing: Theme.space-s;
+                    max-width: Theme.content-max-width;
+
+                    Text {
+                        text: @tr("Choose a cover");
+                        color: Theme.colors.text;
+                        font-size: Theme.font-title;
+                        font-weight: Theme.weight-strong;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: CoverSearch.album-artist == "" ? CoverSearch.album-title : @tr("{0} by {1}", CoverSearch.album-title, CoverSearch.album-artist);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-heading;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: CoverSearch.status == CoverSearchStatus.searching ? @tr("Looking on MusicBrainz and the Cover Art Archive. Covers appear here as they are found.")
+                            : CoverSearch.status == CoverSearchStatus.found ? @tr("Pick the cover to use for this album. The images come from the Cover Art Archive.")
+                            : CoverSearch.status == CoverSearchStatus.nothing-found ? @tr("No covers turned up for this album. MusicBrainz may know it under another title or artist.")
+                            : CoverSearch.status == CoverSearchStatus.failed ? @tr("MusicBrainz or the Cover Art Archive could not be reached. Check the internet connection and search again.")
+                            : CoverSearch.status == CoverSearchStatus.cut-short ? @tr("The search stopped early, so some covers may be missing. Pick one of these, or search again.")
+                            : CoverSearch.status == CoverSearchStatus.downloading ? @tr("Downloading the cover…")
+                            : @tr("That cover could not be downloaded. Pick it again, or another one.");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-m;
+                    alignment: start;
+
+                    if CoverSearch.status == CoverSearchStatus.failed || CoverSearch.status == CoverSearchStatus.cut-short: Button {
+                        text: @tr("Search again");
+                        clicked => {
+                            CoverSearch.find();
+                        }
+                    }
+                    cancel-button := Button {
+                        text: @tr("Cancel");
+                        clicked => {
+                            CoverSearch.cancel();
+                        }
+                    }
+                }
+
+                grid := CardGrid {
+                    tiles: CoverSearch.covers;
+                    label: @tr("Covers found");
+                    available-width: min(Theme.content-max-width, root.width - 2 * Theme.space-xxl - Theme.space-l);
+                    activated(index) => {
+                        if !root.busy {
+                            CoverSearch.choose(index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

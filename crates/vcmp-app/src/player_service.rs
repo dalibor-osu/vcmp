@@ -1041,6 +1041,53 @@ impl PlayerService {
         }
     }
 
+    /// Shows an album's new artwork wherever the player shows it: on its rows in the
+    /// queue panel and, while it plays, in the bar, the now playing view, the
+    /// system's media widget and the Discord presence.
+    pub fn artwork_changed(&self, album: AlbumId) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        self.queue_covers.borrow_mut().remove(&album);
+        let queued = [state.get_up_next(), state.get_upcoming()]
+            .iter()
+            .any(|rows| rows.iter().any(|row| row.album_id == album.0 as i32));
+        if queued {
+            let _ = self.queue_cover(album);
+        }
+        if self.album.get() != Some(album) {
+            return;
+        }
+        let Some(album) = self.library.album(album).ok().flatten() else {
+            return;
+        };
+        let cover = album
+            .artwork
+            .as_ref()
+            .and_then(|artwork| Image::load_from_path(&artwork.thumbnail).ok());
+        state.set_has_cover(cover.is_some());
+        state.set_cover(cover.unwrap_or_default());
+        self.forget_large_cover(&state);
+        *self.large_cover.borrow_mut() = album
+            .artwork
+            .as_ref()
+            .map(|artwork| artwork.original.clone());
+        if state.get_now_playing_open() {
+            self.load_large_cover();
+        }
+        let cover_url = self.known_cover(&album);
+        if let Some(listening) = self.listening.borrow_mut().as_mut() {
+            listening.cover_url = cover_url.clone();
+        }
+        if let Some(track) = self.media_track.borrow_mut().as_mut() {
+            track.cover_file = album.artwork.map(|artwork| artwork.thumbnail);
+            track.cover_url = cover_url;
+        }
+        self.update_presence();
+        self.update_media();
+    }
+
     /// Plays the album open on its page from track `start` (-1: from its start, or a
     /// random track when shuffling). `shuffle` turns shuffle on first.
     pub fn play_album(&self, start: i32, shuffle: bool) {

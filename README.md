@@ -14,7 +14,8 @@ Early development. In place so far:
 - tag writing in the library core (single and batch, with embedded covers, through a
   verified copy of each file); the tag editor UI is still to come;
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
-  pages with tracks by disc;
+  pages with tracks by disc; an album without a cover can fetch one from the Cover
+  Art Archive, picked from what MusicBrainz finds;
 - the Artists page: album artists (or everyone credited) with their albums and the
   tracks they appear on elsewhere;
 - search over artists, albums and tracks, by any part of a name (Ctrl+F);

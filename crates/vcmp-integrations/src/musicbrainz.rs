@@ -374,8 +374,9 @@ impl<T: Transport> Searcher<T> {
         picker.finish()
     }
 
-    /// Downloads a picked cover at 1200 pixels, the most the now playing view shows,
-    /// or at 500 when the archive has no larger image.
+    /// Downloads a picked cover at up to 1200 pixels, the most the now playing view
+    /// shows (the archive serves smaller originals as they are), or at 500 when it
+    /// has no 1200-pixel version.
     pub fn download(&mut self, cover: &Cover) -> Result<Vec<u8>, String> {
         for size in ["1200", "500"] {
             self.wait_turn();

@@ -13,7 +13,11 @@ crate.
 | Artwork originals | cache directory, `artwork/<hash>.<ext>` (Linux: `~/.cache/vcmp/`) |
 | Thumbnails | cache directory, `thumbnails/<hash>.jpg`, longest side 400 px |
 
-The cache can be deleted at any time: the next scan rebuilds it. The database runs in
+Covers fetched online (see [Covers fetched online](#covers-fetched-online)) are cached
+the same way.
+
+The cache can be deleted at any time: the next scan rebuilds it, except for fetched
+covers, which nothing downloads again. The database runs in
 WAL mode, so one connection can scan while others read. Open one `Library` per
 thread.
 
@@ -22,7 +26,7 @@ path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 3, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 4, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -34,6 +38,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
 | `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
 | `track_search`, `album_search`, `artist_search` | FTS5 trigram indexes, case and diacritics ignored (version 3; version 1 indexed words) |
+| `fetched_covers` | Covers the user fetched for albums whose files have no art: the cached image's key, the Cover Art Archive release or release group it came from, and when, keyed by the album's group key (version 4) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -76,7 +81,8 @@ aren't valid UTF-8 keep working.
    cover preferred), otherwise `cover`, `folder`, `front` or `album` with a `.jpg`,
    `.jpeg`, `.png` or `.webp` extension in the tracks' folders, matched
    case-insensitively. Files are read in order on one thread; the same cover pool
-   does the image work.
+   does the image work. An album found without art loses the artwork key it had,
+   so a fetched cover shows instead of stale art.
 
 `Library::scan` takes a cancel flag and a progress callback, and returns a
 `ScanReport` with counts, skipped files and unreachable sources. Removing a source
@@ -151,6 +157,24 @@ cover, once restoring the fields and removing the cover. It prints every failure
 ```bash
 cargo run --release -p vcmp-library --example edit_check -- /path/to/music 40
 ```
+
+## Covers fetched online
+
+"Find cover online" on the album page of an album without artwork (see
+[docs/ui.md](ui.md#album-page)) searches MusicBrainz and the Cover Art Archive
+(`vcmp-integrations::musicbrainz`), and the image the user picks is stored with
+`Library::set_fetched_cover`:
+
+- The image goes into the artwork cache like extracted art: the same hash key and
+  400 px thumbnail.
+- `fetched_covers` keeps that key and the release or release group the image came
+  from, by the album's group key. Scans never touch it, and an album row that a
+  scan removes and adds again finds it by the key.
+- `Album::artwork` is the files' own art when they have some, otherwise the fetched
+  cover. If the files gain art, theirs shows; if the tag editor removes it again,
+  the fetched cover comes back.
+- A fetched image whose cached files were deleted counts as no cover, and the album
+  offers the search again. Fetching again replaces the row.
 
 ## Watching
 
@@ -230,6 +254,11 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   single long track.
 - An album with no artwork is checked again only when one of its tracks changes.
   Adding or replacing a `cover.jpg` alone isn't noticed.
+- An album with artwork keeps it when its files change: art that another program
+  replaces or removes shows only after the cache is deleted. VCMP's tag editor
+  checks the album again after writing.
+- A fetched cover belongs to the album's group key. When the album's title or
+  album artist changes, the album gets a new key and offers the search again.
 - SQLite's case-insensitive comparison only folds ASCII. Artist names that differ
   only in the case of a non-ASCII letter ("Dvořák" and "DVOŘÁK") become two artists,
   and sorting is not locale-aware. Album grouping lowercases with full Unicode rules.

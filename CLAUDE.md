@@ -34,7 +34,7 @@ Workspace layout:
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
 | `crates/vcmp-library` | Source directories, scanning, tags, SQLite database, artwork cache, search, watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
-| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup; planned: Last.fm, artist photos, update check |
+| `crates/vcmp-integrations` | OS media controls, Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online"; planned: Last.fm, artist photos, update check |
 
 The core crates must never depend on `vcmp-app` or Slint.
 
