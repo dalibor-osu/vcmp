@@ -25,6 +25,8 @@ dials come from DESIGN.md).
 | `ui/folders-page.slint` | `FolderBrowser`: the path back up, the folders and the files of one folder |
 | `src/folders.rs` | `FolderBrowser`: the folder tree built from the library's tracks |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
+| `ui/cover-picker.slint` | `CoverSearch` global and `CoverPicker`: "Find cover online" and the covers to pick from |
+| `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist and playlist grids, an artist's albums and search |
 | `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages; owns the folder and playlist browsers |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
@@ -100,6 +102,9 @@ subtext1 and overlay2 instead.
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+| "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
+| The cover picker covers the sidebar and pages like the now playing view | One overlay pattern in the app; the covers get the room, and the player bar stays usable |
+| A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 
 ## Album grid
 
@@ -154,6 +159,31 @@ its scroll position and current card survive.
   more than one.
 - **Track artist:** shown only where it differs from the album artist, as on a
   compilation.
+- **Find cover online:** an album without artwork has this button under its
+  missing cover. Nothing is sent anywhere before it is chosen.
+  - It opens the cover picker (`CoverPicker`) over the sidebar and pages, and
+    `CoverFetch` asks `vcmp-integrations::musicbrainz::CoverPicker` for covers. That
+    sends the album title and artist to musicbrainz.org, at one request a second
+    (shared with the Discord lookup), and fetches 250 px previews from the Cover
+    Art Archive. A release the files are tagged with comes first, then the matching
+    releases, their release groups when a release has no art, and the matching
+    release groups: at most 8 covers, each image once, from at most 12 image
+    requests.
+  - Covers appear as they arrive, each with its release title, year and country
+    (a worldwide release names none). The picker's sentence says whether it is
+    still looking, found nothing, could not reach the services (with Search
+    again), or broke off after finding some.
+  - Choosing a cover (a click, or Enter on the current one) downloads it at up to
+    1200 px and stores it as the album's artwork (`Library::set_fetched_cover`, see
+    [docs/library.md](library.md#covers-fetched-online)). The picker closes, and
+    the album page, the grids and, while the album plays, the player bar, the now
+    playing view, the media widget and the queue panel show it at once. Discord
+    shows the picked cover too. A failed download keeps the picker open with a
+    sentence, so another cover can be picked.
+  - Keyboard: the focus starts on Cancel and moves to the first cover when it
+    arrives; the covers are one tab stop (`CardGrid`: arrows, Home/End, Enter).
+    Escape or Cancel closes the picker and stops the search, and the focus returns
+    to the album page's back button.
 
 The Albums page fades in through a `FadeCurtain`, created each time the page is
 shown, because the page itself stays alive while hidden.
@@ -412,7 +442,8 @@ The Albums page tells apart why it is empty:
     running and the presence is on (it sends the album title and artist to
     musicbrainz.org). Each album is looked up once: the answer is kept in the library
     (`cover_lookups`), an album with no match is tried again after 30 days, and a
-    failed request after 10 minutes. Albums without a cover show no picture until
+    failed request after 10 minutes. A cover picked with "Find cover online"
+    replaces the lookup's answer. Albums without a cover show no picture until
     there is an app logo;
   - the client runs on its own thread and reconnects every 15 s while Discord is
     away; it tells `PlayerService` when Discord is reached or lost;
@@ -491,6 +522,8 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - The queue panel appears without an animation; one is planned.
 - Artists have no photos of their own yet: choosing a photo, and the web search for
   one (fanart.tv), come with the integrations.
+- A fetched cover can't be replaced or removed from the UI yet: "Find cover
+  online" is offered only while an album has no cover.
 - The track menus are Slint's own, styled by the operating system's colour scheme
   like `AboutSlint` below, so they can look out of place when VCMP's theme differs
   from the OS.

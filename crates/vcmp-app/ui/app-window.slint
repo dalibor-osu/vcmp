@@ -17,8 +17,10 @@ import { PlayerBar } from "player-bar.slint";
 import { QueuePanel } from "queue-panel.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { Glyph, IconArt } from "icons.slint";
+import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint";
 
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
+export { CoverSearch, CoverSearchStatus }
 export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
@@ -621,6 +623,12 @@ export component AppWindow inherits Window {
                 if root.queue-open: QueuePanel {
                     x: parent.width - self.width;
                     width: root.queue-width;
+                    height: parent.height;
+                }
+
+                // "Find cover online" from an album page, over everything but the bar.
+                if CoverSearch.open: CoverPicker {
+                    width: parent.width;
                     height: parent.height;
                 }
             }

@@ -136,6 +136,19 @@ CREATE TABLE playlist_entries (
 
 CREATE INDEX playlist_entries_track ON playlist_entries(track_id);
 "#,
+    r#"
+-- Covers the user fetched from the Cover Art Archive for albums whose files have no
+-- art: the cached image's key, the cover it came from (its kind and MBID) and when.
+-- Keyed by the album's group_key like cover_lookups, so scans that remove and add
+-- album rows keep it. The files' own art is shown instead whenever they have some.
+CREATE TABLE fetched_covers (
+    group_key TEXT PRIMARY KEY,
+    artwork_hash TEXT NOT NULL,
+    cover_kind TEXT NOT NULL CHECK (cover_kind IN ('release', 'release-group')),
+    cover_mbid TEXT NOT NULL,
+    fetched_ms INTEGER NOT NULL
+) STRICT;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

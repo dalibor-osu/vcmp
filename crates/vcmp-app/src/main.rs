@@ -5,11 +5,12 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::ComponentHandle;
+use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_integrations::discord::{self, DiscordPresence};
-use vcmp_integrations::musicbrainz::CoverFinder;
+use vcmp_integrations::musicbrainz::{CoverFinder, CoverPicker};
 use vcmp_library::Library;
 use vcmp_playback::{Player, PlayerOptions};
 
@@ -33,6 +34,15 @@ fn main() -> Result<(), slint::PlatformError> {
                         paths,
                         view.clone(),
                         Delivery::EventLoop,
+                    );
+                    // The picker's worker asks nothing until the user searches.
+                    let cover_fetch = CoverFetch::connect(
+                        &window,
+                        library.clone(),
+                        view.clone(),
+                        Box::new(CoverPicker::start(|search, event| {
+                            CoverFetch::post(move |fetch| fetch.handle(search, event));
+                        })),
                     );
                     let options = PlayerOptions {
                         output_device: library
@@ -68,6 +78,12 @@ fn main() -> Result<(), slint::PlatformError> {
                             );
                             PlayerService::listen(events);
                             vcmp_app::media_keys::start(&window, &service);
+                            let player = Rc::downgrade(&service);
+                            cover_fetch.on_cover_changed(move |album| {
+                                if let Some(player) = player.upgrade() {
+                                    player.artwork_changed(album);
+                                }
+                            });
                             Some(service)
                         }
                         Err(error) => {
@@ -75,7 +91,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             None
                         }
                     };
-                    services = Some((library_service, player_service));
+                    services = Some((library_service, player_service, cover_fetch));
                 }
                 Err(error) => {
                     log::error!("could not read albums: {error}");
@@ -92,7 +108,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     let result = window.run();
-    if let Some((_, Some(player_service))) = &services {
+    if let Some((_, Some(player_service), _)) = &services {
         player_service.save_queue();
     }
     result

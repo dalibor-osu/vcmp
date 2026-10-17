@@ -268,14 +268,16 @@ impl Library {
         })
     }
 
-    /// The picture made from the first four different album covers, in playlist
-    /// order: a 2 x 2 grid, or the first cover with fewer albums.
+    /// The picture made from the first four different album covers (the files' own
+    /// or a fetched one), in playlist order: a 2 x 2 grid, or the first cover with
+    /// fewer albums.
     fn cover_mosaic(&self, id: PlaylistId) -> Result<Option<PathBuf>> {
         let mut statement = self.conn.prepare_cached(
-            "SELECT a.artwork_hash FROM playlist_entries e
+            "SELECT COALESCE(a.artwork_hash, fc.artwork_hash) AS cover FROM playlist_entries e
              JOIN tracks t ON t.id = e.track_id
              JOIN albums a ON a.id = t.album_id
-             WHERE e.playlist_id = ?1 AND a.artwork_hash IS NOT NULL
+             LEFT JOIN fetched_covers fc ON fc.group_key = a.group_key
+             WHERE e.playlist_id = ?1 AND cover IS NOT NULL
              ORDER BY e.position",
         )?;
         let mut keys: Vec<String> = Vec::new();

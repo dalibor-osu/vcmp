@@ -1,10 +1,12 @@
-//! What VCMP found online for an album, kept so that each album is looked up once.
+//! What VCMP found online for an album: the Discord presence's cover lookups, kept so
+//! that each album is looked up once, and covers the user fetched for albums whose
+//! files have no art.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{OptionalExtension, params};
 
-use crate::{AlbumId, Library, Result};
+use crate::{AlbumId, Artwork, Library, Result};
 
 /// An album cover on the Cover Art Archive, found through MusicBrainz.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,15 +62,7 @@ impl Library {
         cover: Option<&CoverArtId>,
         at: SystemTime,
     ) -> Result<()> {
-        let (kind, mbid) = match cover {
-            Some(CoverArtId::Release(mbid)) => (Some("release"), Some(mbid.as_str())),
-            Some(CoverArtId::ReleaseGroup(mbid)) => (Some("release-group"), Some(mbid.as_str())),
-            None => (None, None),
-        };
-        let at = at
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64;
+        let (kind, mbid) = cover.map(CoverArtId::kind_and_mbid).unzip();
         self.conn.execute(
             "INSERT INTO cover_lookups (group_key, cover_kind, cover_mbid, looked_up_ms)
              SELECT group_key, ?2, ?3, ?4 FROM albums WHERE id = ?1
@@ -76,10 +70,60 @@ impl Library {
                  cover_kind = excluded.cover_kind,
                  cover_mbid = excluded.cover_mbid,
                  looked_up_ms = excluded.looked_up_ms",
-            params![album.0, kind, mbid, at],
+            params![album.0, kind, mbid, millis(at)],
         )?;
         Ok(())
     }
+
+    /// Stores `image`, downloaded from the Cover Art Archive's `source`, as the cover
+    /// of `album`, whose files have no art of their own. The image is cached like
+    /// extracted artwork and kept by the album's grouping key, so rescans keep it;
+    /// art the files gain later is shown instead. Replaces an earlier fetched cover.
+    ///
+    /// Returns the cached files, or `None` when `image` is not an image VCMP can
+    /// decode or the album is gone.
+    pub fn set_fetched_cover(
+        &self,
+        album: AlbumId,
+        image: &[u8],
+        source: &CoverArtId,
+    ) -> Result<Option<Artwork>> {
+        let Some(key) = self.artwork.store(image)? else {
+            return Ok(None);
+        };
+        let (kind, mbid) = source.kind_and_mbid();
+        let stored = self.conn.execute(
+            "INSERT INTO fetched_covers (group_key, artwork_hash, cover_kind, cover_mbid, fetched_ms)
+             SELECT group_key, ?2, ?3, ?4, ?5 FROM albums WHERE id = ?1
+             ON CONFLICT (group_key) DO UPDATE SET
+                 artwork_hash = excluded.artwork_hash,
+                 cover_kind = excluded.cover_kind,
+                 cover_mbid = excluded.cover_mbid,
+                 fetched_ms = excluded.fetched_ms",
+            params![album.0, key, kind, mbid, millis(SystemTime::now())],
+        )?;
+        Ok(if stored == 0 {
+            None
+        } else {
+            self.artwork.get(&key)
+        })
+    }
+}
+
+impl CoverArtId {
+    /// The kind as the database names it, and the MBID.
+    fn kind_and_mbid(&self) -> (&'static str, &str) {
+        match self {
+            CoverArtId::Release(mbid) => ("release", mbid),
+            CoverArtId::ReleaseGroup(mbid) => ("release-group", mbid),
+        }
+    }
+}
+
+fn millis(at: SystemTime) -> i64 {
+    at.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 #[cfg(test)]
@@ -149,6 +193,37 @@ mod tests {
             Some(release),
             "a new outcome replaces the old one"
         );
+    }
+
+    #[test]
+    fn a_fetched_cover_must_be_an_image_for_an_album_that_exists() {
+        let (_dir, library) = library();
+        let album = add_album(&library, "band\u{1f}title");
+        let source = CoverArtId::Release("r-1".into());
+        assert_eq!(
+            library
+                .set_fetched_cover(album, b"not an image", &source)
+                .unwrap(),
+            None
+        );
+
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(8, 8, image::Rgb([1, 2, 3]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        assert_eq!(
+            library
+                .set_fetched_cover(AlbumId(album.0 + 1), &png, &source)
+                .unwrap(),
+            None,
+            "no such album"
+        );
+        let artwork = library
+            .set_fetched_cover(album, &png, &source)
+            .unwrap()
+            .expect("a png is accepted");
+        assert!(artwork.thumbnail.is_file());
     }
 
     #[test]

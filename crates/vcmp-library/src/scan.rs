@@ -614,7 +614,7 @@ fn finish_groups(conn: &mut Connection) -> Result<()> {
 
 /// Finds artwork for albums that have none yet, or whose cached files were deleted:
 /// first a picture embedded in one of the album's files, then a cover image in their
-/// folders.
+/// folders. Covers the user fetched are not the files' art and are left alone.
 fn find_artwork(
     conn: &mut Connection,
     store: &ArtworkStore,
@@ -675,6 +675,7 @@ fn find_artwork(
     })?;
     save_artwork(conn, &found)?;
     // Albums checked without success are not checked again until a track changes.
+    // They lose art their files no longer have, so a fetched cover shows instead.
     let failed = found
         .iter()
         .filter(|(_, key)| key.is_none())
@@ -682,7 +683,7 @@ fn find_artwork(
     let tx = conn.transaction()?;
     for album_id in without_artwork.iter().copied().chain(failed) {
         tx.execute(
-            "UPDATE albums SET artwork_state = 2 WHERE id = ?1",
+            "UPDATE albums SET artwork_state = 2, artwork_hash = NULL WHERE id = ?1",
             [album_id],
         )?;
     }
