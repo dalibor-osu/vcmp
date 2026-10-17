@@ -421,6 +421,51 @@ fn playback_problems_are_shown_and_cleared() {
 }
 
 #[test]
+fn the_file_the_engine_has_open_is_passed_on() {
+    let app = start(|_| {});
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let record = seen.clone();
+    app.service.on_open_file(move |path| {
+        record
+            .borrow_mut()
+            .push(path.map(|path| path.to_string_lossy().into_owned()));
+    });
+    app.service
+        .handle_event(Event::Decoding(Some(TrackRef::local(app.path("1.flac")))));
+    app.service.handle_event(Event::Decoding(None));
+    assert_eq!(*seen.borrow(), [None, Some(app.path("1.flac")), None]);
+}
+
+#[test]
+fn unwritten_tags_are_mentioned_until_a_later_track_starts() {
+    let app = start(|_| {});
+    // Near the end of the first track the engine opens the second, which lets go of
+    // the first; the tags waiting for it fail.
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service
+        .handle_event(Event::Decoding(Some(TrackRef::local(app.path("2.flac")))));
+    app.service
+        .tags_not_written(std::path::Path::new(&app.path("1.flac")));
+    assert_eq!(app.state().get_problem(), PlayerProblem::TagsNotWritten);
+    assert_eq!(app.state().get_problem_detail(), "1.flac");
+    ElementHandle::find_by_accessible_label(
+        &app.window,
+        "The new tags could not be written to 1.flac. Edit its tags to try again.",
+    )
+    .next()
+    .expect("the player bar says so");
+
+    app.service.handle_event(app.now_playing("2.flac"));
+    assert_eq!(
+        app.state().get_problem(),
+        PlayerProblem::TagsNotWritten,
+        "it stays while the next track plays"
+    );
+    app.service.handle_event(app.now_playing("1.flac"));
+    assert_eq!(app.state().get_problem(), PlayerProblem::None);
+}
+
+#[test]
 fn seeking_moves_the_bar_at_once_and_ignores_stale_positions() {
     let app = start(|_| {});
     app.service.handle_event(app.now_playing("1.flac"));

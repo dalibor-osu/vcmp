@@ -717,3 +717,33 @@ fn the_queue_panel_sees_every_change() {
     };
     assert_eq!(view.current.as_ref(), Some(&tracks[2]));
 }
+
+#[test]
+fn the_track_being_decoded_is_reported_when_it_changes() {
+    let mut h = Harness::new(CD);
+    // Ten seconds don't fit the ring, so the long track stays open while it plays;
+    // the half-second fixture is decoded to its end once the ring has room.
+    let (long, short) = (synth(RATE, 2, 10.0), file("a", "flac"));
+    let decoding = |entry: Option<&QueueEntry>| {
+        let track = entry.map(|entry| entry.track.clone());
+        move |event: &Event| *event == Event::Decoding(track.clone())
+    };
+    h.play_context(vec![long.clone(), short.clone()]);
+    h.wait_for("the long track open", decoding(Some(&long)));
+    // A seek reopens the same file and pausing keeps it: neither is reported.
+    h.send(Command::Seek(Duration::from_secs(5)));
+    h.send(Command::Pause);
+    h.wait_for_state(PlaybackState::Paused);
+    h.send(Command::Stop);
+    h.wait_for("nothing open once stopped", decoding(None));
+    h.send(Command::Play);
+    h.wait_for("the long track open again", decoding(Some(&long)));
+    h.wait_until_buffered(80_000);
+    h.send(Command::Next);
+    h.wait_for("the next track open", decoding(Some(&short)));
+    // The ring is still full of the long track: playing drains it, which leaves room
+    // to decode the short one to its end.
+    h.play_to_end();
+    h.wait_for("nothing open after the last track", decoding(None));
+    assert_eq!(h.count(|event| matches!(event, Event::Decoding(_))), 5);
+}

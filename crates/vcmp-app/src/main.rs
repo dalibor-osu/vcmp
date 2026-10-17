@@ -123,6 +123,18 @@ fn main() -> Result<(), slint::PlatformError> {
                                     player.tags_changed();
                                 }
                             });
+                            let player = Rc::downgrade(&service);
+                            tag_editor.on_not_written(move |path| {
+                                if let Some(player) = player.upgrade() {
+                                    player.tags_not_written(path);
+                                }
+                            });
+                            let editor = Rc::downgrade(&tag_editor);
+                            service.on_open_file(move |path| {
+                                if let Some(editor) = editor.upgrade() {
+                                    editor.set_playback_file(path);
+                                }
+                            });
                             Some(service)
                         }
                         Err(error) => {
@@ -156,8 +168,14 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     let result = window.run();
-    if let Some((_, Some(player_service), _, _, _, _)) = &services {
-        player_service.save_queue();
+    if let Some((_, player_service, _, _, tag_editor, _)) = &mut services {
+        if let Some(player_service) = player_service.take() {
+            player_service.save_queue();
+            // Dropping the service stops the engine, which closes the file it played.
+            drop(player_service);
+        }
+        // Edits that waited for that file can be written now.
+        tag_editor.write_waiting();
     }
     result
 }

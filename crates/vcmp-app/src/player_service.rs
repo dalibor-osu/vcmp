@@ -6,6 +6,7 @@
 //! a cover looked up on MusicBrainz for albums whose files carry no release ID,
 //! and to the OS media controls, whose media keys and widget drive the player.
 //! Plays go to Last.fm once they count by its rules, and so does the track playing.
+//! The file the engine has open is passed on, so tag edits to it can wait for it.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -187,7 +188,16 @@ pub struct PlayerService {
     scrobbles: RefCell<Option<Box<dyn ScrobbleSink>>>,
     play: RefCell<Option<(lastfm::Track, Play)>>,
     announced: Cell<bool>,
+    // The file the engine has open (`Event::Decoding`), and who is told when it changes.
+    open_file: RefCell<Option<PathBuf>>,
+    on_open_file: RefCell<Option<OpenFileListener>>,
+    // The file open when tags could not be written: the player bar says so until a
+    // track after it starts.
+    tags_notice_file: RefCell<Option<PathBuf>>,
 }
+
+/// Told the file the engine has open, or `None`.
+type OpenFileListener = Box<dyn Fn(Option<&Path>)>;
 
 /// Pixels the queue panel's covers are decoded at: 40 px rows at up to 2.4 times.
 const QUEUE_COVER_PIXELS: u32 = 96;
@@ -241,6 +251,9 @@ impl PlayerService {
             scrobbles: RefCell::default(),
             play: RefCell::default(),
             announced: Cell::new(false),
+            open_file: RefCell::default(),
+            on_open_file: RefCell::default(),
+            tags_notice_file: RefCell::default(),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -569,6 +582,29 @@ impl PlayerService {
     pub fn set_media_controls(&self, sink: Box<dyn MediaSink>) {
         *self.media.borrow_mut() = Some(sink);
         self.update_media();
+    }
+
+    /// Tells `listener` the file the engine has open, now and whenever that changes.
+    /// On Windows that file can't be replaced, so the tag editor waits for it.
+    pub fn on_open_file(&self, listener: impl Fn(Option<&Path>) + 'static) {
+        listener(self.open_file.borrow().as_deref());
+        *self.on_open_file.borrow_mut() = Some(Box::new(listener));
+    }
+
+    /// Says in the player bar that new tags for `path`, which waited for playback,
+    /// could not be written.
+    pub fn tags_not_written(&self, path: &Path) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        state.set_problem(PlayerProblem::TagsNotWritten);
+        state.set_problem_detail(name.into());
+        *self.tags_notice_file.borrow_mut() = self.open_file.borrow().clone();
     }
 
     /// Hands plays to Last.fm from now on.
@@ -1311,12 +1347,27 @@ impl PlayerService {
                 state.set_problem_detail(error.to_string().into());
             }
             Event::RestoreFailed(error) => log::warn!("could not restore the queue: {error}"),
+            Event::Decoding(track) => {
+                let path = track.map(|track| PathBuf::from(track.id.as_ref()));
+                *self.open_file.borrow_mut() = path.clone();
+                if let Some(listener) = &*self.on_open_file.borrow() {
+                    listener(path.as_deref());
+                }
+                return;
+            }
         }
         self.update_media();
     }
 
     fn show_track(&self, state: &PlayerState, now: Option<NowPlaying>) {
-        if state.get_problem() == PlayerProblem::TrackFailed {
+        let path = now
+            .as_ref()
+            .map(|now| PathBuf::from(now.entry.track.id.as_ref()));
+        // A tags notice comes as the engine moves on to the next track, and stays while
+        // that one plays.
+        let tags_notice_over = state.get_problem() == PlayerProblem::TagsNotWritten
+            && *self.tags_notice_file.borrow() != path;
+        if state.get_problem() == PlayerProblem::TrackFailed || tags_notice_over {
             state.set_problem(PlayerProblem::None);
         }
         let Some(now) = now else {

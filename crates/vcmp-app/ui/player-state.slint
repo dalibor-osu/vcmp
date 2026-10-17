@@ -11,7 +11,8 @@ export enum ShuffleKind { true-random, fewer-repeats }
 export enum Repeat { off, all, one }
 
 // The last playback problem; the UI words the sentence so it can be translated.
-export enum PlayerProblem { none, no-output, track-failed }
+// `tags-not-written`: tags that waited for the player to let go of a file failed.
+export enum PlayerProblem { none, no-output, track-failed, tags-not-written }
 
 // What the queue's context is: an album or artist (named in `queue-origin`), the
 // tracks a search found, or every song.
