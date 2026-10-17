@@ -15,9 +15,11 @@ import { PlayerBar } from "player-bar.slint";
 import { QueuePanel } from "queue-panel.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { Glyph, IconArt } from "icons.slint";
+import { SidebarUpdateNote, UpdateState } from "updates.slint";
 
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
 export { FolderRow, SongColumn, SongRow }
+export { UpdateState }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { search, albums, artists, songs, folders, settings, about }
@@ -282,6 +284,16 @@ export component AppWindow inherits Window {
                                 progress: LibraryState.progress;
                                 label: @tr("Scan progress");
                             }
+                        }
+
+                        // A newer VCMP is out: shown where the scan status goes, which
+                        // has the place while a scan runs. Hidden where it would cover
+                        // the navigation, in a short window; About still shows it.
+                        if UpdateState.available && !LibraryState.scanning: SidebarUpdateNote {
+                            y: parent.height - self.height;
+                            width: parent.width;
+                            height: self.preferred-height;
+                            visible: self.y >= sidebar-layout.y + sidebar-layout.preferred-height;
                         }
                     }
 

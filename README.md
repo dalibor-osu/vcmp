@@ -32,7 +32,10 @@ Early development. In place so far:
 - Discord Rich Presence: "Listening to VCMP" with the track, its progress and the
   album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID;
 - OS media controls: media keys and the system's media widget (MPRIS on Linux, the
-  Windows media flyout, Now Playing on macOS) control playback and show the track.
+  Windows media flyout, Now Playing on macOS) control playback and show the track;
+- an update check: when VCMP starts, it asks GitHub Releases for a newer version and
+  links to its release page from the sidebar and the About page (it can be switched
+  off in Settings).
 
 Playlists, the tag editor's window (writing tags is in the library already), Last.fm
 scrobbling, artist photos and the rest of the
@@ -92,6 +95,11 @@ and choose Open, or run `xattr -dr com.apple.quarantine /Applications/VCMP.app`.
 3. The workflow checks that the tag is on `main` and matches the version, builds the
    installers on Windows, macOS and Linux, and creates a **draft** GitHub Release with
    them, a `SHA256SUMS.txt` and generated notes. Review the notes and publish it.
+
+Once a release is published, copies of VCMP with the update check on link to it at
+their next start. The check takes the highest `vX.Y.Z` tag among the published
+releases and skips drafts and pre-releases. It asks GitHub without signing in, so it
+finds nothing while the repository is private.
 
 To try the packaging without a release, run the workflow by hand (Actions → Release
 → Run workflow, or `gh workflow run release.yml --ref <branch>`). The installers are

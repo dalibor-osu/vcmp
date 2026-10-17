@@ -12,6 +12,7 @@ pub mod preferences;
 pub mod saved_queue;
 pub mod shortcuts;
 pub mod theme;
+pub mod updates;
 
 slint::include_modules!();
 

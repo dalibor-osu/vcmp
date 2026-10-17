@@ -9,6 +9,7 @@ import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
 import { ArtistDetail, ArtistView } from "artist-page.slint";
 import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 import { FolderBrowser, FolderRow } from "folders-page.slint";
+import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -158,6 +159,10 @@ export component SettingsPage inherits Page {
             }
         }
     }
+
+    UpdatesSection {
+        max-width: Theme.content-max-width;
+    }
 }
 
 export component AboutPage inherits Page {
@@ -177,6 +182,11 @@ export component AboutPage inherits Page {
             text: @tr("Version {}", root.version);
             color: Theme.colors.text-muted;
             font-size: Theme.font-small;
+        }
+
+        // Strong, so it doesn't read as one more line of the description below.
+        if UpdateState.available: UpdateLink {
+            font-weight: Theme.weight-strong;
         }
 
         Text {

@@ -8,6 +8,7 @@ use slint::ComponentHandle;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
+use vcmp_app::updates;
 use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_integrations::musicbrainz::CoverFinder;
 use vcmp_library::Library;
@@ -82,6 +83,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     window.set_library_failed(true);
                 }
             }
+            updates::connect(&window, Some(library.clone()), updates::check_online);
             if let Err(error) = vcmp_app::preferences::connect(&window, library) {
                 log::warn!("could not load preferences: {error}");
             }
@@ -89,6 +91,7 @@ fn main() -> Result<(), slint::PlatformError> {
         Err(error) => {
             log::error!("could not open the library database: {error}");
             window.set_library_failed(true);
+            updates::connect(&window, None, updates::check_online);
         }
     }
     let result = window.run();
