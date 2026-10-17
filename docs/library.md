@@ -226,11 +226,10 @@ tracks are searched separately.
   600 px, and stored as a JPEG named by playlist id and content hash, so a new one
   never reuses the old file name. Otherwise it is made from the covers of the first
   four different albums in playlist order (the files' own cover or a fetched one,
-  if it is in the cache): a
-  2 x 2 grid of 200 px crops, cached under `mosaics/` and named by the four
-  covers, so it changes when the order brings other albums to the front. With
-  fewer than four albums the picture is the first album's cover; with none there is
-  no picture. Deleting a playlist or going back to covers deletes the owner's file.
+  if it is in the cache): a 2 x 2 grid of 200 px crops, cached under `mosaics/`
+  and named by the four covers, so it changes when the order brings other albums
+  to the front. With fewer than four albums the picture is the first album's
+  cover; with none there is no picture. Deleting a playlist or going back to covers deletes the owner's file.
 - **Search:** `Library::search_playlists` keeps the playlists whose name holds every
   typed word, ignoring case.
 
