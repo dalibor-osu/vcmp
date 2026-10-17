@@ -1,6 +1,6 @@
 //! Source checks for the rules in ui/theme.slint and the localization policy: colours
 //! and durations come only from the Theme global, and user-visible text goes through
-//! `@tr()`.
+//! `@tr()`. Also a Slint 1.18.1 workaround every wrapped text needs.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -198,5 +198,56 @@ fn text_is_translatable() {
         violations.is_empty(),
         "user-visible text must use @tr():\n{}",
         violations.join("\n")
+    );
+}
+
+/// Slint 1.18.1 measures the height of an element an `if` creates at its single-line
+/// width, so a wrapped text there, or in a layout there, lost its last lines
+/// (slint-ui/slint#13655, fixed after 1.18.1). A wrapped text's own preferred height
+/// follows its real width, so every wrapped text asks for at least that, unless it
+/// sets its height outright. Drop this rule once Slint is past the fix.
+#[test]
+fn wrapped_text_asks_for_its_own_height() {
+    let mut missing = Vec::new();
+    for path in slint_sources() {
+        let source = fs::read_to_string(&path).expect("read source");
+        let lines: Vec<&str> = source.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            let code = strip_comment(line).trim();
+            if !code.starts_with("wrap:") || !code.contains("word-wrap") {
+                continue;
+            }
+            // The element: from its opening line, at one indent less, to its close.
+            let indent = line.len() - line.trim_start().len();
+            let Some(open) = (0..index).rev().find(|&i| {
+                let other = lines[i];
+                other.len() - other.trim_start().len() + 4 == indent
+                    && other.trim_end().ends_with('{')
+            }) else {
+                continue;
+            };
+            let mut depth = 0i32;
+            let mut sized = false;
+            for other in &lines[open..] {
+                let code = strip_comment(other).trim();
+                if code.starts_with("min-height: self.preferred-height")
+                    || code.starts_with("height:")
+                {
+                    sized = true;
+                }
+                depth += other.matches('{').count() as i32 - other.matches('}').count() as i32;
+                if depth == 0 {
+                    break;
+                }
+            }
+            if !sized {
+                missing.push(format!("{}:{}", path.display(), index + 1));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "wrapped texts without `min-height: self.preferred-height;`:\n{}",
+        missing.join("\n")
     );
 }

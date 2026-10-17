@@ -60,6 +60,7 @@ dials come from DESIGN.md).
 | Durations only in `theme.slint`, so reduced motion turns all motion off in one place | `tests/ui_invariants.rs` |
 | Every user-visible string goes through `@tr()` (exceptions: "VCMP", "Sora", the slint.dev URL) | `tests/ui_invariants.rs` |
 | Every text pairing reaches 4.5:1 and every control boundary 3:1, in both palettes | `src/theme.rs` |
+| Every wrapped text sets `min-height: self.preferred-height` (or its height outright). Slint 1.18.1 measures an element an `if` creates at its single-line width, so a wrapped text there lost its last lines ([slint-ui/slint#13655](https://github.com/slint-ui/slint/issues/13655), fixed after 1.18.1); a text's own preferred height follows its real width. Drop the rule once Slint is past the fix | `tests/ui_invariants.rs` |
 | Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
 
 ## Palettes

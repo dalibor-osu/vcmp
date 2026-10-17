@@ -187,6 +187,7 @@ export component TagEditorView inherits Rectangle {
                         color: Theme.colors.text;
                         font-size: Theme.font-heading;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     Text {
                         text: root.single ? @tr("The tags are written into the file, then read back to check them. An empty field removes its tag.")
@@ -194,6 +195,7 @@ export component TagEditorView inherits Rectangle {
                         color: Theme.colors.text-muted;
                         font-size: Theme.font-body;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                 }
 
@@ -228,6 +230,7 @@ export component TagEditorView inherits Rectangle {
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                             }
                         }
 
@@ -356,6 +359,7 @@ export component TagEditorView inherits Rectangle {
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
 
                 if root.writing: VerticalLayout {
@@ -384,6 +388,7 @@ export component TagEditorView inherits Rectangle {
                         font-size: Theme.font-body;
                         font-weight: Theme.weight-strong;
                         wrap: word-wrap;
+                        min-height: self.preferred-height;
                     }
                     for failure in TagEditorState.failures: VerticalLayout {
                         Text {
@@ -403,6 +408,7 @@ export component TagEditorView inherits Rectangle {
                             color: Theme.colors.text-muted;
                             font-size: Theme.font-small;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
                     }
                 }

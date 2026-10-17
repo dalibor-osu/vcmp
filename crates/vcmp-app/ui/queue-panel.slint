@@ -271,6 +271,7 @@ export component QueuePanel inherits Rectangle {
             color: Theme.colors.text-muted;
             font-size: Theme.font-small;
             wrap: word-wrap;
+            min-height: self.preferred-height;
         }
 
         scroll := ScrollView {

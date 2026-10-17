@@ -37,6 +37,7 @@ component FolderRow {
                 color: Theme.colors.text;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
         }
 
@@ -97,6 +98,7 @@ export component LibrarySection inherits VerticalLayout {
         color: Theme.colors.text-muted;
         font-size: Theme.font-small;
         wrap: word-wrap;
+        min-height: self.preferred-height;
     }
 
     for folder in LibraryState.folders: FolderRow {
@@ -135,6 +137,7 @@ export component LibrarySection inherits VerticalLayout {
                 color: Theme.colors.text;
                 font-size: Theme.font-body;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
 
             if LibraryState.scanning && LibraryState.total > 0: ProgressBar {
@@ -150,6 +153,7 @@ export component LibrarySection inherits VerticalLayout {
                 color: Theme.colors.text;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
         }
 
@@ -180,6 +184,7 @@ export component LibrarySection inherits VerticalLayout {
                 vertical-alignment: center;
                 horizontal-stretch: 1;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
 
             Button {
@@ -200,6 +205,7 @@ export component LibrarySection inherits VerticalLayout {
                     color: Theme.colors.text;
                     font-size: Theme.font-small;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
 
                 Text {
@@ -207,6 +213,7 @@ export component LibrarySection inherits VerticalLayout {
                     color: Theme.colors.text-muted;
                     font-size: Theme.font-small;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
             }
         }

@@ -175,6 +175,7 @@ export component PlaylistView {
                             font-size: Theme.font-title;
                             font-weight: Theme.weight-strong;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
 
                         if root.renaming: HorizontalLayout {
@@ -307,6 +308,7 @@ export component PlaylistView {
                                 color: Theme.colors.text;
                                 font-size: Theme.font-body;
                                 wrap: word-wrap;
+                                min-height: self.preferred-height;
                             }
 
                             HorizontalLayout {
@@ -341,6 +343,7 @@ export component PlaylistView {
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     max-width: Theme.content-max-width;
                 }
 
@@ -349,6 +352,7 @@ export component PlaylistView {
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
 
                 if !root.playlist.failed && root.tracks.length == 0: Text {
@@ -356,6 +360,7 @@ export component PlaylistView {
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                     max-width: Theme.content-max-width;
                 }
 

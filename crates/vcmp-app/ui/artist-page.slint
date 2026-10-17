@@ -170,6 +170,7 @@ export component ArtistView {
                             color: Theme.colors.text;
                             font-size: Theme.font-small;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
                     }
 
@@ -186,6 +187,7 @@ export component ArtistView {
                             font-size: Theme.font-title;
                             font-weight: Theme.weight-strong;
                             wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
 
                         if !root.artist.missing: HorizontalLayout {
@@ -234,6 +236,7 @@ export component ArtistView {
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
 
                 if root.albums.length > 0: SectionHeading {

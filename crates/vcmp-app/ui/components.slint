@@ -347,6 +347,7 @@ export component SettingRow {
                 font-size: Theme.font-body;
                 font-weight: Theme.weight-strong;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
 
             Text {
@@ -354,6 +355,7 @@ export component SettingRow {
                 color: Theme.colors.text-muted;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
+                min-height: self.preferred-height;
             }
         }
 
@@ -963,6 +965,7 @@ export component TextLink {
             font-size: root.font-size;
             font-weight: root.font-weight;
             wrap: root.wrap ? TextWrap.word-wrap : TextWrap.no-wrap;
+            min-height: self.preferred-height;
             overflow: elide;
             horizontal-alignment: root.horizontal-alignment;
             accessible-role: none;
