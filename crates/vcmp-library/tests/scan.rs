@@ -733,3 +733,79 @@ fn watcher_reports_a_new_file_once_things_are_quiet() {
     // The burst of writes is reported once.
     assert!(receiver.recv_timeout(Duration::from_millis(800)).is_err());
 }
+
+#[test]
+fn an_artist_page_has_own_albums_and_appearances() {
+    let mut setup = Setup::new();
+    let dir = setup.music();
+    add_file(
+        &dir,
+        "1.flac",
+        "silence.flac",
+        song("Own", "Singer", "Solo"),
+    );
+    add_file(
+        &dir,
+        "2.flac",
+        "silence.flac",
+        Tags {
+            album_artist: Some("Band"),
+            ..song("Guest spot", "Singer", "Band Album")
+        },
+    );
+    add_file(
+        &dir,
+        "3.flac",
+        "silence.flac",
+        Tags {
+            album_artist: Some("Band"),
+            ..song("Band song", "Band", "Band Album")
+        },
+    );
+    add_file(
+        &dir,
+        "4.flac",
+        "silence.flac",
+        Tags {
+            title: Some("Loose"),
+            artist: Some("Singer"),
+            ..Tags::default()
+        },
+    );
+    setup.add_music_source();
+    setup.scan();
+
+    let singer = setup
+        .library
+        .artists()
+        .unwrap()
+        .into_iter()
+        .find(|artist| artist.name == "Singer")
+        .unwrap();
+    assert_eq!(
+        setup.library.artist(singer.id).unwrap(),
+        Some(singer.clone())
+    );
+    assert_eq!(
+        (singer.album_count, singer.track_count),
+        (1, 3),
+        "its own album, and every credited track"
+    );
+    let own: Vec<String> = setup
+        .library
+        .artist_albums(singer.id)
+        .unwrap()
+        .into_iter()
+        .map(|album| album.title)
+        .collect();
+    assert_eq!(own, ["Solo"]);
+    let mut appearances: Vec<String> = setup
+        .library
+        .artist_appearances(singer.id)
+        .unwrap()
+        .into_iter()
+        .map(|track| track.title)
+        .collect();
+    appearances.sort();
+    assert_eq!(appearances, ["Guest spot", "Loose"]);
+}

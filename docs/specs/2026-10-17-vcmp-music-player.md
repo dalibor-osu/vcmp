@@ -335,6 +335,19 @@ first.
 **Answer: Yes, test first.** The test drew 20 random albums without a MusicBrainz
 tag; 12 of them got a cover.
 
+### Which artists should the Artists page show? (asked during implementation)
+
+Asked with the owner's library as the example: 138 artists with their own albums,
+394 more who only appear in track credits on other artists' albums.
+
+| Option | What it means |
+|---|---|
+| Album artists + switch (Recommended) | Shows the 138 album artists by default; a switch on the page shows all 532. Clean grid, credits still browsable; one more control. |
+| Album artists only | Just the 138 with albums; credit-only artists are reached through search and album pages. Cleanest, but e.g. a character credit has no page. |
+| All artists | All 532 in one grid, each page listing the tracks they appear on. Complete, but compound credits like 'A, B, C, D' fill the grid. |
+
+**Answer: Album artists + switch**
+
 ## High-level plan
 
 v1 is one release with all core features. It is built in workstreams so that a

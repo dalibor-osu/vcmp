@@ -15,6 +15,8 @@ Early development. In place so far:
   verified copy of each file); the tag editor UI is still to come;
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
   pages with tracks by disc;
+- the Artists page: album artists (or everyone credited) with their albums and the
+  tracks they appear on elsewhere;
 - music folders in Settings: add and remove folders, scans in the background with
   progress, and automatic updates when the folders change;
 - playback: gapless MP3, FLAC, WAV and Ogg Vorbis, with a player bar (seek, volume and

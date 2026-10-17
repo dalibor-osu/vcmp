@@ -6,6 +6,7 @@ import { LibrarySection } from "library-settings.slint";
 import { PlayerState, ShuffleKind } from "player-state.slint";
 import { AlbumGrid, AlbumTile } from "album-grid.slint";
 import { AlbumDetail, AlbumView, TrackRow } from "album-page.slint";
+import { ArtistDetail, ArtistView } from "artist-page.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -362,6 +363,181 @@ export component AlbumsPage inherits Rectangle {
         album: root.album;
         tracks: root.tracks;
         multi-disc: root.multi-disc;
+        back => {
+            root.close-album();
+        }
+    }
+
+    if root.shown: FadeCurtain { }
+}
+
+// The artists: a grid of album artists, or of everyone credited on a track. Choosing
+// one shows the artist; an album chosen there opens in this page too, so going back
+// returns to the artist.
+export component ArtistsPage inherits Rectangle {
+    in property <[AlbumTile]> artists;
+    // Everyone credited on a track, rather than album artists only.
+    in-out property <bool> show-all;
+    in property <bool> shown;
+    in property <bool> library-failed;
+    in-out property <bool> artist-open;
+    // An album opened from the artist's page.
+    in-out property <bool> album-open;
+    in property <ArtistDetail> artist;
+    in property <[AlbumTile]> artist-albums;
+    in property <[TrackRow]> appearances;
+    in property <AlbumDetail> album;
+    in property <[TrackRow]> tracks;
+    in property <bool> multi-disc;
+    callback activated(int);
+    // The artist grid's cards in view changed: first index and how many fit.
+    callback range-changed(int, int);
+    callback filter-changed();
+    callback album-activated(int);
+    callback play-artist(bool);
+    callback play-appearance(int);
+    callback queue-appearance(int, bool);
+    callback play-album(int, bool);
+    callback queue-album-track(int, bool);
+
+    // Leaves an open artist or album for the grid.
+    public function show-grid() {
+        root.album-open = false;
+        root.close-artist();
+    }
+
+    // Shows the grid again, with the artist that was open as its current card.
+    public function close-artist() {
+        root.artist-open = false;
+        grid.focus-album(grid.current);
+    }
+
+    // Shows the artist again, with the album that was open as the current card.
+    public function close-album() {
+        root.album-open = false;
+        artist-view.focus-album(root.album-index);
+    }
+
+    private property <int> album-index: 0;
+
+    changed artist-open => {
+        if self.artist-open {
+            artist-view.focus-back();
+        }
+    }
+    changed album-open => {
+        if self.album-open {
+            album-view.focus-back();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        visible: !root.artist-open && !root.album-open;
+
+        HorizontalLayout {
+            padding-left: Theme.space-xxl;
+            padding-right: Theme.space-xxl;
+            padding-top: Theme.space-xxl;
+            spacing: Theme.space-xl;
+
+            Text {
+                text: @tr("Artists");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            SegmentedChoice {
+                label: @tr("Artists shown");
+                segment-min: 120px;
+                options: [@tr("Album artists"), @tr("All artists")];
+                current-index: root.show-all ? 1 : 0;
+                selected(index) => {
+                    root.show-all = index == 1;
+                    root.filter-changed();
+                    Theme.preferences-changed();
+                }
+            }
+        }
+
+        if root.artists.length == 0: VerticalLayout {
+            padding: Theme.space-xxl;
+            alignment: start;
+
+            Text {
+                text: root.library-failed ? @tr("The music library could not be opened, so no artists can be shown.")
+                    : LibraryState.scanning ? @tr("Looking for artists in your music folders. They appear here as they are found.")
+                    : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in in Settings, and VCMP finds your artists.")
+                    : root.show-all ? @tr("No artists found in your music folders.")
+                    : @tr("No album artists found. Choose All artists to see everyone credited on a track.");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                max-width: Theme.content-max-width;
+            }
+        }
+
+        // Kept while an artist is open, so its scroll position survives.
+        grid := AlbumGrid {
+            visible: root.artists.length > 0;
+            vertical-stretch: 1;
+            round: true;
+            albums: root.artists;
+            visible-range-changed(first, count) => {
+                root.range-changed(first, count);
+            }
+            activated(index) => {
+                root.activated(index);
+            }
+        }
+    }
+
+    artist-view := ArtistView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.artist-open && !root.album-open;
+        artist: root.artist;
+        albums: root.artist-albums;
+        appearances: root.appearances;
+        back => {
+            root.close-artist();
+        }
+        album-activated(index) => {
+            root.album-index = index;
+            root.album-activated(index);
+        }
+        play(shuffle) => {
+            root.play-artist(shuffle);
+        }
+        play-appearance(index) => {
+            root.play-appearance(index);
+        }
+        queue-appearance(index, next) => {
+            root.queue-appearance(index, next);
+        }
+    }
+
+    album-view := AlbumView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.album-open;
+        back-label: root.artist.name;
+        playing-path: PlayerState.track-path;
+        album: root.album;
+        tracks: root.tracks;
+        multi-disc: root.multi-disc;
+        play(start, shuffle) => {
+            root.play-album(start, shuffle);
+        }
+        queue-track(index, next) => {
+            root.queue-album-track(index, next);
+        }
         back => {
             root.close-album();
         }
