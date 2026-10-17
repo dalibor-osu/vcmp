@@ -174,6 +174,18 @@ CREATE TABLE folder_art (
     fingerprint TEXT NOT NULL
 ) STRICT;
 "#,
+    r#"
+-- Artist photos the owner chose. image: file name under the data directory's
+-- images/artists/; source: the web address it came from, NULL for a file of the
+-- owner's. Keyed by the artist's name, which outlives artist rows a scan removes and
+-- adds, like albums' group keys.
+CREATE TABLE artist_photos (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    image TEXT NOT NULL,
+    source TEXT,
+    chosen_ms INTEGER NOT NULL
+) STRICT;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

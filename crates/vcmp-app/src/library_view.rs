@@ -396,17 +396,23 @@ impl LibraryView {
         *self.artists.borrow_mut() = artists;
     }
 
-    /// Artist cards. Until artists have photos, an artist shows the cover of their
+    /// Artist cards: an artist shows their photo, or without one the cover of their
     /// newest album.
     fn artist_cards(&self, artists: &[Artist]) -> Vec<Card> {
         let albums = self.library.albums().unwrap_or_default();
+        let photos = self.library.artist_photos().unwrap_or_else(|error| {
+            log::error!("could not read the artist photos: {error}");
+            Default::default()
+        });
         let picture = |artist: &Artist| -> Option<PathBuf> {
-            albums
-                .iter()
-                .filter(|album| album.artist_id == Some(artist.id))
-                .filter_map(|album| Some((album.year, album.artwork.as_ref()?)))
-                .max_by_key(|(year, _)| *year)
-                .map(|(_, artwork)| artwork.thumbnail.clone())
+            photos.get(&artist.id).cloned().or_else(|| {
+                albums
+                    .iter()
+                    .filter(|album| album.artist_id == Some(artist.id))
+                    .filter_map(|album| Some((album.year, album.artwork.as_ref()?)))
+                    .max_by_key(|(year, _)| *year)
+                    .map(|(_, artwork)| artwork.thumbnail.clone())
+            })
         };
         artists
             .iter()
@@ -736,18 +742,56 @@ impl LibraryView {
         self.artist_albums_grid.replace(albums);
         // The page shows all of them at once.
         self.artist_albums_grid.show_range(0, count);
-        show_artist_details(window, open);
+        let photo = self
+            .library
+            .artist_photo(open.artist.id)
+            .unwrap_or_else(|error| {
+                log::error!(
+                    "could not read the photo of {:?}: {error}",
+                    open.artist.name
+                );
+                None
+            });
+        show_artist_details(window, open, photo);
+    }
+
+    /// The artist the artist page shows, while it is open.
+    pub fn shown_artist_entry(&self) -> Option<Artist> {
+        let window = self.window.upgrade()?;
+        if !window.get_artist_open() {
+            return None;
+        }
+        self.artist
+            .borrow()
+            .as_ref()
+            .map(|open| open.artist.clone())
+    }
+
+    /// Shows artist photos that changed: on the cards and the artist page.
+    pub fn refresh_artist_pictures(&self) {
+        self.show_artists();
+        self.search();
+        if let Some(window) = self.window.upgrade()
+            && window.get_artist_open()
+        {
+            self.reload_artist(&window);
+        }
     }
 }
 
-fn show_artist_details(window: &AppWindow, open: &OpenArtist) {
-    // The same picture as on the artist's card: their newest album's cover.
-    let picture = open
-        .albums
-        .iter()
-        .filter_map(|album| Some((album.year, album.artwork.as_ref()?)))
-        .max_by_key(|(year, _)| *year)
-        .and_then(|(_, artwork)| Image::load_from_path(&artwork.thumbnail).ok());
+fn show_artist_details(window: &AppWindow, open: &OpenArtist, photo: Option<PathBuf>) {
+    // The same picture as on the artist's card: their photo, or their newest album's
+    // cover.
+    let has_photo = photo.is_some();
+    let picture = match photo {
+        Some(photo) => Image::load_from_path(&photo).ok(),
+        None => open
+            .albums
+            .iter()
+            .filter_map(|album| Some((album.year, album.artwork.as_ref()?)))
+            .max_by_key(|(year, _)| *year)
+            .and_then(|(_, artwork)| Image::load_from_path(&artwork.thumbnail).ok()),
+    };
     let appearances: Vec<TrackRow> = open
         .appearances
         .iter()
@@ -766,6 +810,7 @@ fn show_artist_details(window: &AppWindow, open: &OpenArtist) {
         track_count: open.artist.track_count as i32,
         has_picture: picture.is_some(),
         picture: picture.unwrap_or_default(),
+        has_photo,
         missing: false,
     });
     window.set_artist_appearances(ModelRc::new(VecModel::from(appearances)));

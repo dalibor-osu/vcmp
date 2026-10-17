@@ -25,7 +25,10 @@ export component AlbumCard {
     in property <bool> round;
     // A playlist: its number of tracks below the name.
     in property <bool> playlist;
-    private property <string> subtitle: root.playlist ? @tr("{n} track" | "{n} tracks" % root.album.track-count)
+    // A photo to pick: below the name, what tells the artist apart, as given.
+    in property <bool> photo;
+    private property <string> subtitle: root.photo ? root.album.artist
+        : root.playlist ? @tr("{n} track" | "{n} tracks" % root.album.track-count)
         : !root.round ? root.album.artist
         : root.album.album-count > 0 ? @tr("{n} album" | "{n} albums" % root.album.album-count)
         : @tr("{n} track" | "{n} tracks" % root.album.track-count);
@@ -226,6 +229,8 @@ export component CardGrid {
     in property <[AlbumTile]> tiles;
     // Artists rather than albums.
     in property <bool> round;
+    // Photos to pick: the subtitles as given.
+    in property <bool> photos;
     // Playlists: track counts as subtitles.
     in property <bool> playlists;
     in property <length> available-width;
@@ -288,6 +293,7 @@ export component CardGrid {
         width: root.tile-width;
         cover-size: root.tile-width;
         round: root.round;
+        photo: root.photos;
         playlist: root.playlists;
         album: tile;
         focused: focus.has-focus && index == root.current;

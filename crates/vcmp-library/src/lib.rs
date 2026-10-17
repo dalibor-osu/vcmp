@@ -6,6 +6,7 @@
 //! Last.fm. Music files are written only by [`Library::write_tags`], through a
 //! verified copy.
 
+mod artist_photos;
 mod artwork;
 mod edit;
 mod error;

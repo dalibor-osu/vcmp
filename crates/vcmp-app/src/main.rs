@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::ComponentHandle;
+use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
@@ -12,6 +13,7 @@ use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_integrations::discord::{self, DiscordPresence};
+use vcmp_integrations::fanart::PhotoPicker;
 use vcmp_integrations::lastfm::Credentials;
 use vcmp_integrations::musicbrainz::{CoverFinder, CoverPicker};
 use vcmp_library::Library;
@@ -60,6 +62,16 @@ fn main() -> Result<(), slint::PlatformError> {
                         Box::new(CoverPicker::start(|search, event| {
                             CoverFetch::post(move |fetch| fetch.handle(search, event));
                         })),
+                    );
+                    // Online photos only in builds with VCMP's fanart.tv key.
+                    let artist_photos = ArtistPhotos::connect(
+                        &window,
+                        library.clone(),
+                        view.clone(),
+                        PhotoPicker::start(|search, event| {
+                            ArtistPhotos::post(move |photos| photos.handle(search, event));
+                        })
+                        .map(|picker| Box::new(picker) as Box<dyn PhotoSource>),
                     );
                     let options = PlayerOptions {
                         output_device: library
@@ -123,6 +135,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         cover_fetch,
                         lastfm,
                         tag_editor,
+                        artist_photos,
                     ));
                 }
                 Err(error) => {
@@ -142,7 +155,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     let result = window.run();
-    if let Some((_, Some(player_service), _, _, _)) = &services {
+    if let Some((_, Some(player_service), _, _, _, _)) = &services {
         player_service.save_queue();
     }
     result
