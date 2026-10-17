@@ -32,6 +32,7 @@ pub fn source(glyph: Glyph) -> &'static str {
         Glyph::Search => include_str!("../ui/icons/search.svg"),
         Glyph::Folder => include_str!("../ui/icons/folder.svg"),
         Glyph::Expand => include_str!("../ui/icons/expand.svg"),
+        Glyph::More => include_str!("../ui/icons/more.svg"),
     }
 }
 
@@ -79,7 +80,7 @@ pub fn install(window: &AppWindow) {
 mod tests {
     use super::*;
 
-    const ALL: [Glyph; 15] = [
+    const ALL: [Glyph; 16] = [
         Glyph::Play,
         Glyph::Pause,
         Glyph::Previous,
@@ -95,6 +96,7 @@ mod tests {
         Glyph::Search,
         Glyph::Folder,
         Glyph::Expand,
+        Glyph::More,
     ];
 
     #[test]

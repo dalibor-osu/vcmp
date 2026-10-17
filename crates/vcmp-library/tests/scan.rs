@@ -284,7 +284,7 @@ fn changed_tags_update_the_track_and_drop_the_empty_album() {
 }
 
 #[test]
-fn moved_file_keeps_its_track_id() {
+fn moved_file_keeps_its_track_id_and_playlist_entry() {
     let mut setup = Setup::new();
     let old = add_file(
         &setup.music(),
@@ -295,6 +295,8 @@ fn moved_file_keeps_its_track_id() {
     setup.add_music_source();
     setup.scan();
     let id = setup.library.track_id_for_path(&old).unwrap().unwrap();
+    let playlist = setup.library.create_playlist("Calm").unwrap();
+    setup.library.add_to_playlist(playlist, &[id]).unwrap();
 
     let new = setup.music().join("Dvořák/New World/02 Largo.flac");
     fs::create_dir_all(new.parent().unwrap()).unwrap();
@@ -309,6 +311,9 @@ fn moved_file_keeps_its_track_id() {
     assert_eq!(track.path, new);
     assert!(track.available);
     assert_eq!(setup.library.tracks().unwrap().len(), 1);
+    let entries = setup.library.playlist_entries(playlist).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!((entries[0].track.id, &entries[0].track.path), (id, &new));
 }
 
 #[test]

@@ -1,0 +1,368 @@
+//! Playlists in the window: the Playlists page's grid, the playlist page, the list in
+//! the sidebar and the Add to playlist menus. Reloaded after every library change,
+//! since an entry dims while its file is gone and comes back with it.
+
+use std::cell::{Cell, RefCell};
+use std::path::Path;
+use std::rc::Rc;
+
+use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
+use vcmp_library::{Library, Playlist, PlaylistEntry, PlaylistId, Track};
+
+use crate::albums::{Card, CoverGrid, Grid, initial};
+use crate::library_view::format_duration;
+use crate::{AlbumTile, AppWindow, PlaylistDetail, Playlists, TrackRow};
+
+/// Image files the picture chooser offers.
+const PICTURE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+
+pub struct PlaylistBrowser {
+    window: slint::Weak<AppWindow>,
+    library: Rc<Library>,
+    grid: Rc<CoverGrid>,
+    // Every playlist, in the grid's and the sidebar's order.
+    playlists: RefCell<Vec<Playlist>>,
+    // The playlist the playlist page shows (or showed last), and its entries.
+    open: Cell<Option<PlaylistId>>,
+    entries: RefCell<Vec<PlaylistEntry>>,
+    // The last picture chosen for the open playlist could not be used.
+    picture_failed: Cell<bool>,
+}
+
+/// The open playlist's entries, for playing it.
+pub struct OpenPlaylist {
+    pub id: PlaylistId,
+    pub entries: Vec<PlaylistEntry>,
+}
+
+impl PlaylistBrowser {
+    /// Shows the library's playlists. Keep the browser alive as long as the window.
+    pub fn connect(window: &AppWindow, library: Rc<Library>) -> Rc<Self> {
+        let grid = CoverGrid::connect(window, Grid::Playlists, Vec::new(), 1);
+        let browser = Rc::new(Self {
+            window: window.as_weak(),
+            library,
+            grid,
+            playlists: RefCell::default(),
+            open: Cell::default(),
+            entries: RefCell::default(),
+            picture_failed: Cell::default(),
+        });
+        browser.reload();
+
+        let weak = Rc::downgrade(&browser);
+        window.on_playlist_range_changed(move |first, count| {
+            if let Some(browser) = weak.upgrade() {
+                browser
+                    .grid
+                    .show_range(first.max(0) as usize, count.max(0) as usize);
+            }
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_playlist_activated(move |index| {
+            let Some(browser) = weak.upgrade() else {
+                return;
+            };
+            if let Some(playlist) = browser.at(index) {
+                browser.open(playlist.id);
+            }
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_create_playlist(move |name| {
+            let Some(browser) = weak.upgrade() else {
+                return;
+            };
+            match browser.library.create_playlist(&name) {
+                Ok(id) => {
+                    browser.reload();
+                    browser.open(id);
+                }
+                Err(error) => log::error!("could not make a playlist: {error}"),
+            }
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_rename_playlist(move |name| {
+            let Some(browser) = weak.upgrade() else {
+                return;
+            };
+            // An empty name keeps the old one.
+            if name.trim().is_empty() {
+                return;
+            }
+            browser.edit("rename the playlist", |library, id| {
+                library.rename_playlist(id, &name)
+            });
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_delete_playlist(move || {
+            if let Some(browser) = weak.upgrade() {
+                browser.edit("delete the playlist", Library::delete_playlist);
+            }
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_choose_playlist_picture(move || {
+            if let Some(browser) = weak.upgrade() {
+                browser.choose_picture();
+            }
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_clear_playlist_picture(move || {
+            if let Some(browser) = weak.upgrade() {
+                browser.picture_failed.set(false);
+                browser.edit(
+                    "remove the playlist's picture",
+                    Library::clear_playlist_image,
+                );
+            }
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_remove_playlist_track(move |index| {
+            let (Some(browser), Ok(position)) = (weak.upgrade(), u32::try_from(index)) else {
+                return;
+            };
+            browser.edit("remove the track", |library, id| {
+                library.remove_from_playlist(id, &[position])
+            });
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_move_playlist_track(move |from, to| {
+            let (Some(browser), Ok(from), Ok(to)) =
+                (weak.upgrade(), u32::try_from(from), u32::try_from(to))
+            else {
+                return;
+            };
+            browser.edit("move the track", |library, id| {
+                library.move_in_playlist(id, from, to)
+            });
+        });
+        let weak = Rc::downgrade(&browser);
+        window
+            .global::<Playlists>()
+            .on_add_track(move |index, path| {
+                if let Some(browser) = weak.upgrade() {
+                    browser.add_track(index, Path::new(path.as_str()));
+                }
+            });
+        browser
+    }
+
+    /// Reads the playlists again: the grid, the sidebar and menus, and the playlist
+    /// page while one is open.
+    pub fn reload(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let playlists = self.library.playlists().unwrap_or_else(|error| {
+            log::error!("could not read the playlists: {error}");
+            Vec::new()
+        });
+        self.grid.replace(cards(&playlists));
+        let names: Vec<SharedString> = playlists
+            .iter()
+            .map(|playlist| playlist.name.as_str().into())
+            .collect();
+        window
+            .global::<Playlists>()
+            .set_names(ModelRc::new(VecModel::from(names)));
+        *self.playlists.borrow_mut() = playlists;
+        if let Some(id) = self.open.get() {
+            self.show(&window, id);
+        }
+    }
+
+    /// Opens a playlist on the Playlists page.
+    pub fn open(&self, id: PlaylistId) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        if self.open.get() != Some(id) {
+            self.picture_failed.set(false);
+        }
+        self.open.set(Some(id));
+        self.show(&window, id);
+        window.set_playlist_open(true);
+    }
+
+    /// The playlist the playlist page shows, while it is open.
+    pub fn shown(&self) -> Option<OpenPlaylist> {
+        let window = self.window.upgrade()?;
+        if !window.get_playlist_open() {
+            return None;
+        }
+        Some(OpenPlaylist {
+            id: self.open.get()?,
+            entries: self.entries.borrow().clone(),
+        })
+    }
+
+    fn at(&self, index: i32) -> Option<Playlist> {
+        let index = usize::try_from(index).ok()?;
+        self.playlists.borrow().get(index).cloned()
+    }
+
+    /// Fills the playlist page. A playlist that is gone closes it.
+    fn show(&self, window: &AppWindow, id: PlaylistId) {
+        let position = self
+            .playlists
+            .borrow()
+            .iter()
+            .position(|playlist| playlist.id == id);
+        let playlist = position.and_then(|position| self.playlists.borrow().get(position).cloned());
+        let Some(playlist) = playlist else {
+            self.open.set(None);
+            self.entries.borrow_mut().clear();
+            window.set_open_playlist_index(-1);
+            window.set_playlist_open(false);
+            return;
+        };
+        let (entries, failed) = match self.library.playlist_entries(id) {
+            Ok(entries) => (entries, false),
+            Err(error) => {
+                log::error!("could not read playlist {:?}: {error}", playlist.name);
+                (Vec::new(), true)
+            }
+        };
+        let rows: Vec<TrackRow> = entries.iter().map(entry_row).collect();
+        let picture = playlist
+            .picture
+            .as_ref()
+            .and_then(|path| Image::load_from_path(path).ok());
+        window.set_playlist_detail(PlaylistDetail {
+            name: playlist.name.as_str().into(),
+            track_count: playlist.track_count as i32,
+            unavailable_count: (playlist.track_count - playlist.available_count) as i32,
+            minutes: playlist.duration.as_secs().div_ceil(60) as i32,
+            has_picture: picture.is_some(),
+            picture: picture.unwrap_or_default(),
+            own_picture: playlist.own_picture,
+            initial: initial(&playlist.name).into(),
+            failed,
+            picture_failed: self.picture_failed.get(),
+        });
+        window.set_playlist_tracks(ModelRc::new(VecModel::from(rows)));
+        window.set_open_playlist_index(position.map_or(-1, |position| position as i32));
+        *self.entries.borrow_mut() = entries;
+    }
+
+    /// Changes the open playlist, then shows the change everywhere.
+    fn edit(
+        &self,
+        what: &str,
+        change: impl FnOnce(&Library, PlaylistId) -> vcmp_library::Result<()>,
+    ) {
+        let Some(id) = self.open.get() else {
+            return;
+        };
+        if let Err(error) = change(&self.library, id) {
+            log::error!("could not {what}: {error}");
+        }
+        self.reload();
+    }
+
+    fn choose_picture(self: &Rc<Self>) {
+        let Some(id) = self.open.get() else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        let picked = slint::spawn_local(async move {
+            let Some(file) = rfd::AsyncFileDialog::new()
+                .add_filter("Images", PICTURE_EXTENSIONS)
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let Some(browser) = weak.upgrade() else {
+                return;
+            };
+            let result = browser.library.set_playlist_image(id, file.path());
+            if browser.open.get() == Some(id) {
+                browser.picture_failed.set(result.is_err());
+            }
+            if let Err(error) = result {
+                log::error!(
+                    "could not use {} as the picture: {error}",
+                    file.path().display()
+                );
+            }
+            browser.reload();
+        });
+        if let Err(error) = picked {
+            log::error!("could not open the picture chooser: {error}");
+        }
+    }
+
+    /// Adds the library's track at `path` to playlist `index`, or to a new playlist
+    /// for -1.
+    fn add_track(&self, index: i32, path: &Path) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let track = match self.library.track_id_for_path(path) {
+            Ok(Some(track)) => track,
+            Ok(None) => {
+                log::warn!("not in the library, so not added: {}", path.display());
+                return;
+            }
+            Err(error) => {
+                log::error!("could not look up {}: {error}", path.display());
+                return;
+            }
+        };
+        let playlist = match index {
+            -1 => self
+                .library
+                .create_playlist(&window.global::<Playlists>().get_new_name()),
+            index => match self.at(index) {
+                Some(playlist) => Ok(playlist.id),
+                None => return,
+            },
+        };
+        if let Err(error) = playlist.and_then(|id| self.library.add_to_playlist(id, &[track])) {
+            log::error!("could not add {} to the playlist: {error}", path.display());
+        }
+        self.reload();
+    }
+}
+
+/// Playlist cards: the name, the number of tracks, and the picture.
+pub(crate) fn cards(playlists: &[Playlist]) -> Vec<Card> {
+    playlists
+        .iter()
+        .map(|playlist| {
+            let tile = AlbumTile {
+                id: playlist.id.0 as i32,
+                title: playlist.name.as_str().into(),
+                track_count: playlist.track_count as i32,
+                initial: initial(&playlist.name).into(),
+                ..AlbumTile::default()
+            };
+            (tile, playlist.picture.clone())
+        })
+        .collect()
+}
+
+/// An entry as a row: its place in the playlist, then where the track comes from.
+fn entry_row(entry: &PlaylistEntry) -> TrackRow {
+    let track = &entry.track;
+    TrackRow {
+        number: (entry.position + 1).to_string().into(),
+        title: track.title.as_str().into(),
+        artist: source(track).into(),
+        duration: format_duration(track.duration).into(),
+        path: track.path.to_string_lossy().as_ref().into(),
+        unavailable: !track.available,
+        ..TrackRow::default()
+    }
+}
+
+/// Artist and album in one column; the separator is not a word to translate.
+pub(crate) fn source(track: &Track) -> String {
+    let artist = track.artist.as_deref().unwrap_or_default();
+    let album = track.album.as_deref().unwrap_or_default();
+    match (artist.is_empty(), album.is_empty()) {
+        (false, false) => format!("{artist} · {album}"),
+        (false, true) => artist.to_string(),
+        (true, _) => album.to_string(),
+    }
+}

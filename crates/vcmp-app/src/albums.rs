@@ -1,6 +1,6 @@
-//! Feeds the card grids (albums, artists, an artist's albums): one model row per
-//! card, with pictures decoded on background threads for the cards in view and
-//! released again when they scroll far away.
+//! Feeds the card grids (albums, artists, an artist's albums, playlists): one model
+//! row per card, with pictures decoded on background threads for the cards in view
+//! and released again when they scroll far away.
 
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
@@ -29,6 +29,10 @@ pub enum Grid {
     SearchArtists,
     /// The albums found by a search.
     SearchAlbums,
+    /// The Playlists page.
+    Playlists,
+    /// The playlists found by a search.
+    SearchPlaylists,
 }
 
 impl Grid {
@@ -39,6 +43,8 @@ impl Grid {
             Grid::ArtistAlbums => window.get_artist_albums(),
             Grid::SearchArtists => window.get_search_artists(),
             Grid::SearchAlbums => window.get_search_albums(),
+            Grid::Playlists => window.get_playlists(),
+            Grid::SearchPlaylists => window.get_search_playlists(),
         }
     }
 
@@ -49,6 +55,8 @@ impl Grid {
             Grid::ArtistAlbums => window.set_artist_albums(model),
             Grid::SearchArtists => window.set_search_artists(model),
             Grid::SearchAlbums => window.set_search_albums(model),
+            Grid::Playlists => window.set_playlists(model),
+            Grid::SearchPlaylists => window.set_search_playlists(model),
         }
     }
 
@@ -264,7 +272,7 @@ impl AlbumBrowser {
 
 thread_local! {
     /// The grids decoded pictures are delivered to, on the UI thread.
-    static GRIDS: RefCell<[std::rc::Weak<CoverGrid>; 5]> = RefCell::default();
+    static GRIDS: RefCell<[std::rc::Weak<CoverGrid>; 7]> = RefCell::default();
 }
 
 /// Logical size the grids show pictures at, at most; they are decoded for this times

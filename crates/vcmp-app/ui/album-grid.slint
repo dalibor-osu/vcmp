@@ -4,7 +4,8 @@ import { FocusRing } from "components.slint";
 export enum ArtworkState { none, loading, loaded }
 
 // A card in a grid: an album, or (with round covers) an artist, whose subtitle is
-// its number of albums, or tracks when it has no albums of its own.
+// its number of albums, or tracks when it has no albums of its own, or a playlist,
+// whose subtitle is its number of tracks.
 export struct AlbumTile {
     id: int,
     title: string,
@@ -22,7 +23,10 @@ export component AlbumCard {
     in property <length> cover-size;
     // An artist: a round picture, and counts below the name.
     in property <bool> round;
-    private property <string> subtitle: !root.round ? root.album.artist
+    // A playlist: its number of tracks below the name.
+    in property <bool> playlist;
+    private property <string> subtitle: root.playlist ? @tr("{n} track" | "{n} tracks" % root.album.track-count)
+        : !root.round ? root.album.artist
         : root.album.album-count > 0 ? @tr("{n} album" | "{n} albums" % root.album.album-count)
         : @tr("{n} track" | "{n} tracks" % root.album.track-count);
     // Drawn with a focus ring: the grid has keyboard focus and this is its current card.
@@ -109,6 +113,8 @@ export component AlbumGrid {
     in property <[AlbumTile]> albums;
     // Artists rather than albums: round pictures, counts as subtitles.
     in property <bool> round;
+    // Playlists: track counts as subtitles.
+    in property <bool> playlists;
     // The keyboard's current card.
     in-out property <int> current: 0;
     callback visible-range-changed(int, int);
@@ -202,6 +208,7 @@ export component AlbumGrid {
             width: root.tile-width;
             cover-size: root.tile-width;
             round: root.round;
+            playlist: root.playlists;
             album: root.albums[self.index];
             focused: focus.has-focus && self.index == root.current;
             clicked => {
@@ -219,6 +226,8 @@ export component CardGrid {
     in property <[AlbumTile]> tiles;
     // Artists rather than albums.
     in property <bool> round;
+    // Playlists: track counts as subtitles.
+    in property <bool> playlists;
     in property <length> available-width;
     in property <string> label;
     in-out property <int> current: 0;
@@ -279,6 +288,7 @@ export component CardGrid {
         width: root.tile-width;
         cover-size: root.tile-width;
         round: root.round;
+        playlist: root.playlists;
         album: tile;
         focused: focus.has-focus && index == root.current;
         clicked => {
