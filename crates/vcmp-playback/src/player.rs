@@ -106,6 +106,13 @@ pub enum Event {
     /// The position in the current track, a few times a second while playing and
     /// after every seek.
     Position(Duration),
+    /// The track being decoded, or `None` when no track is. Its file stays open
+    /// meanwhile: from the start of the track (or shortly before, when it follows
+    /// gaplessly) until it is decoded to its end, a ring's length before it ends, or
+    /// playback stops or moves elsewhere. Pausing keeps it open. Sent when the track
+    /// changes, not on a seek. On Windows an open file can't be replaced, so the tag
+    /// editor waits for this before writing the file.
+    Decoding(Option<TrackRef>),
     QueueChanged(QueueView),
     /// A track could not be played and was skipped.
     TrackFailed {

@@ -23,7 +23,7 @@ use crate::player::{
 use crate::queue::{Advance, Queue};
 use crate::ring::{self, Control, Feed};
 use crate::source::{AudioFormat, Sources, TrackStream};
-use crate::track::QueueEntry;
+use crate::track::{QueueEntry, TrackRef};
 
 pub(crate) enum Message {
     Command(Command),
@@ -88,6 +88,8 @@ pub(crate) struct Engine {
     volume: f32,
     failures: usize,
     last_position: Instant,
+    /// The track last reported with [`Event::Decoding`].
+    reported_decoding: Option<TrackRef>,
 }
 
 impl Engine {
@@ -120,6 +122,7 @@ impl Engine {
             volume: options.volume,
             failures: 0,
             last_position: Instant::now(),
+            reported_decoding: None,
         }
     }
 
@@ -142,7 +145,9 @@ impl Engine {
             }
             self.send_backlog();
             self.follow_playback();
-            if !self.fill() {
+            let busy = self.fill();
+            self.report_decoding();
+            if !busy {
                 let wait = if self.state == PlaybackState::Playing {
                     POLL_PLAYING
                 } else {
@@ -340,6 +345,21 @@ impl Engine {
     fn emit(&self, event: Event) {
         // The receiver is gone only while the app shuts down.
         let _ = self.events.send(event);
+    }
+
+    /// Sends [`Event::Decoding`] when the track being decoded, whose file is open,
+    /// is another than last reported. Checked once per round, so a seek, which closes
+    /// and reopens the same file, is not reported.
+    fn report_decoding(&mut self) {
+        let decoding = self
+            .decoder
+            .as_ref()
+            .and(self.segments.back())
+            .map(|segment| &segment.entry.track);
+        if decoding != self.reported_decoding.as_ref() {
+            self.reported_decoding = decoding.cloned();
+            self.emit(Event::Decoding(self.reported_decoding.clone()));
+        }
     }
 
     fn emit_queue(&mut self) {

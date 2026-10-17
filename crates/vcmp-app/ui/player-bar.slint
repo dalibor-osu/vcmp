@@ -287,6 +287,7 @@ export component PlayerBar inherits Rectangle {
 
                 if PlayerState.problem != PlayerProblem.none: Text {
                     text: PlayerState.problem == PlayerProblem.no-output ? @tr("No sound output: {}. Press play to try again.", PlayerState.problem-detail)
+                        : PlayerState.problem == PlayerProblem.tags-not-written ? @tr("The new tags could not be written to {}. Edit its tags to try again.", PlayerState.problem-detail)
                         : @tr("A track could not be played and was skipped: {}", PlayerState.problem-detail);
                     color: Theme.colors.text;
                     font-size: Theme.font-small;

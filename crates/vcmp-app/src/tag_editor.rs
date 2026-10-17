@@ -3,9 +3,15 @@
 //! an album's tracks differ), and writes only the fields the user changed, through
 //! `Library::write_tags` on a connection of its own in the background. Afterwards
 //! the library views and the player show the new tags.
+//!
+//! On Windows the file playback has open can't be replaced, so its edit waits until
+//! the engine lets go of the file (`Event::Decoding`) while the rest of the batch is
+//! written at once. The editor says so and can be closed meanwhile; opened again on
+//! that track, it shows the waiting tags and builds on them.
 
 use std::cell::{Cell, RefCell};
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -13,9 +19,12 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
+use slint::{
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+};
 use vcmp_library::{
-    FieldEdit, InvalidTagEdit, Library, TagEdit, TagWriteError, TagWriteReport, Track,
+    FailedTagWrite, FieldEdit, InvalidTagEdit, Library, TagEdit, TagWriteError, TagWriteReport,
+    Track, TrackId,
 };
 
 use crate::library_service::{Delivery, LibraryPaths};
@@ -30,13 +39,30 @@ const PREVIEW_PIXELS: u32 = 320;
 /// Image files the cover chooser offers; the tags hold JPEG and PNG only.
 const COVER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png"];
 
+/// Whether a file that playback has open can't be replaced, so edits to it wait until
+/// playback lets go of it. Windows refuses to replace an open file. Elsewhere the
+/// replace goes through, and playback reads on from the old file until it moves on.
+const OPEN_FILES_LOCKED: bool = cfg!(windows);
+
 enum Message {
     Progress(usize),
-    Finished(Result<TagWriteReport, String>),
+    Finished(TagWriteReport),
+    /// Edits that waited for playback, written once it let go of their files.
+    Released(Vec<TrackEdit>, TagWriteReport),
+}
+
+/// One track's edit.
+#[derive(Clone)]
+struct TrackEdit {
+    track: Track,
+    edit: TagEdit,
 }
 
 /// Told when tags were written, so other parts of the window can show them.
 type Written = Box<dyn Fn()>;
+/// Told with the file when tags that waited for playback could not be written after
+/// all, and the editor no longer shows that wait.
+type NotWritten = Box<dyn Fn(&Path)>;
 
 pub struct TagEditor {
     window: slint::Weak<AppWindow>,
@@ -51,6 +77,18 @@ pub struct TagEditor {
     notify: Arc<dyn Fn() + Send + Sync>,
     writing: Cell<bool>,
     on_written: RefCell<Option<Written>>,
+    // Edits the open editor builds on, by track: what waited for playback when it
+    // opened, or what failed once playback let go.
+    carried: RefCell<HashMap<TrackId, TagEdit>>,
+    // The file playback has open, and whether such a file can't be replaced.
+    playback_file: RefCell<Option<PathBuf>>,
+    open_files_locked: Cell<bool>,
+    // Edits waiting for playback to let go of their file, the tracks of those being
+    // written now, and the track whose wait the open editor shows after a save.
+    waiting: RefCell<Vec<TrackEdit>>,
+    releasing: RefCell<HashSet<TrackId>>,
+    shown_waiting: Cell<Option<TrackId>>,
+    on_not_written: RefCell<Option<NotWritten>>,
 }
 
 thread_local! {
@@ -91,6 +129,13 @@ impl TagEditor {
             notify,
             writing: Cell::new(false),
             on_written: RefCell::default(),
+            carried: RefCell::default(),
+            playback_file: RefCell::default(),
+            open_files_locked: Cell::new(OPEN_FILES_LOCKED),
+            waiting: RefCell::default(),
+            releasing: RefCell::default(),
+            shown_waiting: Cell::default(),
+            on_not_written: RefCell::default(),
         });
         EDITOR.with(|current| *current.borrow_mut() = Rc::downgrade(&editor));
 
@@ -139,6 +184,37 @@ impl TagEditor {
         *self.on_written.borrow_mut() = Some(Box::new(written));
     }
 
+    /// Calls `not_written` with the file when tags that waited for playback could not
+    /// be written once it let go, and the editor no longer shows them.
+    pub fn on_not_written(&self, not_written: impl Fn(&Path) + 'static) {
+        *self.on_not_written.borrow_mut() = Some(Box::new(not_written));
+    }
+
+    /// Takes the file playback has open now (`Event::Decoding`), and writes the edits
+    /// that waited for a file it let go of.
+    pub fn set_playback_file(&self, path: Option<&Path>) {
+        *self.playback_file.borrow_mut() = path.map(Path::to_path_buf);
+        self.write_released();
+    }
+
+    /// Whether a file playback has open can't be replaced, so its edits wait: true on
+    /// Windows. Tests turn it on elsewhere.
+    pub fn set_open_files_locked(&self, locked: bool) {
+        self.open_files_locked.set(locked);
+        self.write_released();
+    }
+
+    /// Writes the edits still waiting for playback, on this thread. For when VCMP
+    /// closes: once the engine has stopped, no file is held open.
+    pub fn write_waiting(&self) {
+        let waiting = std::mem::take(&mut *self.waiting.borrow_mut());
+        if waiting.is_empty() {
+            return;
+        }
+        let report = write_files(&self.paths, &waiting, |_| {});
+        log_failures(&report);
+    }
+
     /// Opens the editor for the library's track with this file.
     pub fn edit_track(&self, path: &Path) {
         let track = self
@@ -169,7 +245,7 @@ impl TagEditor {
     /// For callers without an event loop (`Delivery::Manual`).
     pub fn wait_until_written(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
-        while self.writing.get() {
+        while self.writing.get() || !self.releasing.borrow().is_empty() {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match self.receiver.recv_timeout(remaining) {
                 Ok(message) => self.apply(message),
@@ -185,7 +261,22 @@ impl TagEditor {
             return;
         };
         let state = window.global::<TagEditorState>();
-        let first = &tracks[0];
+        // Edits still waiting for playback show as written, and saving builds on them.
+        let carried: HashMap<TrackId, TagEdit> = self
+            .waiting
+            .borrow()
+            .iter()
+            .filter(|waiting| tracks.iter().any(|track| track.id == waiting.track.id))
+            .map(|waiting| (waiting.track.id, waiting.edit.clone()))
+            .collect();
+        let shown: Vec<Track> = tracks
+            .iter()
+            .map(|track| match carried.get(&track.id) {
+                Some(edit) => edited(track, edit),
+                None => track.clone(),
+            })
+            .collect();
+        let first = &shown[0];
         let single = tracks.len() == 1;
 
         // The value every track shares, or None (shown empty) where they differ.
@@ -199,15 +290,21 @@ impl TagEditor {
         let text = |value: Option<Option<String>>| value.flatten().unwrap_or_default();
         let number =
             |value: Option<Option<u32>>| value.flatten().map(|n| n.to_string()).unwrap_or_default();
-        let artist = common(&tracks, |track| track.artist.clone());
-        let album = common(&tracks, |track| track.album.clone());
-        let album_artist = common(&tracks, |track| track.album_artist.clone());
-        let disc = common(&tracks, |track| track.disc_number);
-        let year = common(&tracks, |track| track.year);
-        let genre = common(&tracks, |track| track.genre.clone());
+        let artist = common(&shown, |track| track.artist.clone());
+        let album = common(&shown, |track| track.album.clone());
+        let album_artist = common(&shown, |track| track.album_artist.clone());
+        let disc = common(&shown, |track| track.disc_number);
+        let year = common(&shown, |track| track.year);
+        let genre = common(&shown, |track| track.genre.clone());
         let covers: Vec<Option<Vec<u8>>> = tracks
             .iter()
-            .map(|track| self.library.embedded_cover(track.id).ok().flatten())
+            .map(
+                |track| match carried.get(&track.id).map(|edit| &edit.cover) {
+                    Some(FieldEdit::Set(data)) => Some(data.clone()),
+                    Some(FieldEdit::Clear) => None,
+                    _ => self.library.embedded_cover(track.id).ok().flatten(),
+                },
+            )
             .collect();
         let cover_mixed = covers.iter().any(|cover| cover != &covers[0]);
 
@@ -273,7 +370,10 @@ impl TagEditor {
         state.set_failures(ModelRc::default());
         state.set_done(0);
         *self.tracks.borrow_mut() = tracks;
+        *self.carried.borrow_mut() = carried;
+        self.shown_waiting.set(None);
         *self.cover.borrow_mut() = FieldEdit::Keep;
+        self.show_waiting_note(&state);
         state.set_open(true);
     }
 
@@ -286,8 +386,11 @@ impl TagEditor {
             state.set_open(false);
             state.set_cover(Image::default());
             state.set_failures(ModelRc::default());
+            state.set_waiting_file(SharedString::default());
         }
         self.tracks.borrow_mut().clear();
+        self.carried.borrow_mut().clear();
+        self.shown_waiting.set(None);
         *self.cover.borrow_mut() = FieldEdit::Keep;
     }
 
@@ -350,10 +453,10 @@ impl TagEditor {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        if self.writing.get() {
+        let state = window.global::<TagEditorState>();
+        if self.writing.get() || state.get_status() == TagEditorStatus::Waiting {
             return;
         }
-        let state = window.global::<TagEditorState>();
         let edit = match edit(&state.get_values(), values, self.cover.borrow().clone()) {
             Ok(edit) => edit,
             Err(problem) => {
@@ -362,8 +465,42 @@ impl TagEditor {
             }
         };
         state.set_problem(TagProblem::None);
-        if edit.is_empty() {
+        // Each track gets the edit on top of what it carried.
+        let edits: Vec<TrackEdit> = {
+            let carried = self.carried.borrow();
+            self.tracks
+                .borrow()
+                .iter()
+                .map(|track| TrackEdit {
+                    track: track.clone(),
+                    edit: match carried.get(&track.id) {
+                        Some(first) => merged(first, &edit),
+                        None => edit.clone(),
+                    },
+                })
+                .filter(|change| !change.edit.is_empty())
+                .collect()
+        };
+        if edits.is_empty() {
             self.close();
+            return;
+        }
+        // The file playback holds open waits until it is let go; the rest is written now.
+        let held = self.held_file();
+        let (hold, now): (Vec<_>, Vec<_>) = edits
+            .into_iter()
+            .partition(|change| Some(&change.track.path) == held.as_ref());
+        self.shown_waiting
+            .set(hold.first().map(|change| change.track.id));
+        {
+            let mut waiting = self.waiting.borrow_mut();
+            for change in hold {
+                waiting.retain(|waiting| waiting.track.id != change.track.id);
+                waiting.push(change);
+            }
+        }
+        if now.is_empty() {
+            self.show_report(&state, TagWriteReport::default());
             return;
         }
         state.set_status(TagEditorStatus::Writing);
@@ -371,7 +508,6 @@ impl TagEditor {
         state.set_track_count(self.tracks.borrow().len() as i32);
         self.writing.set(true);
 
-        let ids: Vec<_> = self.tracks.borrow().iter().map(|track| track.id).collect();
         let (sender, notify, paths) =
             (self.sender.clone(), self.notify.clone(), self.paths.clone());
         thread::Builder::new()
@@ -381,17 +517,70 @@ impl TagEditor {
                     let _ = sender.send(message);
                     notify();
                 };
-                let result = Library::open(&paths.database, &paths.cache)
-                    .and_then(|mut library| {
-                        let edits: Vec<_> = ids.iter().map(|&id| (id, &edit)).collect();
-                        library.write_tags(&edits, &AtomicBool::new(false), |done, _| {
-                            send(Message::Progress(done));
-                        })
-                    })
-                    .map_err(|error| error.to_string());
-                send(Message::Finished(result));
+                let report = write_files(&paths, &now, |done| send(Message::Progress(done)));
+                send(Message::Finished(report));
             })
             .expect("spawning the tag writing thread");
+    }
+
+    /// The file playback has open, when such a file can't be replaced.
+    fn held_file(&self) -> Option<PathBuf> {
+        if self.open_files_locked.get() {
+            self.playback_file.borrow().clone()
+        } else {
+            None
+        }
+    }
+
+    /// Writes, in the background, the waiting edits whose file playback let go of.
+    fn write_released(&self) {
+        let held = self.held_file();
+        let released: Vec<TrackEdit> = {
+            let mut waiting = self.waiting.borrow_mut();
+            let (still, released) = std::mem::take(&mut *waiting)
+                .into_iter()
+                .partition(|change| Some(&change.track.path) == held.as_ref());
+            *waiting = still;
+            released
+        };
+        if released.is_empty() {
+            return;
+        }
+        self.releasing
+            .borrow_mut()
+            .extend(released.iter().map(|change| change.track.id));
+        let (sender, notify, paths) =
+            (self.sender.clone(), self.notify.clone(), self.paths.clone());
+        thread::Builder::new()
+            .name("vcmp-tags".into())
+            .spawn(move || {
+                let report = write_files(&paths, &released, |_| {});
+                let _ = sender.send(Message::Released(released, report));
+                notify();
+            })
+            .expect("spawning the tag writing thread");
+    }
+
+    /// Whether the track's edit waits for playback, or is being written after it did.
+    fn waits(&self, track: TrackId) -> bool {
+        self.releasing.borrow().contains(&track)
+            || self
+                .waiting
+                .borrow()
+                .iter()
+                .any(|waiting| waiting.track.id == track)
+    }
+
+    /// Names the editor's track whose edit waits for playback, if one does.
+    fn show_waiting_note(&self, state: &TagEditorState) {
+        let file = self
+            .tracks
+            .borrow()
+            .iter()
+            .find(|track| self.waits(track.id))
+            .map(|track| file_name(&track.path))
+            .unwrap_or_default();
+        state.set_waiting_file(file.into());
     }
 
     fn drain(&self) {
@@ -407,71 +596,227 @@ impl TagEditor {
         let state = window.global::<TagEditorState>();
         match message {
             Message::Progress(done) => state.set_done(done as i32),
-            Message::Finished(result) => {
+            Message::Finished(report) => {
                 self.writing.set(false);
-                let report = match result {
-                    Ok(report) => report,
-                    Err(error) => {
-                        log::error!("could not write tags: {error}");
-                        // Every file kept its tags; say so for each.
-                        TagWriteReport {
-                            failed: self
-                                .tracks
-                                .borrow()
-                                .iter()
-                                .map(|track| vcmp_library::FailedTagWrite {
-                                    track: track.id,
-                                    path: Some(track.path.clone()),
-                                    error: TagWriteError::Write(error.clone()),
-                                })
-                                .collect(),
-                            ..TagWriteReport::default()
-                        }
-                    }
-                };
-                if !report.written.is_empty() {
-                    self.view.reload();
-                    if let Some(written) = &*self.on_written.borrow() {
-                        written();
-                    }
-                }
-                if report.failed.is_empty() {
-                    self.close();
-                    return;
-                }
-                for failure in &report.failed {
-                    log::warn!(
-                        "tags not written to {}: {}",
-                        failure
-                            .path
-                            .as_deref()
-                            .map_or_else(|| "a track".into(), |path| path.display().to_string()),
-                        failure.error
-                    );
-                }
-                let rows: Vec<TagFailure> = report
-                    .failed
-                    .iter()
-                    .map(|failure| TagFailure {
-                        file: failure
-                            .path
-                            .as_deref()
-                            .and_then(Path::file_name)
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_default()
-                            .into(),
-                        reason: reason(&failure.error),
-                    })
-                    .collect();
-                // Trying again writes only the files that failed.
-                self.tracks
-                    .borrow_mut()
-                    .retain(|track| report.failed.iter().any(|f| f.track == track.id));
-                state.set_track_count(self.tracks.borrow().len() as i32);
-                state.set_failures(ModelRc::new(VecModel::from(rows)));
-                state.set_status(TagEditorStatus::Failed);
+                self.show_report(&state, report);
+            }
+            Message::Released(edits, report) => self.released(&state, &edits, report),
+        }
+    }
+
+    /// Shows what a save did. The editor closes when every file was written; otherwise
+    /// it lists the files that kept their old tags, and names the one that waits for
+    /// playback.
+    fn show_report(&self, state: &TagEditorState, report: TagWriteReport) {
+        if !report.written.is_empty() {
+            self.written();
+        }
+        let waiting = self.shown_waiting.get();
+        if report.failed.is_empty() && waiting.is_none() {
+            self.close();
+            return;
+        }
+        log_failures(&report);
+        // Trying again writes only the files that failed. The waiting one stays for the
+        // note, and saving it again waits again.
+        self.tracks.borrow_mut().retain(|track| {
+            Some(track.id) == waiting || report.failed.iter().any(|f| f.track == track.id)
+        });
+        if report.failed.is_empty() {
+            state.set_failures(ModelRc::default());
+            state.set_status(TagEditorStatus::Waiting);
+        } else {
+            let rows: Vec<TagFailure> = report.failed.iter().map(failure_row).collect();
+            state.set_track_count(self.tracks.borrow().len() as i32);
+            state.set_failures(ModelRc::new(VecModel::from(rows)));
+            state.set_status(TagEditorStatus::Failed);
+        }
+        self.show_waiting_note(state);
+    }
+
+    /// Takes the result of edits that waited for playback. The open editor still
+    /// showing that wait closes once they are written, or lists them if they failed.
+    fn released(&self, state: &TagEditorState, edits: &[TrackEdit], report: TagWriteReport) {
+        {
+            let mut releasing = self.releasing.borrow_mut();
+            for change in edits {
+                releasing.remove(&change.track.id);
             }
         }
+        if !report.written.is_empty() {
+            self.written();
+        }
+        let shown = self
+            .shown_waiting
+            .get()
+            .filter(|_| state.get_open() && !self.writing.get());
+        let mut rows: Vec<TagFailure> = state.get_failures().iter().collect();
+        for failure in &report.failed {
+            let Some(change) = edits.iter().find(|change| change.track.id == failure.track) else {
+                continue;
+            };
+            // Playback opened the file again before it could be replaced: wait again.
+            if matches!(failure.error, TagWriteError::Replace(_))
+                && self.held_file().as_ref() == Some(&change.track.path)
+            {
+                self.waiting.borrow_mut().push(change.clone());
+                continue;
+            }
+            log_failure(failure);
+            if shown == Some(change.track.id) {
+                // Trying again builds on the edit that failed.
+                self.carried
+                    .borrow_mut()
+                    .insert(change.track.id, change.edit.clone());
+                self.shown_waiting.set(None);
+                rows.push(failure_row(failure));
+            } else if let Some(not_written) = &*self.on_not_written.borrow() {
+                not_written(&change.track.path);
+            }
+        }
+        let Some(shown) = shown else {
+            if state.get_open() {
+                self.show_waiting_note(state);
+            }
+            return;
+        };
+        if report.written.contains(&shown) {
+            self.shown_waiting.set(None);
+            if state.get_status() == TagEditorStatus::Waiting {
+                self.close();
+                return;
+            }
+            self.tracks.borrow_mut().retain(|track| track.id != shown);
+            state.set_track_count(self.tracks.borrow().len() as i32);
+        } else if self.shown_waiting.get().is_none() {
+            state.set_track_count(self.tracks.borrow().len() as i32);
+            state.set_failures(ModelRc::new(VecModel::from(rows)));
+            state.set_status(TagEditorStatus::Failed);
+        }
+        self.show_waiting_note(state);
+    }
+
+    /// Shows newly written tags in the library views and the player.
+    fn written(&self) {
+        self.view.reload();
+        if let Some(written) = &*self.on_written.borrow() {
+            written();
+        }
+    }
+}
+
+/// Writes the edits on a library connection of its own. When the library can't be
+/// opened, every file is reported as keeping its tags.
+fn write_files(
+    paths: &LibraryPaths,
+    edits: &[TrackEdit],
+    mut progress: impl FnMut(usize),
+) -> TagWriteReport {
+    let result = Library::open(&paths.database, &paths.cache).and_then(|mut library| {
+        let edits: Vec<_> = edits
+            .iter()
+            .map(|change| (change.track.id, &change.edit))
+            .collect();
+        library.write_tags(&edits, &AtomicBool::new(false), |done, _| progress(done))
+    });
+    result.unwrap_or_else(|error| {
+        log::error!("could not write tags: {error}");
+        TagWriteReport {
+            failed: edits
+                .iter()
+                .map(|change| FailedTagWrite {
+                    track: change.track.id,
+                    path: Some(change.track.path.clone()),
+                    error: TagWriteError::Write(error.to_string()),
+                })
+                .collect(),
+            ..TagWriteReport::default()
+        }
+    })
+}
+
+fn log_failures(report: &TagWriteReport) {
+    for failure in &report.failed {
+        log_failure(failure);
+    }
+}
+
+fn log_failure(failure: &FailedTagWrite) {
+    log::warn!(
+        "tags not written to {}: {}",
+        failure
+            .path
+            .as_deref()
+            .map_or_else(|| "a track".into(), |path| path.display().to_string()),
+        failure.error
+    );
+}
+
+fn failure_row(failure: &FailedTagWrite) -> TagFailure {
+    TagFailure {
+        file: failure
+            .path
+            .as_deref()
+            .map(file_name)
+            .unwrap_or_default()
+            .into(),
+        reason: reason(&failure.error),
+    }
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// The track as it reads once `edit` is written.
+fn edited(track: &Track, edit: &TagEdit) -> Track {
+    fn text(edit: &FieldEdit<String>, value: Option<&String>) -> Option<String> {
+        match edit {
+            FieldEdit::Keep => value.cloned(),
+            FieldEdit::Clear => None,
+            FieldEdit::Set(new) => Some(new.trim().to_string()).filter(|new| !new.is_empty()),
+        }
+    }
+    fn number<T: Copy>(edit: &FieldEdit<T>, value: Option<T>) -> Option<T> {
+        match edit {
+            FieldEdit::Keep => value,
+            FieldEdit::Clear => None,
+            FieldEdit::Set(new) => Some(*new),
+        }
+    }
+    Track {
+        title: text(&edit.title, Some(&track.title)).unwrap_or_default(),
+        artist: text(&edit.artist, track.artist.as_ref()),
+        album: text(&edit.album, track.album.as_ref()),
+        album_artist: text(&edit.album_artist, track.album_artist.as_ref()),
+        track_number: number(&edit.track_number, track.track_number),
+        disc_number: number(&edit.disc_number, track.disc_number),
+        year: number(&edit.year, track.year),
+        genre: text(&edit.genre, track.genre.as_ref()),
+        ..track.clone()
+    }
+}
+
+/// `first`, with the fields `then` changes changed again.
+fn merged(first: &TagEdit, then: &TagEdit) -> TagEdit {
+    fn pick<T: Clone>(first: &FieldEdit<T>, then: &FieldEdit<T>) -> FieldEdit<T> {
+        match then {
+            FieldEdit::Keep => first.clone(),
+            _ => then.clone(),
+        }
+    }
+    TagEdit {
+        title: pick(&first.title, &then.title),
+        artist: pick(&first.artist, &then.artist),
+        album: pick(&first.album, &then.album),
+        album_artist: pick(&first.album_artist, &then.album_artist),
+        track_number: pick(&first.track_number, &then.track_number),
+        disc_number: pick(&first.disc_number, &then.disc_number),
+        year: pick(&first.year, &then.year),
+        genre: pick(&first.genre, &then.genre),
+        cover: pick(&first.cover, &then.cover),
     }
 }
 
@@ -568,6 +913,59 @@ mod tests {
         assert_eq!(changed.artist, FieldEdit::Set("Other".into()));
         assert_eq!(changed.year, FieldEdit::Clear);
         assert_eq!(changed.track_number, FieldEdit::Keep);
+    }
+
+    #[test]
+    fn a_later_edit_changes_only_its_own_fields() {
+        let first = TagEdit {
+            title: FieldEdit::Set("New".into()),
+            year: FieldEdit::Clear,
+            ..TagEdit::default()
+        };
+        let then = TagEdit {
+            artist: FieldEdit::Set("Duo".into()),
+            year: FieldEdit::Set(2001),
+            ..TagEdit::default()
+        };
+        let both = merged(&first, &then);
+        assert_eq!(both.title, FieldEdit::Set("New".into()));
+        assert_eq!(both.artist, FieldEdit::Set("Duo".into()));
+        assert_eq!(both.year, FieldEdit::Set(2001), "the later value wins");
+        assert_eq!(both.genre, FieldEdit::Keep);
+    }
+
+    #[test]
+    fn a_waiting_edit_shows_as_written() {
+        let track = Track {
+            id: TrackId(1),
+            path: PathBuf::from("/music/1.flac"),
+            available: true,
+            format: None,
+            title: "One".into(),
+            artist: Some("Band".into()),
+            artist_id: None,
+            album: Some("Album".into()),
+            album_id: None,
+            album_artist: None,
+            track_number: Some(1),
+            disc_number: Some(1),
+            year: Some(1999),
+            genre: None,
+            duration: Duration::ZERO,
+        };
+        let shown = edited(
+            &track,
+            &TagEdit {
+                title: FieldEdit::Set(" First ".into()),
+                artist: FieldEdit::Clear,
+                year: FieldEdit::Set(2001),
+                ..TagEdit::default()
+            },
+        );
+        assert_eq!(shown.title, "First");
+        assert_eq!(shown.artist, None);
+        assert_eq!(shown.year, Some(2001));
+        assert_eq!(shown.album.as_deref(), Some("Album"), "the rest is kept");
     }
 
     #[test]

@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::{
-    ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer, TimerMode,
-    VecModel,
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer,
+    TimerMode, VecModel,
 };
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
@@ -28,7 +28,7 @@ use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
     AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
-    LastfmStatus, PlayerState, TagEditorState, Theme, ThemeMode, UpdateState,
+    LastfmStatus, PlayerState, TagEditorState, TagEditorStatus, Theme, ThemeMode, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -58,6 +58,8 @@ struct Shot {
     cover_picker: bool,
     // The tag editor is open for the album (a library is needed).
     tags: bool,
+    // The editor saved, except for the first track, which the player has open.
+    tags_waiting: bool,
 }
 
 const fn shot(
@@ -78,6 +80,7 @@ const fn shot(
         update: false,
         cover_picker: false,
         tags: false,
+        tags_waiting: false,
     }
 }
 
@@ -85,6 +88,13 @@ const fn tags(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         tags: true,
         ..shot(name, mode, 1, Some(ALBUM), 0)
+    }
+}
+
+const fn tags_waiting(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        tags_waiting: true,
+        ..tags(name, mode)
     }
 }
 
@@ -145,6 +155,8 @@ const SHOTS: &[Shot] = &[
     cover_picker("cover-picker-dark", ThemeMode::Dark),
     tags("tags-light", ThemeMode::Light),
     tags("tags-dark", ThemeMode::Dark),
+    tags_waiting("tags-waiting-light", ThemeMode::Light),
+    tags_waiting("tags-waiting-dark", ThemeMode::Dark),
     shot("settings-light", ThemeMode::Light, 6, None, 0),
     shot("settings-dark", ThemeMode::Dark, 6, None, 0),
     lastfm("lastfm-light", ThemeMode::Light, LastfmStatus::Connected),
@@ -271,6 +283,16 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     let editor = window.global::<TagEditorState>();
     if shot.tags {
         editor.invoke_edit_album();
+        if shot.tags_waiting {
+            let first = window.get_album_tracks().row_data(0).map(|row| row.path);
+            let name = first
+                .as_deref()
+                .and_then(|path| Path::new(path).file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            editor.set_status(TagEditorStatus::Waiting);
+            editor.set_waiting_file(name.into());
+        }
     } else {
         editor.invoke_cancel();
     }

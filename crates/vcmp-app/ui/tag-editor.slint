@@ -26,7 +26,9 @@ export struct TagMixed {
     cover: bool,
 }
 
-export enum TagEditorStatus { editing, writing, failed }
+// `waiting`: saved, except for the file the player has open, which is written once
+// the player lets go of it (Windows can't replace an open file).
+export enum TagEditorStatus { editing, writing, waiting, failed }
 
 // What is wrong with the values; the field they belong to says so.
 export enum TagProblem { none, track, disc, year, line-break, cover }
@@ -59,6 +61,8 @@ export global TagEditorState {
     in property <int> done;
     in property <TagProblem> problem;
     in property <[TagFailure]> failures;
+    // The file of an edited track whose new tags wait for the player to let go of it.
+    in property <string> waiting-file;
     // Opens the editor for the track with this file path, or for the album page's album.
     callback edit-track(string);
     callback edit-album();
@@ -109,6 +113,7 @@ component TagInput inherits VerticalLayout {
 export component TagEditorView inherits Rectangle {
     private property <bool> single: TagEditorState.track-count == 1;
     private property <bool> writing: TagEditorState.status == TagEditorStatus.writing;
+    private property <bool> waiting: TagEditorState.status == TagEditorStatus.waiting;
     private property <TagMixed> mixed: TagEditorState.mixed;
     private property <TagProblem> problem: TagEditorState.problem;
     private property <string> title-text: TagEditorState.values.title;
@@ -121,7 +126,7 @@ export component TagEditorView inherits Rectangle {
     private property <string> genre-text: TagEditorState.values.genre;
 
     function save() {
-        if !root.writing {
+        if !root.writing && !root.waiting {
             TagEditorState.save({
                 title: root.title-text,
                 artist: root.artist-text,
@@ -374,7 +379,7 @@ export component TagEditorView inherits Rectangle {
                     max-width: Theme.content-max-width;
 
                     Text {
-                        text: @tr("These files kept their old tags. The others were written.");
+                        text: TagEditorState.waiting-file == "" ? @tr("These files kept their old tags. The others were written.") : @tr("These files kept their old tags.");
                         color: Theme.colors.text;
                         font-size: Theme.font-body;
                         font-weight: Theme.weight-strong;
@@ -402,24 +407,48 @@ export component TagEditorView inherits Rectangle {
                     }
                 }
 
-                HorizontalLayout {
-                    spacing: Theme.space-m;
-                    alignment: start;
+                // Why one file still has its old tags (the player has it open), above the
+                // buttons. Always in the layout and collapsed while nothing waits: a wrapped
+                // text that an `if` creates gets its height before its width, and its last
+                // line was cut off.
+                VerticalLayout {
+                    spacing: TagEditorState.waiting-file == "" ? 0px : Theme.space-xl;
 
-                    Button {
-                        text: TagEditorState.status == TagEditorStatus.failed ? @tr("Try again") : @tr("Save");
-                        label: TagEditorState.status == TagEditorStatus.failed ? @tr("Write the tags again") : @tr("Save the tags");
-                        primary: true;
-                        enabled: !root.writing;
-                        clicked => {
-                            root.save();
+                    VerticalLayout {
+                        max-width: Theme.content-max-width;
+
+                        Text {
+                            visible: TagEditorState.waiting-file != "";
+                            height: self.visible ? self.preferred-height : 0px;
+                            text: !self.visible ? "" : root.waiting && !root.single ? @tr("{0} is in use by the player, so its new tags will be written when playback stops or the next track starts. The other tracks have their new tags.", TagEditorState.waiting-file)
+                                : @tr("{0} is in use by the player, so its new tags will be written when playback stops or the next track starts.", TagEditorState.waiting-file);
+                            color: Theme.colors.text;
+                            font-size: Theme.font-body;
+                            wrap: word-wrap;
                         }
                     }
-                    Button {
-                        text: TagEditorState.status == TagEditorStatus.failed ? @tr("Close") : @tr("Cancel");
-                        enabled: !root.writing;
-                        clicked => {
-                            TagEditorState.cancel();
+
+                    HorizontalLayout {
+                        spacing: Theme.space-m;
+                        alignment: start;
+
+                        // Once only the waiting file is left, there is nothing more to save.
+                        if !root.waiting: Button {
+                            text: TagEditorState.status == TagEditorStatus.failed ? @tr("Try again") : @tr("Save");
+                            label: TagEditorState.status == TagEditorStatus.failed ? @tr("Write the tags again") : @tr("Save the tags");
+                            primary: true;
+                            enabled: !root.writing;
+                            clicked => {
+                                root.save();
+                            }
+                        }
+                        Button {
+                            text: TagEditorState.status == TagEditorStatus.failed || root.waiting ? @tr("Close") : @tr("Cancel");
+                            primary: root.waiting;
+                            enabled: !root.writing;
+                            clicked => {
+                                TagEditorState.cancel();
+                            }
                         }
                     }
                 }

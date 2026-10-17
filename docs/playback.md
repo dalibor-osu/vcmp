@@ -15,7 +15,7 @@ engine.
 let (player, events) = Player::new(PlayerOptions::default())?;
 player.send(Command::PlayContext { entries, origin: Some("album:42".into()), start: Some(3) });
 // events: StateChanged, TrackChanged, Position, QueueChanged, TrackFailed,
-//         OutputChanged, OutputFailed, RestoreFailed
+//         OutputChanged, OutputFailed, RestoreFailed, Decoding
 ```
 
 - **Events into Slint (workstream 4):** forward them from a thread blocking on the
@@ -28,6 +28,9 @@ player.send(Command::PlayContext { entries, origin: Some("album:42".into()), sta
   - Any value unique per artist and per album works, such as a database id.
 - **Playable formats:** MP3, FLAC, WAV and Ogg Vorbis. Opus is not supported (see the
   spec's risk table).
+- **Open files:** `Event::Decoding` names the track whose file the engine has open
+  (see [Open files](#open-files)). The tag editor uses it on Windows, which can't
+  replace an open file.
 
 ## Threads
 
@@ -110,6 +113,24 @@ Tests decode two halves of one tone, encoded separately in every format. They ch
 - **Waveform:** the joined halves match the uninterrupted waveform.
 - **Through the engine:** the same holds when played through the engine, at the
   source rate and resampled to 48 kHz.
+
+## Open files
+
+The engine keeps one file open at a time: the track it decodes.
+
+| When | The open file |
+|---|---|
+| A track starts, or is restored paused | Its file is opened |
+| Playing or paused | Stays open |
+| Seeking | Closed and opened again at once; not reported |
+| The track is decoded to its end, about a ring's length (2 s) before it ends | Closed. The next track's file opens to follow gaplessly |
+| Skipping, a new context, Stop, the end of the queue | Closed (and the new track's opened) |
+
+`Event::Decoding(Option<TrackRef>)` is sent when the open track changes. The engine
+checks once per round of its loop, after commands and decoding, so the event comes
+after the old file was closed, and a seek's reopening of the same file is not sent.
+Releasing the file while paused (and opening it again at the decoded position on
+resume) would let tag edits through sooner, but isn't built.
 
 ## Output
 

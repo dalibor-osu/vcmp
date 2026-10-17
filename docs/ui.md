@@ -277,6 +277,26 @@ shown, because the page itself stays alive while hidden.
   When every file was written the editor closes, and the library pages, the queue
   and the player bar show the new tags. Files that kept their old tags are listed
   with the reason; "Try again" writes only those.
+- **The file the player has open** (`Event::Decoding`: the playing or paused track,
+  or, in the last two seconds of a track, the one that follows) can't be replaced on
+  Windows (`OPEN_FILES_LOCKED`). Its edit waits; the rest of an album is written at
+  once.
+  - The editor stays open in the `waiting` status: it names the file, says the new
+    tags are written when playback stops or the next track starts, and offers only
+    Close. Closing leaves the edit waiting.
+  - When the engine reports that it let go of the file, the edit is written in the
+    background. An editor still showing that wait closes once it is written, or lists
+    the file if it failed, and "Try again" builds on the failed edit.
+  - Opened again on a waiting track, the editor shows the waiting tags and the note,
+    and saving adds the new changes to the waiting edit.
+  - If the engine opened the file again before it could be replaced, the edit waits
+    once more. Any other failure after the editor was closed is said in the player
+    bar ("The new tags could not be written to …") while the next track plays.
+  - When VCMP closes, `main` drops the player (which stops the engine and closes the
+    file), then writes the edits still waiting.
+  - On Linux and macOS the replace works on an open file, and the engine reads on
+    from the old one, so every edit is written at once. Tests turn the waiting on
+    with `TagEditor::set_open_files_locked`.
 
 ## Search
 
@@ -464,7 +484,8 @@ The Albums page tells apart why it is empty:
 - **`PlayerService`** sends `Command`s to the engine. A thread forwards the engine's
   `Event`s to the UI thread. Tests replace the engine with a recorder through the
   `PlayerControl` trait.
-- **Problems:** a missing sound output and skipped tracks are shown in the bar.
+- **Problems:** a missing sound output, skipped tracks and tags that waited for the
+  player but could not be written are shown in the bar.
 - **Discord Rich Presence** (`vcmp-integrations::discord`, on by default, switch
   under Settings → Playback):
   - shows "Listening to VCMP" with the track, artist and a progress bar while a track
@@ -608,10 +629,10 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   tracks one by one.
 - Batch editing covers an album; other groups of tracks (a playlist, a selection)
   are edited one track at a time, as lists have no multiple selection yet.
-- On Windows, the file of the track that is playing can't be replaced while it plays,
-  so the editor reports it ("Another program, or VCMP playing it, may be using it")
-  and "Try again" works once another track plays. The spec's plan to hold the edit
-  until the file is released is not built yet.
+- On Windows, an edit to the track the player has open waits until playback stops
+  or moves on, also while it is paused. Pause doesn't let go of the file.
+- The waiting and the release were tested on Linux, with the lock simulated
+  (`set_open_files_locked`). On Windows they are built but not yet seen working.
 - A play that started before its tags were edited is scrobbled to Last.fm with the
   tags it started with.
 

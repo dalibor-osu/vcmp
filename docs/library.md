@@ -309,8 +309,9 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   RIFF INFO list in a WAV file, keeps its old values, and players that prefer those
   tags (Windows Explorer reads RIFF INFO in WAV files) show them.
 - On Windows a file that another program holds open cannot be replaced, so the
-  edit fails with `TagWriteError::Replace`. The app must release the playing track
-  before writing its tags.
+  edit fails with `TagWriteError::Replace`. The tag editor holds back the edit of
+  the file VCMP's own playback has open until the engine lets go of it (see
+  `docs/ui.md`, "Tag editor").
 - Replacing a file gives it a new inode (Unix) or file ID (Windows). Hard links keep
   the old content, and on Unix the file's owner becomes the user running VCMP.
 - A crash between the copy and the rename can leave a `.<name>.<random>.vcmp-tmp`
