@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 import { Button, FocusRing, IconButton } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
+import { Playlists } from "playlist-state.slint";
 
 // One track in the queue. A right click asks the panel for the track's menu.
 component QueueLine {
@@ -139,6 +140,14 @@ component SectionLabel inherits Text {
 // Delete removes from Up next, Alt+Up and Alt+Down reorder it, and the Menu key (or
 // a right click) opens a track's menu, with what applies to that track.
 export component QueuePanel inherits Rectangle {
+    // How far the panel still is from its place: it slides in from the window's
+    // edge when it opens (at once with reduced motion). The window adds it to `x`.
+    out property <length> slide: 320px;
+    init => {
+        self.slide = 0;
+    }
+    animate slide { duration: Theme.duration-medium; easing: ease-out; }
+
     private property <int> up-next-count: PlayerState.up-next.length;
     private property <int> count: self.up-next-count + PlayerState.upcoming.length;
     // The keyboard's current track, counted over Up next then the context tracks.
@@ -161,6 +170,14 @@ export component QueuePanel inherits Rectangle {
             PlayerState.move-in-up-next(root.current, to);
             root.current = to;
         }
+    }
+
+    // The file of the row the menu is for.
+    function current-path() -> string {
+        if root.current < root.up-next-count {
+            return PlayerState.up-next[root.current].path;
+        }
+        PlayerState.upcoming[root.current - root.up-next-count].path
     }
 
     function show-menu(index: int, x: length, y: length) {
@@ -268,6 +285,23 @@ export component QueuePanel inherits Rectangle {
                             title: @tr("Add to queue");
                             activated => {
                                 PlayerState.queue-upcoming(root.current - root.up-next-count, false);
+                            }
+                        }
+                        Menu {
+                            title: @tr("Add to playlist");
+
+                            MenuItem {
+                                title: @tr("New playlist");
+                                activated => {
+                                    Playlists.add-track(-1, root.current-path());
+                                }
+                            }
+                            if Playlists.names.length > 0: MenuSeparator { }
+                            for name[index] in Playlists.names: MenuItem {
+                                title: name;
+                                activated => {
+                                    Playlists.add-track(index, root.current-path());
+                                }
                             }
                         }
                     }

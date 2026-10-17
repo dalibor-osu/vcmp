@@ -26,6 +26,8 @@ export struct QueueRow {
     album-id: int,
     has-cover: bool,
     cover: image,
+    // The file, so its menu can add it to a playlist.
+    path: string,
 }
 
 export global PlayerState {
