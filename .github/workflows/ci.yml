@@ -7,6 +7,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Test binaries without debug info. With it, each took 400 to 660 MB, and the
+  # Linux runner's disk filled up until the linker crashed with a bus error. Panic
+  # messages still name the file and line.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_DEV_STRIP: debuginfo
 
 jobs:
   test:
