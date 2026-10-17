@@ -127,6 +127,17 @@ impl ArtworkStore {
     }
 }
 
+/// Whether `path` is a file name a folder's cover image may have, ignoring case.
+pub(crate) fn is_folder_image(path: &Path) -> bool {
+    let lower = |part: Option<&std::ffi::OsStr>| {
+        part.and_then(|s| s.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default()
+    };
+    FOLDER_IMAGE_NAMES.contains(&lower(path.file_stem()).as_str())
+        && FOLDER_IMAGE_EXTENSIONS.contains(&lower(path.extension()).as_str())
+}
+
 /// The preferred cover image in a folder, matching names case-insensitively.
 pub(crate) fn folder_image(dir: &Path) -> Option<PathBuf> {
     let entries: Vec<PathBuf> = fs::read_dir(dir)

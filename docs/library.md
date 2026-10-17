@@ -30,7 +30,7 @@ path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 6, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 7, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -46,6 +46,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `playlist_entries` | A playlist's tracks by position (from 0); the same track may appear more than once (version 4) |
 | `fetched_covers` | Covers the user fetched for albums whose files have no art: the cached image's key, the Cover Art Archive release or release group it came from, and when, keyed by the album's group key (version 5) |
 | `scrobble_queue` | Plays waiting to be sent to Last.fm: artist, title, album, album artist, track number, length and when the play started, oldest first (version 6). They copy the tags rather than reference tracks, so a rescan or tag edit can't change what was listened to |
+| `folder_art` | Each music folder's cover images (`cover.jpg` and the like) as a fingerprint of their names, sizes and modification times, so a scan notices one added, replaced or removed (version 7) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -68,7 +69,11 @@ aren't valid UTF-8 keep working.
      named `.ogg` is skipped as unsupported. Unreadable files are skipped and listed
      in the report.
    - The first file of each folder is read with its embedded cover, which sits next
-     to the tags, so the album's artwork costs no extra disk seek.
+     to the tags, so a new album's artwork costs no extra disk seek.
+   - A new or changed file sends an album that already had art to step 7, which
+     picks it again from the album's first tracks: another program may have
+     replaced or removed the files' art. A changed later track can't swap the
+     cover this way.
    - Covers go to a pool of threads that decode, shrink and cache them while the next
      files are read.
    - Files are read one at a time; eight reader threads measured no faster on a
@@ -76,15 +81,20 @@ aren't valid UTF-8 keep working.
 4. **Re-link.** A new file takes over an unavailable track's row when exactly one
    such row has the same title, artist and album (ignoring case) and a duration
    within one second. Otherwise it becomes a new track.
-5. **Group.**
+5. **Folder images.** The discovery walk also notes the cover images in each
+   folder. A folder whose images were added, replaced or removed since the last
+   scan sends its albums to step 7; a folder seen for the first time is only
+   recorded. Changing only an image changes no music file, so this is how it is
+   noticed.
+6. **Group.**
    - An album is keyed by its MusicBrainz release ID when tagged. Otherwise it is
      keyed by album artist (or track artist, when there is no album artist) plus
      title, lowercased.
    - The album year is the earliest track year.
    - Albums and artists nothing refers to any more are deleted, and the artist and
      album search indexes are rebuilt.
-6. **Artwork** for albums still without it (no cover captured while reading, or
-   cached files deleted): a picture embedded in one of the first two tracks (front
+7. **Artwork** for albums still without it, or sent here by steps 3 and 5 (or whose
+   cached files were deleted): a picture embedded in one of the first two tracks (front
    cover preferred), otherwise `cover`, `folder`, `front` or `album` with a `.jpg`,
    `.jpeg`, `.png` or `.webp` extension in the tracks' folders, matched
    case-insensitively. Files are read in order on one thread; the same cover pool
@@ -284,11 +294,9 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
 
 - CUE sheets aren't read: an album ripped as one file plus a `.cue` shows up as a
   single long track.
-- An album with no artwork is checked again only when one of its tracks changes.
-  Adding or replacing a `cover.jpg` alone isn't noticed.
-- An album with artwork keeps it when its files change: art that another program
-  replaces or removes shows only after the cache is deleted. VCMP's tag editor
-  checks the album again after writing.
+- A folder image is noticed by its name, size and modification time. An image
+  replaced by another of the same size with its old modification time restored
+  goes unnoticed until a track of the album changes.
 - A fetched cover belongs to the album's group key. When the album's title or
   album artist changes, the album gets a new key and offers the search again.
 - SQLite's case-insensitive comparison only folds ASCII. Artist names that differ
