@@ -110,6 +110,25 @@ impl Library {
     }
 }
 
+impl Library {
+    /// Forgets the cover the user fetched for `album`, and what the automatic lookup
+    /// found for it, so that lookup may run again.
+    pub fn clear_fetched_cover(&self, album: AlbumId) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for table in ["fetched_covers", "cover_lookups"] {
+            tx.execute(
+                &format!(
+                    "DELETE FROM {table}
+                     WHERE group_key = (SELECT group_key FROM albums WHERE id = ?1)"
+                ),
+                [album.0],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+}
+
 impl CoverArtId {
     /// The kind as the database names it, and the MBID.
     fn kind_and_mbid(&self) -> (&'static str, &str) {

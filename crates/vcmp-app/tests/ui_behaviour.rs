@@ -7,7 +7,7 @@
 use i_slint_backend_testing::{AccessibleRole, ElementHandle, ElementRoot};
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, SharedString};
-use vcmp_app::{AppWindow, Page, Theme, ThemeMode, theme};
+use vcmp_app::{AppWindow, Page, ReduceMotion, Theme, ThemeMode, theme};
 
 fn open_window() -> AppWindow {
     i_slint_backend_testing::init_no_event_loop();
@@ -30,6 +30,17 @@ fn press(window: &AppWindow, text: impl Into<SharedString>) {
     window
         .window()
         .dispatch_event(WindowEvent::KeyReleased { text });
+}
+
+/// One option of the Reduce motion choice; "System" is also a theme option.
+fn motion_option(window: &AppWindow, label: &str) -> ElementHandle {
+    let label = label.to_owned();
+    find(window, AccessibleRole::RadioGroup, "Reduce motion")
+        .query_descendants()
+        .match_accessible_role(AccessibleRole::RadioButton)
+        .match_predicate(move |element| element.accessible_label().as_deref() == Some(&*label))
+        .find_first()
+        .expect("the Reduce motion option")
 }
 
 /// Opens a page through its sidebar entry.
@@ -72,18 +83,27 @@ fn clicking_navigation_switches_pages() {
 #[test]
 fn clicking_settings_controls_changes_them() {
     let window = open_window();
+    // Tall enough that the Appearance section clears the player bar without scrolling.
+    window.window().set_size(LogicalSize::new(1100.0, 900.0));
     let theme = window.global::<Theme>();
     open_page(&window, "Settings");
 
     find(&window, AccessibleRole::RadioButton, "Dark").mock_single_click(PointerEventButton::Left);
     assert_eq!(theme.get_mode(), ThemeMode::Dark);
 
-    find(&window, AccessibleRole::Switch, "Reduce motion")
-        .mock_single_click(PointerEventButton::Left);
+    motion_option(&window, "On").mock_single_click(PointerEventButton::Left);
+    assert_eq!(theme.get_motion_choice(), ReduceMotion::On);
     assert!(theme.get_reduced_motion());
-    find(&window, AccessibleRole::Switch, "Reduce motion")
-        .mock_single_click(PointerEventButton::Left);
+    motion_option(&window, "Off").mock_single_click(PointerEventButton::Left);
+    assert_eq!(theme.get_motion_choice(), ReduceMotion::Off);
     assert!(!theme.get_reduced_motion());
+    motion_option(&window, "System").mock_single_click(PointerEventButton::Left);
+    assert_eq!(theme.get_motion_choice(), ReduceMotion::System);
+    assert_eq!(
+        theme.get_mode(),
+        ThemeMode::Dark,
+        "the theme's System stays off"
+    );
 }
 
 #[test]
@@ -125,7 +145,8 @@ fn everything_works_from_the_keyboard() {
     assert_eq!(theme.get_mode(), ThemeMode::System);
 
     press(&window, Key::Tab);
-    press(&window, Key::Return);
+    press(&window, Key::RightArrow);
+    assert_eq!(theme.get_motion_choice(), ReduceMotion::On);
     assert!(theme.get_reduced_motion());
 }
 
@@ -176,11 +197,43 @@ fn transitions_animate_by_default() {
 }
 
 #[test]
+fn the_queue_panel_slides_in_unless_motion_is_reduced() {
+    let window = open_window();
+    // Tall enough for the whole Settings page, where motion is reduced below.
+    window.window().set_size(LogicalSize::new(1100.0, 1600.0));
+    let panel_x = |window: &AppWindow| {
+        ElementHandle::find_by_element_type_name(window, "QueuePanel")
+            .next()
+            .expect("the queue panel is open")
+            .absolute_position()
+            .x
+    };
+    window.set_queue_open(true);
+    let start = panel_x(&window);
+    assert!(
+        start >= 1100.0 - 1.0,
+        "starts at the window's edge, not {start}"
+    );
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert_eq!(panel_x(&window), 1100.0 - 320.0, "then sits at the edge");
+
+    window.set_queue_open(false);
+    open_page(&window, "Settings");
+    motion_option(&window, "On").invoke_accessible_default_action();
+    window.set_queue_open(true);
+    assert_eq!(
+        panel_x(&window),
+        1100.0 - 320.0,
+        "at once with reduced motion"
+    );
+}
+
+#[test]
 fn reduced_motion_makes_transitions_instant() {
     let window = open_window();
     let albums_marker = marker_y(&window);
     open_page(&window, "Settings");
-    find(&window, AccessibleRole::Switch, "Reduce motion").invoke_accessible_default_action();
+    motion_option(&window, "On").invoke_accessible_default_action();
 
     open_page(&window, "About");
     assert!(
@@ -199,6 +252,55 @@ fn reduced_motion_makes_transitions_instant() {
         page_opacity(&window, "FadeCurtain"),
         0.0,
         "curtain already gone"
+    );
+}
+
+#[test]
+fn reduced_motion_follows_the_system_unless_chosen() {
+    let window = open_window();
+    let theme = window.global::<Theme>();
+    assert_eq!(theme.get_motion_choice(), ReduceMotion::System);
+    assert!(
+        !theme.get_reduced_motion(),
+        "a system without the setting keeps motion"
+    );
+
+    for (system, choice, reduced) in [
+        (true, ReduceMotion::System, true),
+        (false, ReduceMotion::System, false),
+        (true, ReduceMotion::Off, false),
+        (false, ReduceMotion::Off, false),
+        (true, ReduceMotion::On, true),
+        (false, ReduceMotion::On, true),
+    ] {
+        theme.set_system_reduces_motion(system);
+        theme.set_motion_choice(choice);
+        assert_eq!(
+            theme.get_reduced_motion(),
+            reduced,
+            "system asks to reduce: {system}, choice: {choice:?}"
+        );
+    }
+
+    // Under "System", the system's answer takes effect whenever it arrives or changes.
+    theme.set_system_reduces_motion(false);
+    theme.set_motion_choice(ReduceMotion::System);
+    let albums_marker = marker_y(&window);
+    theme.set_system_reduces_motion(true);
+    open_page(&window, "About");
+    assert!(
+        marker_y(&window) > albums_marker,
+        "marker is already at About"
+    );
+    assert_eq!(page_opacity(&window, "AboutPage"), 1.0);
+
+    let about_marker = marker_y(&window);
+    theme.set_system_reduces_motion(false);
+    open_page(&window, "Albums");
+    assert_eq!(
+        marker_y(&window),
+        about_marker,
+        "motion is back: the marker starts sliding from About"
     );
 }
 
@@ -224,6 +326,9 @@ fn smallest_window_keeps_everything_inside() {
         window
             .global::<vcmp_app::PlayerState>()
             .set_now_playing_open(now_playing);
+        // The queue panel slides in once made; check it where it comes to rest.
+        let _ = ElementHandle::find_by_element_type_name(&window, "QueuePanel").count();
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
         let roles = [
             AccessibleRole::Combobox,
             AccessibleRole::Tab,

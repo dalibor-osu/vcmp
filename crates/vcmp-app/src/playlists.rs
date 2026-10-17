@@ -7,7 +7,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
-use vcmp_library::{Library, Playlist, PlaylistEntry, PlaylistId, Track};
+use vcmp_library::{Library, Playlist, PlaylistEntry, PlaylistId, Track, TrackId};
 
 use crate::albums::{Card, CoverGrid, Grid, initial};
 use crate::library_view::format_duration;
@@ -309,17 +309,25 @@ impl PlaylistBrowser {
                 return;
             }
         };
+        let name = window.global::<Playlists>().get_new_name();
+        self.add_tracks(index, &[track], &name);
+    }
+
+    /// Adds tracks to playlist `index`, or for -1 to a new playlist called
+    /// `new_name`.
+    pub fn add_tracks(&self, index: i32, tracks: &[TrackId], new_name: &str) {
         let playlist = match index {
-            -1 => self
-                .library
-                .create_playlist(&window.global::<Playlists>().get_new_name()),
+            -1 => self.library.create_playlist(new_name),
             index => match self.at(index) {
                 Some(playlist) => Ok(playlist.id),
                 None => return,
             },
         };
-        if let Err(error) = playlist.and_then(|id| self.library.add_to_playlist(id, &[track])) {
-            log::error!("could not add {} to the playlist: {error}", path.display());
+        if let Err(error) = playlist.and_then(|id| self.library.add_to_playlist(id, tracks)) {
+            log::error!(
+                "could not add {} tracks to the playlist: {error}",
+                tracks.len()
+            );
         }
         self.reload();
     }

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::ComponentHandle;
+use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
@@ -12,6 +13,7 @@ use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_integrations::discord::{self, DiscordPresence};
+use vcmp_integrations::fanart::PhotoPicker;
 use vcmp_integrations::lastfm::Credentials;
 use vcmp_integrations::musicbrainz::{CoverFinder, CoverPicker};
 use vcmp_library::Library;
@@ -21,6 +23,7 @@ fn main() -> Result<(), slint::PlatformError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let window = vcmp_app::create_window()?;
     vcmp_app::shortcuts::install(&window);
+    vcmp_app::preferences::follow_system_motion(&window);
     // Without a database VCMP still runs; preferences then last for this session only.
     // The services stay alive until the window closes.
     let mut services = None;
@@ -60,6 +63,16 @@ fn main() -> Result<(), slint::PlatformError> {
                         Box::new(CoverPicker::start(|search, event| {
                             CoverFetch::post(move |fetch| fetch.handle(search, event));
                         })),
+                    );
+                    // Online photos only in builds with VCMP's fanart.tv key.
+                    let artist_photos = ArtistPhotos::connect(
+                        &window,
+                        library.clone(),
+                        view.clone(),
+                        PhotoPicker::start(|search, event| {
+                            ArtistPhotos::post(move |photos| photos.handle(search, event));
+                        })
+                        .map(|picker| Box::new(picker) as Box<dyn PhotoSource>),
                     );
                     let options = PlayerOptions {
                         output_device: library
@@ -135,6 +148,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         cover_fetch,
                         lastfm,
                         tag_editor,
+                        artist_photos,
                     ));
                 }
                 Err(error) => {
@@ -154,7 +168,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
     let result = window.run();
-    if let Some((_, player_service, _, _, tag_editor)) = &mut services {
+    if let Some((_, player_service, _, _, tag_editor, _)) = &mut services {
         if let Some(player_service) = player_service.take() {
             player_service.save_queue();
             // Dropping the service stops the engine, which closes the file it played.

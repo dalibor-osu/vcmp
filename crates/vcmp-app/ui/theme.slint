@@ -27,10 +27,16 @@ export struct ThemePalette {
 
 export enum ThemeMode { system, light, dark }
 
+// The Reduce motion choice in Settings: as the operating system asks, always or never.
+export enum ReduceMotion { system, on, off }
+
 export global Theme {
     in-out property <ThemeMode> mode: ThemeMode.system;
-    in-out property <bool> reduced-motion: false;
-    // Called after the user changes `mode`, `reduced-motion` or opens or closes the
+    in-out property <ReduceMotion> motion-choice: ReduceMotion.system;
+    // The operating system asks apps to reduce motion. Set at start and on every
+    // change (src/preferences.rs); stays false where the system has no such setting.
+    in property <bool> system-reduces-motion: false;
+    // Called after the user changes `mode`, `motion-choice` or opens or closes the
     // queue panel, so they can be saved.
     callback preferences-changed();
     // The last input was the keyboard. Focus rings show only then, so clicking with
@@ -43,6 +49,8 @@ export global Theme {
     // An unknown system scheme counts as light.
     out property <bool> dark: root.mode == ThemeMode.system ? Palette.color-scheme == ColorScheme.dark : root.mode == ThemeMode.dark;
     out property <ThemePalette> colors: root.dark ? root.dark-colors : root.light-colors;
+    // Transitions are off: the user's choice, or the system's under "System".
+    out property <bool> reduced-motion: root.motion-choice == ReduceMotion.system ? root.system-reduces-motion : root.motion-choice == ReduceMotion.on;
 
     out property <length> space-xs: 4px;
     out property <length> space-s: 8px;

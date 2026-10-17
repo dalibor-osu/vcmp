@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import "../../../assets/fonts/sora/Sora[wght].ttf";
-import { Theme, ThemeMode, ThemePalette } from "theme.slint";
+import { ReduceMotion, Theme, ThemeMode, ThemePalette } from "theme.slint";
 import { NavItem, PlaylistLink } from "components.slint";
 import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
 import { FolderRow } from "folders-page.slint";
@@ -20,15 +20,16 @@ import { Glyph, IconArt } from "icons.slint";
 import { LastfmProblem, LastfmState, LastfmStatus } from "lastfm-state.slint";
 import { SidebarUpdateNote, UpdateState } from "updates.slint";
 import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint";
+import { PhotoPicker, PhotoSearch, PhotoSearchStatus } from "photo-picker.slint";
 import { TagEditorState, TagEditorStatus, TagEditorView, TagFailure, TagFailureReason, TagMixed, TagProblem, TagValues } from "tag-editor.slint";
 
 export { LastfmProblem, LastfmState, LastfmStatus }
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
-export { CoverSearch, CoverSearchStatus }
+export { CoverSearch, CoverSearchStatus, PhotoSearch, PhotoSearchStatus }
 export { TagEditorState, TagEditorStatus, TagFailure, TagFailureReason, TagMixed, TagProblem, TagValues }
 export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow }
 export { UpdateState }
-export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
+export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { search, albums, artists, playlists, songs, folders, settings, about }
 
@@ -657,13 +658,19 @@ export component AppWindow inherits Window {
 
                 // Over the pages and the now playing view alike, at the right edge.
                 if root.queue-open: QueuePanel {
-                    x: parent.width - self.width;
+                    x: parent.width - self.width + self.slide;
                     width: root.queue-width;
                     height: parent.height;
                 }
 
                 // "Find cover online" from an album page, over everything but the bar.
                 if CoverSearch.open: CoverPicker {
+                    width: parent.width;
+                    height: parent.height;
+                }
+
+                // "Find photo online" from an artist page, the same way.
+                if PhotoSearch.open: PhotoPicker {
                     width: parent.width;
                     height: parent.height;
                 }

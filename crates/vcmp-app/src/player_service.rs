@@ -1017,6 +1017,7 @@ impl PlayerService {
                     album_id: track.album_id.map_or(-1, |album| album.0 as i32),
                     has_cover: cover.is_some(),
                     cover: cover.unwrap_or_default(),
+                    path: entry.track.id.as_ref().into(),
                 }
             }
             None => QueueRow {
@@ -1026,6 +1027,7 @@ impl PlayerService {
                     .unwrap_or_default()
                     .into(),
                 album_id: -1,
+                path: entry.track.id.as_ref().into(),
                 ..QueueRow::default()
             },
         }

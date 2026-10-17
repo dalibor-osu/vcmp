@@ -14,6 +14,7 @@ crate.
 | Thumbnails | cache directory, `thumbnails/<hash>.jpg`, longest side 400 px |
 | Playlist pictures made from covers | cache directory, `mosaics/<hash>.jpg`, 400 px |
 | Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px |
+| Artist photos the owner chose | data directory, `images/artists/<hash>.jpg`, longest side 800 px |
 
 Covers fetched online (see [Covers fetched online](#covers-fetched-online)) are cached
 the same way.
@@ -30,12 +31,12 @@ path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 7, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 8, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
 |---|---|
-| `settings` | Key/value preferences: `library.auto_update`, `ui.theme`, `ui.reduced_motion` |
+| `settings` | Key/value preferences: `library.auto_update`, `ui.theme`, `ui.reduced_motion` (`system`, `on` or `off`) |
 | `source_dirs` | Source directories (canonical path) and their `recursive` flag |
 | `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration |
 | `albums` | Album groups, their artist, year and artwork state |
@@ -47,6 +48,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `fetched_covers` | Covers the user fetched for albums whose files have no art: the cached image's key, the Cover Art Archive release or release group it came from, and when, keyed by the album's group key (version 5) |
 | `scrobble_queue` | Plays waiting to be sent to Last.fm: artist, title, album, album artist, track number, length and when the play started, oldest first (version 6). They copy the tags rather than reference tracks, so a rescan or tag edit can't change what was listened to |
 | `folder_art` | Each music folder's cover images (`cover.jpg` and the like) as a fingerprint of their names, sizes and modification times, so a scan notices one added, replaced or removed (version 7) |
+| `artist_photos` | The photo chosen for an artist: the file under `images/artists/`, the web address it came from (NULL for a file of the owner's) and when. Keyed by the artist's name, ignoring case, so it outlives artist rows a scan removes and adds (version 8) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -192,6 +194,9 @@ cargo run --release -p vcmp-library --example edit_check -- /path/to/music 40
   the fetched cover comes back.
 - A fetched image whose cached files were deleted counts as no cover, and the album
   offers the search again. Fetching again replaces the row.
+- `Album::fetched_cover` says the artwork shown is a fetched cover.
+  `Library::clear_fetched_cover` forgets it, together with the automatic lookup's
+  result for the album, so that lookup may run again.
 
 ## Watching
 
@@ -297,8 +302,9 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
 - A folder image is noticed by its name, size and modification time. An image
   replaced by another of the same size with its old modification time restored
   goes unnoticed until a track of the album changes.
-- A fetched cover belongs to the album's group key. When the album's title or
-  album artist changes, the album gets a new key and offers the search again.
+- A fetched cover belongs to the album's group key. VCMP's tag editor carries it to
+  the album a renamed title or album artist leads to, but when another program
+  changes those tags, the album gets a new key and offers the search again.
 - SQLite's case-insensitive comparison only folds ASCII. Artist names that differ
   only in the case of a non-ASCII letter ("Dvořák" and "DVOŘÁK") become two artists,
   and sorting is not locale-aware. Album grouping lowercases with full Unicode rules.

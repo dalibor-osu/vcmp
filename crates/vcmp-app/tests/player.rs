@@ -760,6 +760,53 @@ fn the_queue_list_works_from_the_keyboard() {
 }
 
 #[test]
+fn up_next_rows_can_be_dragged_to_a_new_place() {
+    let app = start(|_| {});
+    app.window
+        .window()
+        .set_size(slint::LogicalSize::new(1100.0, 800.0));
+    app.window.set_queue_open(true);
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        up_next: vec![app.entry("1.flac"), app.entry("2.flac")],
+        ..QueueView::default()
+    }));
+    // The panel slides in once made; the pointer finds it in its place.
+    let _ = ElementHandle::find_by_element_type_name(&app.window, "QueuePanel").count();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    let centre = |label: &str| {
+        let row = ElementHandle::find_by_accessible_label(&app.window, label)
+            .find(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+            .unwrap();
+        let (position, size) = (row.absolute_position(), row.size());
+        slint::LogicalPosition::new(position.x + 60.0, position.y + size.height / 2.0)
+    };
+    let (from, to) = (centre("Opening, Band"), centre("Closing, Band"));
+    let window = app.window.window();
+    let button = slint::platform::PointerEventButton::Left;
+    app.sent.take();
+    window.dispatch_event(WindowEvent::PointerMoved { position: from });
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: from,
+        button,
+    });
+    for step in 1..=4 {
+        let y = from.y + (to.y - from.y) * step as f32 / 4.0;
+        window.dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(from.x, y),
+        });
+    }
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: to,
+        button,
+    });
+    assert_eq!(
+        app.sent.take(),
+        [Command::MoveInUpNext { from: 0, to: 1 }],
+        "moved, and not played"
+    );
+}
+
+#[test]
 fn album_tracks_go_into_up_next() {
     let app = start(|_| {});
     app.open_album();
@@ -1176,6 +1223,9 @@ fn the_queue_panel_scrolls_and_queues_album_tracks() {
         .window()
         .set_size(slint::LogicalSize::new(1100.0, 600.0));
     app.window.set_queue_open(true);
+    // The panel slides in once made; the pointer below finds it in its place.
+    let _ = ElementHandle::find_by_element_type_name(&app.window, "QueuePanel").count();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
     let upcoming: Vec<QueueEntry> = (0..60)
         .map(|i| app.entry(if i % 2 == 0 { "1.flac" } else { "2.flac" }))
         .collect();

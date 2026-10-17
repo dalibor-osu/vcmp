@@ -15,6 +15,8 @@ export struct AlbumDetail {
     minutes: int,
     has-cover: bool,
     cover: image,
+    // The cover was fetched online, rather than being the files' own.
+    fetched-cover: bool,
     // First letter of the title, shown when there is no cover.
     initial: string,
     // The tracks could not be read from the library.
@@ -128,6 +130,15 @@ export component TrackLine {
     callback menu-requested(length, length);
     // Where the row is, so the list can scroll it into view.
     callback shown-focused(length, length);
+    // The row can be dragged to another place in its list: the list hears where the
+    // pointer is (window y) and how tall a row is, then when it lets go.
+    in property <bool> draggable;
+    callback drag-moved(length, length);
+    callback drag-ended();
+
+    // The press became a drag, so letting go plays nothing.
+    private property <bool> dragging;
+    private property <bool> dragged;
 
     changed focused => {
         if self.focused {
@@ -221,13 +232,32 @@ export component TrackLine {
             }
 
             touch := TouchArea {
+                mouse-cursor: root.dragging ? MouseCursor.grabbing : MouseCursor.default;
                 clicked => {
-                    Theme.keyboard-navigation = false;
-                    root.clicked();
+                    if root.dragged {
+                        root.dragged = false;
+                    } else {
+                        Theme.keyboard-navigation = false;
+                        root.clicked();
+                    }
+                }
+                moved => {
+                    if root.draggable && self.pressed && (root.dragging || abs(self.mouse-y - self.pressed-y) > 6px) {
+                        root.dragging = true;
+                        root.drag-moved(row.absolute-position.y + self.mouse-y, row.height);
+                    }
                 }
                 pointer-event(event) => {
                     if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                         root.menu-requested(row.absolute-position.x + self.mouse-x, row.absolute-position.y + self.mouse-y);
+                    }
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                        root.dragged = false;
+                    }
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && root.dragging {
+                        root.dragging = false;
+                        root.dragged = true;
+                        root.drag-ended();
                     }
                 }
             }
@@ -272,6 +302,10 @@ export component TrackList {
 
     // The keyboard's current track.
     private property <int> current: 0;
+    // A row being dragged in an editable list, and the place it would go.
+    private property <int> drag-from: -1;
+    private property <int> drag-to: -1;
+    private property <length> drag-row-height;
 
     function show-menu(index: int, x: length, y: length) {
         root.current = index;
@@ -386,6 +420,23 @@ export component TrackList {
                     show-disc: root.show-disc;
                     playing: track.path == root.playing-path;
                     focused: list.has-focus && index == root.current;
+                    draggable: root.editable;
+                    drag-moved(y, height) => {
+                        if root.drag-from < 0 {
+                            root.drag-from = index;
+                            root.current = index;
+                        }
+                        root.drag-row-height = height;
+                        root.drag-to = clamp(floor((y - list.absolute-position.y) / height), 0, root.tracks.length - 1);
+                    }
+                    drag-ended => {
+                        if root.drag-from >= 0 && root.drag-to >= 0 && root.drag-to != root.drag-from {
+                            root.reorder(root.drag-from, root.drag-to);
+                            root.current = root.drag-to;
+                        }
+                        root.drag-from = -1;
+                        root.drag-to = -1;
+                    }
                     clicked => {
                         root.current = index;
                         root.play(index);
@@ -397,6 +448,17 @@ export component TrackList {
                         root.shown-focused(top, height);
                     }
                 }
+            }
+
+            // Where a dragged row would land: a line above the row it would take the
+            // place of, or below it when moving down.
+            if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
+                x: 0;
+                y: (root.drag-to > root.drag-from ? root.drag-to + 1 : root.drag-to) * root.drag-row-height - 1px;
+                width: parent.width;
+                height: 2px;
+                border-radius: 1px;
+                background: Theme.colors.accent;
             }
         }
     }
@@ -530,6 +592,67 @@ export component AlbumView {
                             clicked => {
                                 root.asked-for-cover = true;
                                 CoverSearch.find();
+                            }
+                        }
+                        // A cover fetched online can be swapped for another or taken
+                        // away; its menu opens below.
+                        if root.album.fetched-cover && !root.album.missing: change-cover := ContextMenuArea {
+                            width: 200px;
+                            height: Theme.target-height;
+
+                            Menu {
+                                MenuItem {
+                                    title: @tr("Find another cover");
+                                    activated => {
+                                        root.asked-for-cover = true;
+                                        CoverSearch.find();
+                                    }
+                                }
+                                MenuItem {
+                                    title: @tr("Remove cover");
+                                    activated => {
+                                        CoverSearch.remove();
+                                    }
+                                }
+                            }
+
+                            Button {
+                                width: parent.width;
+                                text: @tr("Change cover…");
+                                label: @tr("Change the cover of {}", root.album.title);
+                                clicked => {
+                                    change-cover.show({ x: 0, y: self.height });
+                                }
+                            }
+                        }
+                        // The whole album into a playlist; its menu opens below.
+                        if root.tracks.length > 0 && !root.album.missing: add-album := ContextMenuArea {
+                            width: 200px;
+                            height: Theme.target-height;
+
+                            Menu {
+                                MenuItem {
+                                    title: @tr("New playlist");
+                                    activated => {
+                                        Playlists.add-album(-1);
+                                    }
+                                }
+                                if Playlists.names.length > 0: MenuSeparator { }
+                                for name[index] in Playlists.names: MenuItem {
+                                    title: name;
+                                    activated => {
+                                        Playlists.add-album(index);
+                                    }
+                                }
+                            }
+
+                            Button {
+                                width: parent.width;
+                                text: @tr("Add to playlist…");
+                                label: @tr("Add {} to a playlist", root.album.title);
+                                clicked => {
+                                    add-album.show({ x: 0, y: self.height });
+                                }
                             }
                         }
                         // Under the cover too: the album's tags, its cover among them.

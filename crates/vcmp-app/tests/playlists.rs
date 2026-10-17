@@ -18,7 +18,7 @@ use vcmp_app::library_view::{LibraryView, SEARCH_DELAY};
 use vcmp_app::player_service::{PlayerControl, PlayerService};
 use vcmp_app::{AppWindow, Page, PlayerState, Playlists};
 use vcmp_library::{Library, PlaylistId};
-use vcmp_playback::{Command, Event, QueueView};
+use vcmp_playback::{Command, Event, NowPlaying, QueueEntry, QueueView, TrackRef};
 
 #[derive(Clone, Default)]
 struct Recorder(Rc<RefCell<Vec<Command>>>);
@@ -367,4 +367,127 @@ fn search_finds_playlists_by_name() {
     app.window.invoke_search_playlist_activated(0);
     assert!(app.window.get_playlist_open());
     assert_eq!(app.window.get_playlist_detail().name, "Summer evenings");
+}
+
+#[test]
+fn a_whole_album_goes_into_a_playlist_named_after_it() {
+    let app = start();
+    let album = app.library.tracks().unwrap()[0].album_id.unwrap();
+    app.view.open_album_by_id(album);
+    mock_elapsed_time(Duration::ZERO);
+    find(
+        &app.window,
+        AccessibleRole::Button,
+        "Add Album to a playlist",
+    );
+
+    let playlists = app.window.global::<Playlists>();
+    playlists.invoke_add_album(-1);
+    assert_eq!(app.names(), ["Album"]);
+    let id = app.library.playlists().unwrap()[0].id;
+    assert_eq!(app.entry_titles(id), ["One", "Two", "Three"]);
+    playlists.invoke_add_album(0);
+    assert_eq!(app.entry_titles(id).len(), 6, "added again to the same one");
+}
+
+#[test]
+fn queued_and_playing_tracks_can_be_added_to_a_playlist() {
+    let app = start();
+    let entry = |file: &str| QueueEntry::new(TrackRef::local(app.path(file).as_str()));
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        up_next: vec![entry("2.flac")],
+        upcoming: vec![entry("3.flac")],
+        ..QueueView::default()
+    }));
+    let state = app.window.global::<PlayerState>();
+    let up_next = state.get_up_next().row_data(0).unwrap();
+    assert_eq!(up_next.path, app.path("2.flac"), "the menu knows the file");
+    let upcoming = state.get_upcoming().row_data(0).unwrap();
+    assert_eq!(upcoming.path, app.path("3.flac"));
+
+    // The now playing view has the same menu for the track playing.
+    app.service
+        .handle_event(Event::TrackChanged(Some(NowPlaying {
+            entry: entry("1.flac"),
+            duration: None,
+        })));
+    state.set_now_playing_open(true);
+    mock_elapsed_time(Duration::ZERO);
+    find(&app.window, AccessibleRole::Button, "More for One");
+    app.window
+        .global::<Playlists>()
+        .invoke_add_track(-1, state.get_track_path());
+    let id = app.library.playlists().unwrap()[0].id;
+    assert_eq!(app.entry_titles(id), ["One"]);
+}
+
+#[test]
+fn entries_can_be_dragged_to_a_new_place() {
+    let app = start();
+    let id = app.library.create_playlist("Mix").unwrap();
+    let ids: Vec<_> = app
+        .library
+        .tracks()
+        .unwrap()
+        .iter()
+        .map(|track| track.id)
+        .collect();
+    app.library.add_to_playlist(id, &ids).unwrap();
+    app.view.reload();
+    app.open_page("Playlists");
+    app.window.invoke_playlist_activated(0);
+    mock_elapsed_time(Duration::ZERO);
+
+    let centre = |title: &str| {
+        let row = find(
+            &app.window,
+            AccessibleRole::ListItem,
+            &format!("{title}, Band · Album"),
+        );
+        let (position, size) = (row.absolute_position(), row.size());
+        slint::LogicalPosition::new(
+            position.x + size.width / 3.0,
+            position.y + size.height / 2.0,
+        )
+    };
+    let drag = |from: slint::LogicalPosition, to: slint::LogicalPosition| {
+        let window = app.window.window();
+        let button = slint::platform::PointerEventButton::Left;
+        window.dispatch_event(WindowEvent::PointerMoved { position: from });
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position: from,
+            button,
+        });
+        for step in 1..=4 {
+            let y = from.y + (to.y - from.y) * step as f32 / 4.0;
+            let position = slint::LogicalPosition::new(from.x, y);
+            window.dispatch_event(WindowEvent::PointerMoved { position });
+        }
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position: to,
+            button,
+        });
+    };
+
+    // One down past Three: it lands last, and nothing plays.
+    drag(centre("One"), centre("Three"));
+    assert_eq!(app.entry_titles(id), ["Two", "Three", "One"]);
+    // And back up to the top.
+    drag(centre("One"), centre("Two"));
+    assert_eq!(app.entry_titles(id), ["One", "Two", "Three"]);
+    assert!(
+        !app.sent
+            .0
+            .borrow()
+            .iter()
+            .any(|command| matches!(command, Command::PlayContext { .. })),
+        "a drag is not a click"
+    );
+    // A plain click still plays.
+    let position = centre("Two");
+    let window = app.window.window();
+    let button = slint::platform::PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerPressed { position, button });
+    window.dispatch_event(WindowEvent::PointerReleased { position, button });
+    assert_eq!(app.played().2, Some(1));
 }

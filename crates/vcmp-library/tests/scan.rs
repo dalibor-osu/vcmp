@@ -1236,3 +1236,102 @@ fn a_changed_later_track_keeps_the_album_cover_of_its_first_tracks() {
     setup.scan();
     assert_eq!(album_artwork(&setup.library, "Album"), Some(cover));
 }
+
+#[test]
+fn an_artist_photo_is_kept_by_name_and_replaced_or_removed() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music(),
+        "1.flac",
+        "silence.flac",
+        song("One", "Band", "Album"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let band = setup.library.artists().unwrap()[0].id;
+    assert_eq!(setup.library.artist_photo(band).unwrap(), None);
+    assert_eq!(setup.library.artist_mbid(band).unwrap(), None);
+
+    let first = setup
+        .library
+        .set_artist_photo(
+            band,
+            &png_of(1200, [200, 0, 0]),
+            Some("https://example.org/a.jpg"),
+        )
+        .unwrap();
+    assert!(first.starts_with(setup.base.join("data/images/artists")));
+    let kept = image::open(&first).unwrap();
+    assert_eq!((kept.width(), kept.height()), (800, 800), "bounded");
+    assert_eq!(
+        setup.library.artist_photo(band).unwrap(),
+        Some(first.clone())
+    );
+    assert_eq!(
+        setup.library.artist_photos().unwrap().get(&band),
+        Some(&first)
+    );
+
+    // A rescan keeps it, and so does deleting the cache.
+    let _ = fs::remove_dir_all(setup.cache());
+    setup.scan();
+    assert_eq!(
+        setup.library.artist_photo(band).unwrap(),
+        Some(first.clone())
+    );
+
+    let second = setup
+        .library
+        .set_artist_photo(band, &png_of(64, [0, 0, 200]), None)
+        .unwrap();
+    assert_ne!(first, second);
+    assert!(!first.exists(), "the replaced file goes");
+
+    setup.library.clear_artist_photo(band).unwrap();
+    assert_eq!(setup.library.artist_photo(band).unwrap(), None);
+    assert!(!second.exists());
+    assert!(matches!(
+        setup.library.set_artist_photo(band, b"not an image", None),
+        Err(Error::UnreadableImage(_))
+    ));
+}
+
+#[test]
+fn a_fetched_cover_follows_its_album_through_a_renaming_edit() {
+    let mut setup = Setup::new();
+    let path = add_file(
+        &setup.music(),
+        "a.flac",
+        "silence.flac",
+        song("A", "X", "Bare"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let album = setup.library.albums().unwrap()[0].id;
+    let fetched = setup
+        .library
+        .set_fetched_cover(
+            album,
+            &png_of(64, [30, 102, 245]),
+            &CoverArtId::Release("r-1".into()),
+        )
+        .unwrap()
+        .unwrap();
+
+    let track = setup.library.track_id_for_path(&path).unwrap().unwrap();
+    let edit = TagEdit {
+        album: FieldEdit::Set("Bare (Remastered)".into()),
+        album_artist: FieldEdit::Set("The X".into()),
+        ..TagEdit::default()
+    };
+    let report = setup
+        .library
+        .write_tags(&[(track, &edit)], &AtomicBool::new(false), |_, _| {})
+        .unwrap();
+    assert!(report.failed.is_empty());
+    let albums = setup.library.albums().unwrap();
+    assert_eq!(albums.len(), 1);
+    assert_eq!(albums[0].title, "Bare (Remastered)");
+    assert_eq!(albums[0].artwork, Some(fetched));
+    assert!(albums[0].fetched_cover);
+}

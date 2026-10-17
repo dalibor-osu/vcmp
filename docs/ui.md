@@ -12,7 +12,7 @@ dials come from DESIGN.md).
 
 | File | Holds |
 |---|---|
-| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
+| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
 | `ui/components.slint` | `FocusRing`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
@@ -27,6 +27,8 @@ dials come from DESIGN.md).
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
 | `ui/cover-picker.slint` | `CoverSearch` global and `CoverPicker`: "Find cover online" and the covers to pick from |
 | `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
+| `ui/photo-picker.slint` | `PhotoSearch` global and `PhotoPicker`: an artist's photo, found online or from a file |
+| `src/artist_photos.rs` | `ArtistPhotos`: runs the photo search, keeps the chosen photo and shows it on the page and the cards |
 | `ui/tag-editor.slint` | `TagEditorState` global and `TagEditorView`: one track's or an album's tags and cover |
 | `src/tag_editor.rs` | `TagEditor`: fills the editor, works out what changed, writes it in the background and refreshes the views |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist and playlist grids, an artist's albums and search |
@@ -58,7 +60,7 @@ dials come from DESIGN.md).
 | Durations only in `theme.slint`, so reduced motion turns all motion off in one place | `tests/ui_invariants.rs` |
 | Every user-visible string goes through `@tr()` (exceptions: "VCMP", "Sora", the slint.dev URL) | `tests/ui_invariants.rs` |
 | Every text pairing reaches 4.5:1 and every control boundary 3:1, in both palettes | `src/theme.rs` |
-| Clicking, keyboard-only use, theme choice and reduced motion behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
+| Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
 
 ## Palettes
 
@@ -100,7 +102,7 @@ subtext1 and overlay2 instead.
 | Songs table without a track-number column, missing values sorted last | Numbers only mean something within an album, which the Album column already orders; untagged files at the top would hide the library behind them |
 | Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
 | Artists in round frames, albums in rounded squares | The shape tells the two grids apart at a glance, as people know it from other players |
-| An artist's picture is their newest album's cover until there are artist photos | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists keep the initial |
+| An artist's picture is their photo, or without one their newest album's cover | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists without a photo keep the initial |
 | Album artists by default, everyone behind a switch | The owner's choice: 391 of 532 artists in their library are only credited on others' albums, and would crowd the grid |
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
@@ -111,8 +113,10 @@ subtext1 and overlay2 instead.
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+| Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
 | "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
 | The cover picker covers the sidebar and pages like the now playing view | One overlay pattern in the app; the covers get the room, and the player bar stays usable |
+| Artist photo actions sit under the picture, and their picker is the cover picker's twin | The same place and pattern as an album's "Find cover online", so one way of working covers both |
 | The tag editor is the same kind of overlay, not a separate window | One overlay pattern again. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
 | An album's differing values show as empty fields saying "Several values" | Writing only the fields the user changed is the safe default for a batch: a field left alone can't flatten twelve track numbers into one |
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
@@ -173,7 +177,10 @@ its scroll position and current card survive.
 - **Track artist:** shown only where it differs from the album artist, as on a
   compilation.
 - **Find cover online:** an album without artwork has this button under its
-  missing cover. Nothing is sent anywhere before it is chosen.
+  missing cover. Nothing is sent anywhere before it is chosen. An album showing a
+  cover fetched this way has "Change cover…" there instead, whose menu offers "Find
+  another cover" (the same picker) and "Remove cover", which goes back to no cover
+  and lets the automatic Discord lookup run again.
   - It opens the cover picker (`CoverPicker`) over the sidebar and pages, and
     `CoverFetch` asks `vcmp-integrations::musicbrainz::CoverPicker` for covers. That
     sends the album title and artist to musicbrainz.org, at one request a second
@@ -206,7 +213,8 @@ shown, because the page itself stays alive while hidden.
 - **The grid** lists album artists by default (138 in the owner's library). The
   "All artists" choice adds everyone credited on a track (532), saved as
   `ui.artists_all`. A card says how many albums an artist has, or how many tracks
-  for an artist with no albums of their own. Pictures load in the background like
+  for an artist with no albums of their own. Its picture is the artist's photo, or
+  without one the cover of their newest album; pictures load in the background like
   album covers (`CoverGrid`).
 - **An artist's page** (`ArtistView`) shows their picture, name and counts, Play
   and Shuffle, their albums as a small grid (`CardGrid`, one tab stop with arrow
@@ -221,6 +229,20 @@ shown, because the page itself stays alive while hidden.
     page's.
   - An artist who leaves the library while their page is open stays on screen,
     marked as gone, until the user leaves.
+- **The artist's photo:** under the picture, "Find photo online", "Choose photo…"
+  and, once there is one, "Remove photo".
+  - "Find photo online" opens a picker over the sidebar and pages, like the cover
+    picker. The artist is looked up on MusicBrainz (by the ID the files are tagged
+    with, then by name; only sure, same-name matches), and their photos come from
+    fanart.tv, the best liked first, up to 8. Each shows the name MusicBrainz has
+    and its disambiguation ("UK rock band"), so two artists of the same name can be
+    told apart. A click or Enter picks one, which is downloaded in full; Escape or
+    Cancel closes. Nothing is sent until the button is used, and the button is
+    there only in builds with VCMP's fanart.tv key (`VCMP_FANARTTV_API_KEY`).
+  - "Choose photo…" takes a JPEG, PNG or WebP file. One that can't be read says so
+    under the buttons.
+  - The photo is kept by the library (see `docs/library.md`) and shows at once on
+    the page, the artist cards and search.
 - **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
   returns to the grid from anywhere on the page.
 
@@ -248,12 +270,17 @@ shown, because the page itself stays alive while hidden.
   entries that are there, as one context (`playlist:<id>`, named in the queue
   panel); a click on a missing entry plays from the next one that is there.
 - **Editing:** a playlist's `TrackList` adds Move up, Move down and Remove from
-  playlist to its track menu, and Alt+Up, Alt+Down and Delete to its keys. The
-  keyboard's current track follows a moved one.
+  playlist to its track menu, and Alt+Up, Alt+Down and Delete to its keys. A row
+  can also be dragged: past 6 px of movement the press becomes a drag, an accent
+  line shows where the row would land, and letting go moves it without playing it.
+  The keyboard's current track follows a moved one.
 - **Adding:** every track menu (album, artist, search, folder and playlist lists,
-  and the songs table) has Add to playlist, with New playlist and every playlist by
-  name. New playlist there makes "Playlist n" with the track, without leaving the
-  page.
+  the songs table and the queue panel) has Add to playlist, with New playlist and
+  every playlist by name. New playlist there makes "Playlist n" with the track,
+  without leaving the page. The now playing view has the same in its "…" menu, for
+  the track playing.
+- **A whole album:** "Add to playlist…" under the album page's cover adds every
+  track of the album; New playlist there names the playlist after the album.
 - **Getting back:** the back button, Escape, or the Playlists sidebar entry. A
   playlist opened from search goes back to Search.
 
@@ -449,13 +476,16 @@ The Albums page tells apart why it is empty:
   rings go away and Space works again after clicking anywhere. A click on a text
   field gives it the focus straight back, as fields take the focus when pressed;
   the app's other controls never take focus on a click.
-- **The queue panel** opens from the queue button in the player bar, and stays open
+- **The queue panel** slides in from the window's edge (at once with reduced
+  motion). It opens from the queue button in the player bar, and stays open
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
   the page narrows to make room for it; in a narrower one the panel lies over the
   page's right edge, so the page keeps the width its controls need. It lies over
   the now playing view too.
   - Each track shows its album's cover, decoded off the UI thread at 96 px and
     kept per album (up to 500), and filled into the rows when it arrives.
+  - Tracks added to Up next can also be dragged to another place, like a
+    playlist's rows.
   - The track menu offers what applies: Play, then Remove, Move up and Move down
     for tracks added to Up next, or Play next and Add to queue for the album's (or
     list's) own tracks, which stay in their place too. The engine can't take a
@@ -619,6 +649,20 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - Controls set `accessible-role`, `accessible-label`, the checked or selected state,
   and `accessible-action-default`. Tests find elements through these properties.
 - Interactive targets are at least 40 px tall (`Theme.target-height`).
+- Reduced motion turns every duration in `theme.slint` to 0 ms. Under "System" (the
+  default) it does what the operating system asks: Windows' "Animation effects",
+  macOS' "Reduce motion", and on Linux the settings portal's `reduced-motion` key,
+  or where the portal lacks it GNOME's `enable-animations` or KDE's animation speed
+  set to "Instant" (`vcmp_integrations::reduce_motion`). VCMP asks at start, on a
+  worker thread (`preferences::follow_system_motion`), and asks again whenever the
+  system announces a change: the portal's `SettingChanged` signal, `WM_SETTINGCHANGE`
+  (received by a hidden top-level window, since message-only windows miss
+  broadcasts), or AppKit's accessibility display notification. Each answer that
+  differs from the last sets `Theme.system-reduces-motion`. Until the first answer,
+  and where the system has no such setting, motion stays on. "On" and "Off" override
+  the system. Saved values are `system`, `on` and `off`; the older switch's `true`
+  reads as On and `false` as System, because `false` was saved with every other
+  appearance change, chosen or not.
 - State is never shown by colour alone: the selected option is bold and filled, and
   the switch knob changes side.
 
@@ -636,17 +680,16 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - A play that started before its tags were edited is scrobbled to Last.fm with the
   tags it started with.
 
-- Up next can be filled from album and artist pages and search, and reordered by
-  keyboard or menu, not by dragging. Playlist entries likewise move one step at a
-  time, and whole albums can't be added to a playlist in one go yet.
-- The queue panel and the now playing view have no Add to playlist yet.
+- Dragging a row in a playlist or in Up next doesn't scroll the list: to move a row
+  further than the view shows, drag it in steps, or use Alt+Up/Down.
 - Going back is one step: an album opened from an artist found by search returns
   to the artist, and the artist to Search, but there is no general history.
-- The queue panel appears without an animation; one is planned.
-- Artists have no photos of their own yet: choosing a photo, and the web search for
-  one (fanart.tv), come with the integrations.
-- A fetched cover can't be replaced or removed from the UI yet: "Find cover
-  online" is offered only while an album has no cover.
+- The queue panel slides in when it opens but closes at once: the panel is made when
+  it opens and dropped when it closes, so there is nothing left to slide out.
+- An artist's photo is keyed by their name: two different artists with the same
+  name in one library share it.
+- Photos found online were tried only against scripted answers; a real search needs
+  a build with VCMP's fanart.tv key.
 - The track menus are Slint's own, styled by the operating system's colour scheme
   like `AboutSlint` below, so they can look out of place when VCMP's theme differs
   from the OS.
@@ -675,7 +718,10 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   can look out of place when VCMP's theme differs from the OS.
 - Theme and reduced-motion choices are saved in the library database's settings
   (`src/preferences.rs`). If the database can't be opened, they last for the session.
-- Reduced motion does not yet follow the OS preference. The spec asks for that where
-  a platform exposes one; it needs per-platform code.
+- The operating system's reduce-motion setting was tried on Linux only: GNOME's key
+  through the real portal (both portal methods), and following changes against a
+  stand-in portal on a private bus. The Windows and macOS code and the KDE key are
+  still to be tried on those systems: `cargo run -p vcmp-integrations --example
+  reduce_motion` prints what VCMP reads and, except on macOS, each change.
 - `examples/screenshots.rs` cannot force a window size under tiling window managers.
   Layout at the smallest window size is covered by a test instead.

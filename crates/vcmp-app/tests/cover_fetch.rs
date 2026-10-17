@@ -268,6 +268,27 @@ fn a_picked_cover_becomes_the_albums_cover() {
             .is_none(),
         "an album with a cover offers no search"
     );
+    assert!(app.window.get_album_detail().fetched_cover);
+
+    // A fetched cover can be changed: searched again, or taken away.
+    app.press(AccessibleRole::Button, "Change the cover of Zed Alone");
+    app.changed.borrow_mut().clear();
+    app.state().invoke_remove();
+    assert!(!app.window.get_album_detail().has_cover);
+    assert!(!app.window.get_album_detail().fetched_cover);
+    assert_eq!(app.library.album(album).unwrap().unwrap().artwork, None);
+    assert_eq!(
+        app.library.cover_lookup(album).unwrap(),
+        None,
+        "the automatic lookup may run again"
+    );
+    assert_eq!(*app.changed.borrow(), [album], "and the player is told");
+    app.frame();
+    assert!(
+        app.find(AccessibleRole::Button, "Find a cover for Zed Alone online")
+            .is_some(),
+        "the search is offered again"
+    );
 }
 
 #[test]

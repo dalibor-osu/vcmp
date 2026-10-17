@@ -107,9 +107,17 @@ impl CoverFetch {
                 }
             }
         });
-        state.on_cancel(move || {
+        state.on_cancel({
+            let weak = weak.clone();
+            move || {
+                if let Some(fetch) = weak.upgrade() {
+                    fetch.cancel();
+                }
+            }
+        });
+        state.on_remove(move || {
             if let Some(fetch) = weak.upgrade() {
-                fetch.cancel();
+                fetch.remove();
             }
         });
         fetch
@@ -179,6 +187,21 @@ impl CoverFetch {
     pub fn cancel(&self) {
         self.source.cancel();
         self.close();
+    }
+
+    /// Takes away the cover fetched for the album the album page shows, everywhere.
+    pub fn remove(&self) {
+        let Some(album) = self.view.shown_album() else {
+            return;
+        };
+        if let Err(error) = self.library.clear_fetched_cover(album.id) {
+            log::error!("could not remove the cover of {:?}: {error}", album.title);
+            return;
+        }
+        self.view.reload();
+        if let Some(action) = self.on_cover_changed.borrow().as_ref() {
+            action(album.id);
+        }
     }
 
     /// Takes an answer from the cover source.

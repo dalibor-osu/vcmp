@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 import { Button, FocusRing, IconButton } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
+import { Playlists } from "playlist-state.slint";
 
 // One track in the queue. A right click asks the panel for the track's menu.
 component QueueLine {
@@ -17,6 +18,15 @@ component QueueLine {
     callback menu-requested(length, length);
     // Where the row is, so the list can scroll it into view.
     callback shown-focused(length, length);
+    // Up next rows can be dragged to another place: the panel hears where the pointer
+    // is and where the row is (window y) and its height, then when it lets go.
+    in property <bool> draggable;
+    callback drag-moved(length, length, length);
+    callback drag-ended();
+
+    // The press became a drag, so letting go plays nothing.
+    private property <bool> dragging;
+    private property <bool> dragged;
 
     changed focused => {
         if self.focused {
@@ -38,13 +48,32 @@ component QueueLine {
     }
 
     touch := TouchArea {
+        mouse-cursor: root.dragging ? MouseCursor.grabbing : MouseCursor.default;
         clicked => {
-            Theme.keyboard-navigation = false;
-            root.clicked();
+            if root.dragged {
+                root.dragged = false;
+            } else {
+                Theme.keyboard-navigation = false;
+                root.clicked();
+            }
+        }
+        moved => {
+            if root.draggable && self.pressed && (root.dragging || abs(self.mouse-y - self.pressed-y) > 6px) {
+                root.dragging = true;
+                root.drag-moved(root.absolute-position.y + self.mouse-y, root.absolute-position.y, root.height);
+            }
         }
         pointer-event(event) => {
             if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                 root.menu-requested(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                root.dragged = false;
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && root.dragging {
+                root.dragging = false;
+                root.dragged = true;
+                root.drag-ended();
             }
         }
     }
@@ -139,10 +168,23 @@ component SectionLabel inherits Text {
 // Delete removes from Up next, Alt+Up and Alt+Down reorder it, and the Menu key (or
 // a right click) opens a track's menu, with what applies to that track.
 export component QueuePanel inherits Rectangle {
+    // How far the panel still is from its place: it slides in from the window's
+    // edge when it opens (at once with reduced motion). The window adds it to `x`.
+    out property <length> slide: 320px;
+    init => {
+        self.slide = 0;
+    }
+    animate slide { duration: Theme.duration-medium; easing: ease-out; }
+
     private property <int> up-next-count: PlayerState.up-next.length;
     private property <int> count: self.up-next-count + PlayerState.upcoming.length;
     // The keyboard's current track, counted over Up next then the context tracks.
     private property <int> current: 0;
+    // An Up next row being dragged, the place it would go, and where the line that
+    // shows it is drawn (in the list).
+    private property <int> drag-from: -1;
+    private property <int> drag-to: -1;
+    private property <length> drag-line-y;
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
     function ensure-visible(top: length, height: length) {
@@ -161,6 +203,14 @@ export component QueuePanel inherits Rectangle {
             PlayerState.move-in-up-next(root.current, to);
             root.current = to;
         }
+    }
+
+    // The file of the row the menu is for.
+    function current-path() -> string {
+        if root.current < root.up-next-count {
+            return PlayerState.up-next[root.current].path;
+        }
+        PlayerState.upcoming[root.current - root.up-next-count].path
     }
 
     function show-menu(index: int, x: length, y: length) {
@@ -270,6 +320,23 @@ export component QueuePanel inherits Rectangle {
                                 PlayerState.queue-upcoming(root.current - root.up-next-count, false);
                             }
                         }
+                        Menu {
+                            title: @tr("Add to playlist");
+
+                            MenuItem {
+                                title: @tr("New playlist");
+                                activated => {
+                                    Playlists.add-track(-1, root.current-path());
+                                }
+                            }
+                            if Playlists.names.length > 0: MenuSeparator { }
+                            for name[index] in Playlists.names: MenuItem {
+                                title: name;
+                                activated => {
+                                    Playlists.add-track(index, root.current-path());
+                                }
+                            }
+                        }
                     }
 
                     list := FocusScope {
@@ -332,6 +399,26 @@ export component QueuePanel inherits Rectangle {
                             for row[index] in PlayerState.up-next: QueueLine {
                                 entry: row;
                                 removable: true;
+                                draggable: true;
+                                drag-moved(y, top, height) => {
+                                    if root.drag-from < 0 {
+                                        root.drag-from = index;
+                                        root.current = index;
+                                    }
+                                    // The dragged row stays put; places count from it.
+                                    let pitch = height + Theme.space-xs;
+                                    root.drag-to = clamp(index + round((y - top - height / 2) / pitch), 0, root.up-next-count - 1);
+                                    root.drag-line-y = top - list.absolute-position.y + (root.drag-to - index) * pitch
+                                        + (root.drag-to > index ? height + Theme.space-xs / 2 : -Theme.space-xs / 2) - 1px;
+                                }
+                                drag-ended => {
+                                    if root.drag-from >= 0 && root.drag-to >= 0 && root.drag-to != root.drag-from {
+                                        PlayerState.move-in-up-next(root.drag-from, root.drag-to);
+                                        root.current = root.drag-to;
+                                    }
+                                    root.drag-from = -1;
+                                    root.drag-to = -1;
+                                }
                                 focused: list.has-focus && index == root.current;
                                 clicked => {
                                     root.current = index;
@@ -370,6 +457,16 @@ export component QueuePanel inherits Rectangle {
                                     root.ensure-visible(top, height);
                                 }
                             }
+                        }
+
+                        // Where a dragged row would land.
+                        if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
+                            x: 0;
+                            y: root.drag-line-y;
+                            width: parent.width;
+                            height: 2px;
+                            border-radius: 1px;
+                            background: Theme.colors.accent;
                         }
                     }
                 }
