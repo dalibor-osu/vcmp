@@ -4,6 +4,7 @@ import { Theme } from "theme.slint";
 // direct child of the control and pass the control's size.
 export component FocusRing inherits Rectangle {
     in property <length> radius;
+    visible: Theme.keyboard-navigation;
     in property <length> around-width;
     in property <length> around-height;
     x: -3px;
@@ -52,12 +53,18 @@ export component NavItem {
 
     touch := TouchArea {
         clicked => {
+            Theme.keyboard-navigation = false;
             root.activated();
         }
     }
 
     focus := FocusScope {
         focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
         key-pressed(event) => {
             if event.text == Key.Space || event.text == Key.Return {
                 root.activated();
@@ -137,6 +144,7 @@ export component SegmentedChoice {
 
         TouchArea {
             clicked => {
+                Theme.keyboard-navigation = false;
                 root.choose(index);
             }
         }
@@ -144,6 +152,11 @@ export component SegmentedChoice {
 
     focus := FocusScope {
         focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
         key-pressed(event) => {
             if event.text == Key.LeftArrow {
                 root.choose(root.current-index - 1);
@@ -206,12 +219,18 @@ export component Toggle {
 
     TouchArea {
         clicked => {
+            Theme.keyboard-navigation = false;
             root.flip();
         }
     }
 
     focus := FocusScope {
         focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
         key-pressed(event) => {
             if event.text == Key.Space || event.text == Key.Return {
                 root.flip();

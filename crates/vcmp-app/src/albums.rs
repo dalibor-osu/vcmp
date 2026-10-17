@@ -179,13 +179,7 @@ fn tile(album: &Album) -> AlbumTile {
         id: album.id.0 as i32,
         title: album.title.as_str().into(),
         artist: album.artist.clone().unwrap_or_default().into(),
-        initial: album
-            .title
-            .chars()
-            .next()
-            .map(|c| c.to_uppercase().to_string())
-            .unwrap_or_default()
-            .into(),
+        initial: initial(&album.title).into(),
         artwork: if album.artwork.is_some() {
             ArtworkState::Loading
         } else {
@@ -285,4 +279,13 @@ fn decode_loop(shared: &Shared) {
             .fetch_add(started.elapsed().as_micros() as usize, Ordering::Relaxed);
         (shared.deliver)(job.index, job.id, buffer);
     }
+}
+
+/// The first letter of a title, shown where there is no cover.
+pub(crate) fn initial(title: &str) -> String {
+    title
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_default()
 }

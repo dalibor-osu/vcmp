@@ -2,6 +2,7 @@ import { AboutSlint, Palette } from "std-widgets.slint";
 import { Theme, ThemeMode } from "theme.slint";
 import { FocusRing, SegmentedChoice, SettingRow, Toggle } from "components.slint";
 import { AlbumGrid, AlbumTile } from "album-grid.slint";
+import { AlbumDetail, AlbumView, TrackRow } from "album-page.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -138,6 +139,11 @@ export component AboutPage inherits Page {
 
             link-focus := FocusScope {
                 focus-on-click: false;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        Theme.keyboard-navigation = true;
+                    }
+                }
                 key-pressed(event) => {
                     if event.text == Key.Space || event.text == Key.Return {
                         Platform.open-url("https://slint.dev");
@@ -156,49 +162,99 @@ export component AboutPage inherits Page {
     }
 }
 
-export component AlbumsPage inherits VerticalLayout {
+// Fades a page in that stays alive while hidden: created each time the page is
+// shown, it starts in the page background colour and turns transparent.
+component FadeCurtain inherits Rectangle {
+    background: Theme.colors.base;
+    opacity: 1;
+    init => {
+        self.opacity = 0;
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+}
+
+export component AlbumsPage inherits Rectangle {
     in property <[AlbumTile]> albums;
+    in property <AlbumDetail> album;
+    in property <[TrackRow]> tracks;
+    in property <bool> multi-disc;
+    // The page is selected in the sidebar. It stays alive while hidden, so the grid
+    // keeps its scroll position.
+    in property <bool> shown;
+    // Showing one album instead of the grid.
+    in-out property <bool> album-open;
     callback range-changed(int, int);
     callback activated(int);
 
-    opacity: 0;
-    init => {
-        self.opacity = 1;
+    // Shows the grid again, with the album that was open as its current card.
+    public function close-album() {
+        root.album-open = false;
+        grid.focus-album(grid.current);
     }
-    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
 
-    HorizontalLayout {
-        padding-left: Theme.space-xxl;
-        padding-right: Theme.space-xxl;
-        padding-top: Theme.space-xxl;
-
-        Text {
-            text: @tr("Albums");
-            color: Theme.colors.text;
-            font-size: Theme.font-title;
-            font-weight: Theme.weight-strong;
+    changed album-open => {
+        if self.album-open {
+            view.focus-back();
         }
     }
 
-    if root.albums.length == 0: VerticalLayout {
-        padding: Theme.space-xxl;
-        alignment: start;
+    visible: root.shown;
 
-        Text {
-            text: @tr("No albums in the library yet.");
-            color: Theme.colors.text-muted;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        visible: !root.album-open;
+
+        HorizontalLayout {
+            padding-left: Theme.space-xxl;
+            padding-right: Theme.space-xxl;
+            padding-top: Theme.space-xxl;
+
+            Text {
+                text: @tr("Albums");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+            }
+        }
+
+        if root.albums.length == 0: VerticalLayout {
+            padding: Theme.space-xxl;
+            alignment: start;
+
+            Text {
+                text: @tr("No albums in the library yet.");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+            }
+        }
+
+        // Kept while an album is open, so its scroll position survives.
+        grid := AlbumGrid {
+            visible: root.albums.length > 0;
+            vertical-stretch: 1;
+            albums: root.albums;
+            visible-range-changed(first, count) => {
+                root.range-changed(first, count);
+            }
+            activated(index) => {
+                root.activated(index);
+            }
         }
     }
-    if root.albums.length > 0: AlbumGrid {
-        vertical-stretch: 1;
-        albums: root.albums;
-        visible-range-changed(first, count) => {
-            root.range-changed(first, count);
-        }
-        activated(index) => {
-            root.activated(index);
+
+    view := AlbumView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.album-open;
+        album: root.album;
+        tracks: root.tracks;
+        multi-disc: root.multi-disc;
+        back => {
+            root.close-album();
         }
     }
+
+    if root.shown: FadeCurtain { }
 }

@@ -1,0 +1,307 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { FocusRing } from "components.slint";
+
+export struct AlbumDetail {
+    title: string,
+    artist: string,
+    // Empty when unknown.
+    year: string,
+    track-count: int,
+    minutes: int,
+    has-cover: bool,
+    cover: image,
+    // First letter of the title, shown when there is no cover.
+    initial: string,
+    // The tracks could not be read from the library.
+    failed: bool,
+}
+
+export struct TrackRow {
+    // Track number as tagged; empty when untagged.
+    number: string,
+    title: string,
+    // Only set when the track artist differs from the album artist.
+    artist: string,
+    duration: string,
+    disc: int,
+    // First track of its disc, so the disc heading goes above it.
+    disc-start: bool,
+}
+
+// Returns to the album grid. The chevron points the way back.
+component BackButton {
+    in property <string> label;
+    callback clicked;
+
+    min-height: Theme.target-height;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.clicked();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+        animate background { duration: Theme.duration-fast; }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-s;
+        padding-right: Theme.space-m;
+        spacing: Theme.space-s;
+
+        Path {
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: "M 10 3 L 5 8 L 10 13";
+            stroke: Theme.colors.text;
+            stroke-width: 2px;
+            accessible-role: none;
+        }
+
+        Text {
+            text: root.label;
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.clicked();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+component TrackLine {
+    in property <TrackRow> track;
+    in property <bool> show-disc;
+
+    VerticalLayout {
+        if root.show-disc && root.track.disc-start: Text {
+            text: @tr("Disc {}", root.track.disc);
+            color: Theme.colors.text;
+            font-size: Theme.font-heading;
+            font-weight: Theme.weight-strong;
+            height: Theme.target-height + Theme.space-l;
+            vertical-alignment: bottom;
+        }
+
+        HorizontalLayout {
+            min-height: Theme.target-height;
+            spacing: Theme.space-l;
+
+            Text {
+                width: 32px;
+                text: root.track.number;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-body;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+
+            // Zero preferred widths make the columns share space by stretch alone,
+            // so every row's artist column starts at the same x.
+            Text {
+                horizontal-stretch: 2;
+                preferred-width: 0;
+                text: root.track.title;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if root.track.artist != "": Text {
+                horizontal-stretch: 1;
+                preferred-width: 0;
+                text: root.track.artist;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-body;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Text {
+                width: 64px;
+                text: root.track.duration;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-body;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// One album: its cover and details, then its tracks grouped by disc.
+export component AlbumView {
+    in property <AlbumDetail> album;
+    in property <[TrackRow]> tracks;
+    in property <bool> multi-disc;
+    callback back();
+
+    public function focus-back() {
+        back-button.focus();
+    }
+
+    forward-focus: back-button;
+
+    // Handles Escape for everything on the page; not a tab stop itself.
+    FocusScope {
+        width: parent.width;
+        height: parent.height;
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.back();
+                return accept;
+            }
+            reject
+        }
+
+        ScrollView {
+            width: parent.width;
+            height: parent.height;
+
+            VerticalLayout {
+                padding: Theme.space-xxl;
+                padding-top: Theme.space-xl;
+                spacing: Theme.space-xl;
+                alignment: start;
+
+                HorizontalLayout {
+                    alignment: start;
+
+                    back-button := BackButton {
+                        label: @tr("Albums");
+                        clicked => {
+                            root.back();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-xl;
+                    alignment: start;
+
+                    Rectangle {
+                        width: 200px;
+                        height: 200px;
+                        border-radius: Theme.radius-l;
+                        clip: true;
+                        background: Theme.colors.surface;
+
+                        if root.album.has-cover: Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: root.album.cover;
+                            image-fit: ImageFit.cover;
+                            accessible-role: none;
+                        }
+                        if !root.album.has-cover: Text {
+                            text: root.album.initial;
+                            color: Theme.colors.text-muted;
+                            font-size: 64px;
+                            font-weight: Theme.weight-strong;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            accessible-role: none;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: Theme.space-s;
+                        alignment: end;
+                        max-width: Theme.content-max-width;
+
+                        Text {
+                            text: root.album.title;
+                            color: Theme.colors.text;
+                            font-size: Theme.font-title;
+                            font-weight: Theme.weight-strong;
+                            wrap: word-wrap;
+                        }
+
+                        if root.album.artist != "": Text {
+                            text: root.album.artist;
+                            color: Theme.colors.text;
+                            font-size: Theme.font-heading;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalLayout {
+                            spacing: Theme.space-l;
+                            alignment: start;
+
+                            if root.album.year != "": Text {
+                                text: root.album.year;
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                            Text {
+                                text: @tr("{n} track" | "{n} tracks" % root.album.track-count);
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                            Text {
+                                text: @tr("{} min", root.album.minutes);
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                        }
+                    }
+                }
+
+                if root.album.failed: Text {
+                    text: @tr("The tracks of this album could not be read from the library.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                }
+
+                VerticalLayout {
+                    max-width: Theme.content-max-width;
+                    accessible-role: list;
+
+                    for track in root.tracks: TrackLine {
+                        track: track;
+                        show-disc: root.multi-disc;
+                    }
+                }
+            }
+        }
+    }
+}

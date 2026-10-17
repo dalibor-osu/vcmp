@@ -147,11 +147,6 @@ fn theme_choice_selects_the_palette() {
 fn transitions_animate_by_default() {
     let window = open_window();
     let albums_marker = marker_y(&window);
-    assert_eq!(
-        page_opacity(&window, "AlbumsPage"),
-        0.0,
-        "page starts its fade-in"
-    );
 
     open_page(&window, "About");
     assert_eq!(
@@ -163,6 +158,14 @@ fn transitions_animate_by_default() {
         page_opacity(&window, "AboutPage"),
         0.0,
         "page starts its fade-in"
+    );
+
+    // The Albums page stays alive while hidden; a curtain fades it in again on return.
+    open_page(&window, "Albums");
+    assert_eq!(
+        page_opacity(&window, "FadeCurtain"),
+        1.0,
+        "curtain starts opaque"
     );
 }
 
@@ -186,7 +189,11 @@ fn reduced_motion_makes_transitions_instant() {
 
     open_page(&window, "Albums");
     assert_eq!(marker_y(&window), albums_marker);
-    assert_eq!(page_opacity(&window, "AlbumsPage"), 1.0);
+    assert_eq!(
+        page_opacity(&window, "FadeCurtain"),
+        0.0,
+        "curtain already gone"
+    );
 }
 
 #[test]
@@ -221,4 +228,17 @@ fn smallest_window_keeps_everything_inside() {
             }
         }
     }
+}
+
+#[test]
+fn focus_rings_show_only_after_keyboard_use() {
+    let window = open_window();
+    let theme = window.global::<Theme>();
+    assert!(!theme.get_keyboard_navigation(), "no ring before any input");
+
+    press(&window, Key::Tab);
+    assert!(theme.get_keyboard_navigation());
+
+    find(&window, AccessibleRole::Tab, "About").mock_single_click(PointerEventButton::Left);
+    assert!(!theme.get_keyboard_navigation(), "a click hides the ring");
 }

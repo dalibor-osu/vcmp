@@ -4,8 +4,9 @@ import { Theme, ThemeMode, ThemePalette } from "theme.slint";
 import { NavItem } from "components.slint";
 import { AboutPage, AlbumsPage, SettingsPage } from "pages.slint";
 import { AlbumTile, ArtworkState } from "album-grid.slint";
+import { AlbumDetail, TrackRow } from "album-page.slint";
 
-export { AlbumTile, ArtworkState, Theme, ThemeMode, ThemePalette }
+export { AlbumDetail, AlbumTile, ArtworkState, Theme, ThemeMode, ThemePalette, TrackRow }
 
 export enum Page { albums, settings, about }
 
@@ -17,6 +18,11 @@ struct NavEntry {
 export component AppWindow inherits Window {
     in property <string> version;
     in property <[AlbumTile]> albums;
+    // The album shown instead of the grid while `album-open` is set.
+    in property <AlbumDetail> album-detail;
+    in property <[TrackRow]> album-tracks;
+    in property <bool> album-multi-disc;
+    in-out property <bool> album-open;
     in-out property <int> selected-index: 0;
     // The album grid's rows in view changed: first album index and how many fit.
     callback album-range-changed(int, int);
@@ -39,78 +45,97 @@ export component AppWindow inherits Window {
     default-font-family: "Sora";
     background: Theme.colors.base;
 
-    HorizontalLayout {
-        sidebar := Rectangle {
-            width: 220px;
-            background: Theme.colors.mantle;
+    // Sees every key press before the focused control does, to switch focus rings on.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        capture-key-pressed(event) => {
+            Theme.keyboard-navigation = true;
+            reject
+        }
 
-            sidebar-layout := VerticalLayout {
-                padding: Theme.space-l;
-                spacing: Theme.space-xl;
-                alignment: start;
+        HorizontalLayout {
+            sidebar := Rectangle {
+                width: 220px;
+                background: Theme.colors.mantle;
 
-                // Wordmark, inset to line up with the navigation labels.
-                HorizontalLayout {
-                    padding-left: Theme.space-l;
+                sidebar-layout := VerticalLayout {
+                    padding: Theme.space-l;
+                    spacing: Theme.space-xl;
+                    alignment: start;
 
-                    Text {
-                        text: "VCMP";
-                        color: Theme.colors.text;
-                        font-size: Theme.font-wordmark;
-                        font-weight: Theme.weight-strong;
+                    // Wordmark, inset to line up with the navigation labels.
+                    HorizontalLayout {
+                        padding-left: Theme.space-l;
+
+                        Text {
+                            text: "VCMP";
+                            color: Theme.colors.text;
+                            font-size: Theme.font-wordmark;
+                            font-weight: Theme.weight-strong;
+                        }
                     }
-                }
 
-                nav-list := VerticalLayout {
-                    spacing: root.nav-spacing;
-                    accessible-role: tab-list;
-                    accessible-label: @tr("Sections");
+                    nav-list := VerticalLayout {
+                        spacing: root.nav-spacing;
+                        accessible-role: tab-list;
+                        accessible-label: @tr("Sections");
 
-                    for entry[index] in root.nav: NavItem {
-                        label: entry.label;
-                        selected: index == root.selected-index;
-                        activated => {
-                            root.selected-index = index;
+                        for entry[index] in root.nav: NavItem {
+                            label: entry.label;
+                            selected: index == root.selected-index;
+                            activated => {
+                                // Choosing Albums again leaves an open album.
+                                if index == root.selected-index && entry.page == Page.albums {
+                                    albums-page.close-album();
+                                }
+                                root.selected-index = index;
+                            }
                         }
                     }
                 }
-            }
 
-            // Current-page marker: the one place the neon glow is used.
-            marker := Rectangle {
-                x: Theme.space-l - 6px;
-                y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
-                width: 3px;
-                height: root.marker-height;
-                border-radius: Theme.radius-s;
-                background: Theme.colors.accent;
-                drop-shadow-blur: 8px;
-                drop-shadow-color: Theme.colors.glow;
-                animate y { duration: Theme.duration-medium; easing: ease-in-out; }
-            }
-        }
-
-        Rectangle {
-            accessible-role: tab-panel;
-
-            if root.current-page == Page.albums: AlbumsPage {
-                albums: root.albums;
-                range-changed(first, count) => {
-                    root.album-range-changed(first, count);
-                }
-                activated(index) => {
-                    root.album-activated(index);
+                // Current-page marker: the one place the neon glow is used.
+                marker := Rectangle {
+                    x: Theme.space-l - 6px;
+                    y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+                    width: 3px;
+                    height: root.marker-height;
+                    border-radius: Theme.radius-s;
+                    background: Theme.colors.accent;
+                    drop-shadow-blur: 8px;
+                    drop-shadow-color: Theme.colors.glow;
+                    animate y { duration: Theme.duration-medium; easing: ease-in-out; }
                 }
             }
-            if root.current-page == Page.settings: ScrollView {
-                SettingsPage {
-                    width: parent.width;
+
+            Rectangle {
+                accessible-role: tab-panel;
+
+                albums-page := AlbumsPage {
+                    shown: root.current-page == Page.albums;
+                    albums: root.albums;
+                    album: root.album-detail;
+                    tracks: root.album-tracks;
+                    multi-disc: root.album-multi-disc;
+                    album-open <=> root.album-open;
+                    range-changed(first, count) => {
+                        root.album-range-changed(first, count);
+                    }
+                    activated(index) => {
+                        root.album-activated(index);
+                    }
                 }
-            }
-            if root.current-page == Page.about: ScrollView {
-                AboutPage {
-                    width: parent.width;
-                    version: root.version;
+                if root.current-page == Page.settings: ScrollView {
+                    SettingsPage {
+                        width: parent.width;
+                    }
+                }
+                if root.current-page == Page.about: ScrollView {
+                    AboutPage {
+                        width: parent.width;
+                        version: root.version;
+                    }
                 }
             }
         }

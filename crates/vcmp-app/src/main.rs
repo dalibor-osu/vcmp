@@ -4,7 +4,6 @@
 use std::rc::Rc;
 
 use slint::ComponentHandle;
-use vcmp_app::albums::AlbumBrowser;
 use vcmp_library::Library;
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -14,11 +13,12 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut _albums = None;
     match open_library() {
         Ok(library) => {
-            match library.albums() {
-                Ok(albums) => _albums = Some(AlbumBrowser::connect(&window, &albums)),
+            let library = Rc::new(library);
+            match vcmp_app::library_view::connect(&window, library.clone()) {
+                Ok(browser) => _albums = Some(browser),
                 Err(error) => log::error!("could not read albums: {error}"),
             }
-            if let Err(error) = vcmp_app::preferences::connect(&window, Rc::new(library)) {
+            if let Err(error) = vcmp_app::preferences::connect(&window, library) {
                 log::warn!("could not load preferences: {error}");
             }
         }

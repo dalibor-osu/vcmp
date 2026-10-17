@@ -5128,6 +5128,7 @@ dependencies = [
  "env_logger",
  "i-slint-backend-testing",
  "image",
+ "lofty",
  "log",
  "png",
  "slint",

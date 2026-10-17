@@ -16,7 +16,9 @@ dials come from DESIGN.md).
 | `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow` |
 | `ui/pages.slint` | `AlbumsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` and its cards, created only for the rows in view |
+| `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc |
 | `src/albums.rs` | `AlbumBrowser`: the grid's model and background cover loading |
+| `src/library_view.rs` | Connects the library to the grid and opens album pages |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
@@ -63,7 +65,9 @@ subtext1 and overlay2 instead.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Settings, About) |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Albums, Settings, About) |
+| Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
+| Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
 
@@ -100,11 +104,35 @@ of the RGB frame. Rounded clipping of the covers made no measurable difference.
 cargo run --release -p vcmp-app --example grid_benchmark -- 5000 120
 ```
 
+## Album page
+
+Choosing an album shows `AlbumView` in place of the grid. The grid stays alive, so
+its scroll position and current card survive.
+
+- **Getting back:** the back button, Escape, or the Albums sidebar entry. Focus
+  returns to the album's card.
+- **Discs:** a "Disc n" heading appears above each disc only when the album has
+  more than one.
+- **Track artist:** shown only where it differs from the album artist, as on a
+  compilation.
+- **No play controls yet.** Playback isn't merged into this branch, and a control
+  without behaviour would be a dead control.
+
+The Albums page fades in through a `FadeCurtain`, created each time the page is
+shown, because the page itself stays alive while hidden.
+
 ## Accessibility patterns
 
 - Every control is a `FocusScope` with Space or Enter (arrows in `SegmentedChoice`)
   and an accent `FocusRing` drawn 3 px outside it. Mouse clicks do not move focus
-  (`focus-on-click: false`), so the ring appears only for keyboard use.
+  (`focus-on-click: false`).
+- Rings show only in keyboard mode (`Theme.keyboard-navigation`), like
+  `:focus-visible` on the web. It switches on when a key is pressed (the window
+  sees every key first) or a control gains focus through Tab. It switches off when
+  a control is clicked. So focus can move for keyboard users, as when an album
+  opens, without leaving a ring in front of mouse users.
+- The album grid is a single tab stop. Arrow keys, Home/End and Page Up/Down move
+  the current card and scroll it into view; Enter or Space opens it.
 - Controls set `accessible-role`, `accessible-label`, the checked or selected state,
   and `accessible-action-default`. Tests find elements through these properties.
 - Interactive targets are at least 40 px tall (`Theme.target-height`).

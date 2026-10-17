@@ -110,17 +110,33 @@ fn durations_only_in_theme() {
     );
 }
 
-/// Removes every `@tr("...")` call, leaving the rest of the line.
+/// Removes every `@tr(...)` call, including plural forms such as
+/// `@tr("{n} track" | "{n} tracks" % count)`, leaving the rest of the line.
 fn without_tr_calls(line: &str) -> String {
     let mut out = String::new();
-    let mut text = line;
-    while let Some(start) = text.find("@tr(\"") {
-        out.push_str(&text[..start]);
-        let after = &text[start + 5..];
-        let end = after.find('"').map_or(after.len(), |end| end + 1);
-        text = &after[end..];
+    let mut rest = line;
+    while let Some(start) = rest.find("@tr(") {
+        out.push_str(&rest[..start]);
+        let call = &rest[start + 4..];
+        let (mut depth, mut in_string, mut previous, mut end) = (1, false, '\0', call.len());
+        for (index, c) in call.char_indices() {
+            match c {
+                '"' if previous != '\\' => in_string = !in_string,
+                '(' if !in_string => depth += 1,
+                ')' if !in_string => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = index + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            previous = c;
+        }
+        rest = &call[end..];
     }
-    out.push_str(text);
+    out.push_str(rest);
     out
 }
 
@@ -129,6 +145,10 @@ fn text_is_translatable() {
     let mut violations = Vec::new();
     for path in slint_sources() {
         for (number, line) in code_lines(&path) {
+            // Path drawing commands are data, not text.
+            if line.starts_with("commands:") {
+                continue;
+            }
             let mut remaining = without_tr_calls(&line);
             for literal in ALLOWED_LITERALS {
                 remaining = remaining.replace(literal, "");

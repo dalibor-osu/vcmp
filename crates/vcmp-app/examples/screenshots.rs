@@ -17,7 +17,6 @@ use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, SharedString, Timer, TimerMode};
-use vcmp_app::albums::AlbumBrowser;
 use vcmp_app::{AppWindow, Theme, ThemeMode};
 use vcmp_library::Library;
 
@@ -26,31 +25,48 @@ struct Shot {
     mode: ThemeMode,
     // Sidebar position: 0 Albums, 1 Settings, 2 About.
     page: i32,
+    // Grid position of the album to open, if any.
+    album: Option<i32>,
     // Tab presses before the frame, to show the keyboard focus ring. Focus carries
     // over between shots, so the count continues from the previous shot.
     tabs: usize,
 }
 
-const fn shot(name: &'static str, mode: ThemeMode, page: i32, tabs: usize) -> Shot {
+const fn shot(
+    name: &'static str,
+    mode: ThemeMode,
+    page: i32,
+    album: Option<i32>,
+    tabs: usize,
+) -> Shot {
     Shot {
         name,
         mode,
         page,
+        album,
         tabs,
     }
 }
 
 const SHOTS: &[Shot] = &[
-    shot("albums-light", ThemeMode::Light, 0, 0),
-    shot("albums-dark", ThemeMode::Dark, 0, 0),
-    shot("settings-light", ThemeMode::Light, 1, 0),
-    shot("settings-dark", ThemeMode::Dark, 1, 0),
-    shot("about-light", ThemeMode::Light, 2, 0),
-    shot("about-dark", ThemeMode::Dark, 2, 0),
-    shot("focus-nav-light", ThemeMode::Light, 1, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 1, 3),
-    shot("focus-switch-light", ThemeMode::Light, 1, 1),
+    // First, while nothing has focus: Albums, Settings, About, then the grid.
+    shot("focus-grid-dark", ThemeMode::Dark, 0, None, 4),
+    shot("albums-light", ThemeMode::Light, 0, None, 0),
+    shot("albums-dark", ThemeMode::Dark, 0, None, 0),
+    shot("album-light", ThemeMode::Light, 0, Some(ALBUM), 0),
+    shot("album-dark", ThemeMode::Dark, 0, Some(ALBUM), 0),
+    shot("settings-light", ThemeMode::Light, 1, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 1, None, 0),
+    shot("about-light", ThemeMode::Light, 2, None, 0),
+    shot("about-dark", ThemeMode::Dark, 2, None, 0),
+    shot("focus-nav-light", ThemeMode::Light, 1, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 1, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 1, None, 1),
 ];
+
+/// Grid position of the album the album shots open (set `VCMP_SHOT_ALBUM` to pick
+/// another).
+const ALBUM: i32 = 0;
 
 fn press(window: &AppWindow, key: Key) {
     let text: SharedString = key.into();
@@ -66,6 +82,16 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     let theme = window.global::<Theme>();
     theme.set_mode(shot.mode);
     window.set_selected_index(shot.page);
+    match shot.album {
+        Some(index) => {
+            let index = std::env::var("VCMP_SHOT_ALBUM")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(index);
+            window.invoke_album_activated(index);
+        }
+        None => window.set_album_open(false),
+    }
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
@@ -93,7 +119,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let home = PathBuf::from(home);
         let library =
             Library::open(&home.join("library.sqlite3"), &home.join("cache")).expect("library");
-        AlbumBrowser::connect(&window, &library.albums().expect("albums"))
+        vcmp_app::library_view::connect(&window, std::rc::Rc::new(library)).expect("albums")
     });
     // Frames are taken without waiting for transitions to finish.
     window.global::<Theme>().set_reduced_motion(true);
