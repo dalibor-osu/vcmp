@@ -74,11 +74,11 @@ pub(crate) enum TrackFilter {
     AppearsOn(ArtistId),
 }
 
-const TRACK_COLUMNS: &str =
+pub(crate) const TRACK_COLUMNS: &str =
     "t.id, t.path, t.available, t.format, t.title, t.artist, t.artist_id, t.album,
     t.album_id, t.album_artist, t.track_number, t.disc_number, t.year, t.genre, t.duration_ms";
 
-fn track_from(row: &Row) -> rusqlite::Result<Track> {
+pub(crate) fn track_from(row: &Row) -> rusqlite::Result<Track> {
     Ok(Track {
         id: TrackId(row.get(0)?),
         path: path_codec::decode(&row.get::<_, Vec<u8>>(1)?),

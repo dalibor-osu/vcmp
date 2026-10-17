@@ -1,6 +1,6 @@
 //! Connects the library to the window: the album grid and the album page that
-//! opens from it, the artist grid with the artist page and its albums, search, and
-//! the songs table.
+//! opens from it, the artist grid with the artist page and its albums, search, the
+//! songs table, the folder browser and the playlists.
 //! All of them are reloaded after every library change.
 
 use std::cell::RefCell;
@@ -9,10 +9,11 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
-use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Track};
+use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Playlist, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
 use crate::folders::FolderBrowser;
+use crate::playlists::{self, PlaylistBrowser};
 use crate::{AlbumDetail, AlbumTile, AppWindow, ArtistDetail, SongColumn, SongRow, TrackRow};
 
 pub struct LibraryView {
@@ -32,6 +33,7 @@ pub struct LibraryView {
     found: RefCell<Found>,
     search_artists_grid: Rc<CoverGrid>,
     search_albums_grid: Rc<CoverGrid>,
+    search_playlists_grid: Rc<CoverGrid>,
     search_timer: Timer,
     // Every album, before the Albums page's filter.
     all_albums: RefCell<Vec<Album>>,
@@ -41,6 +43,7 @@ pub struct LibraryView {
     songs: RefCell<Vec<Track>>,
     songs_filter_timer: Timer,
     folders: Rc<FolderBrowser>,
+    playlists: Rc<PlaylistBrowser>,
 }
 
 /// Setting key: the Songs page's sort, as "<column>" or "<column>:reverse".
@@ -50,6 +53,7 @@ pub const SETTING_SONGS_SORT: &str = "ui.songs_sort";
 struct Found {
     artists: Vec<Artist>,
     albums: Vec<Album>,
+    playlists: Vec<Playlist>,
     tracks: Vec<Track>,
 }
 
@@ -82,6 +86,7 @@ impl LibraryView {
         let albums = library.albums()?;
         let browser = AlbumBrowser::connect(window, &albums);
         let folders = FolderBrowser::connect(window, library.clone());
+        let playlists = PlaylistBrowser::connect(window, library.clone());
         let artist_grid = CoverGrid::connect(window, Grid::Artists, Vec::new(), 2);
         let artist_albums_grid = CoverGrid::connect(window, Grid::ArtistAlbums, Vec::new(), 2);
         let weak = Rc::downgrade(&artist_grid);
@@ -102,12 +107,14 @@ impl LibraryView {
             found: RefCell::default(),
             search_artists_grid: CoverGrid::connect(window, Grid::SearchArtists, Vec::new(), 2),
             search_albums_grid: CoverGrid::connect(window, Grid::SearchAlbums, Vec::new(), 2),
+            search_playlists_grid: CoverGrid::connect(window, Grid::SearchPlaylists, Vec::new(), 1),
             search_timer: Timer::default(),
             all_albums: RefCell::new(albums),
             all_songs: RefCell::default(),
             songs: RefCell::default(),
             songs_filter_timer: Timer::default(),
             folders,
+            playlists,
         });
         if let Some((column, descending)) = view
             .library
@@ -175,6 +182,16 @@ impl LibraryView {
                 .and_then(|index| view.found.borrow().albums.get(index).cloned());
             if let Some(album) = album {
                 view.open_album(album, false);
+            }
+        });
+        let weak = Rc::downgrade(&view);
+        window.on_search_playlist_activated(move |index| {
+            let Some(view) = weak.upgrade() else { return };
+            let playlist = usize::try_from(index)
+                .ok()
+                .and_then(|index| view.found.borrow().playlists.get(index).map(|p| p.id));
+            if let Some(playlist) = playlist {
+                view.playlists.open(playlist);
             }
         });
         let weak = Rc::downgrade(&view);
@@ -280,6 +297,7 @@ impl LibraryView {
             self.load_songs();
         }
         self.folders.reload();
+        self.playlists.reload();
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -406,6 +424,16 @@ impl LibraryView {
             Ok(results) => Found {
                 artists: results.artists.into_iter().take(SEARCH_CARDS).collect(),
                 albums: results.albums.into_iter().take(SEARCH_CARDS).collect(),
+                playlists: self
+                    .library
+                    .search_playlists(&text)
+                    .unwrap_or_else(|error| {
+                        log::error!("could not search the playlists: {error}");
+                        Vec::new()
+                    })
+                    .into_iter()
+                    .take(SEARCH_CARDS)
+                    .collect(),
                 tracks: results.tracks,
             },
             Err(error) => {
@@ -418,26 +446,19 @@ impl LibraryView {
         self.search_artists_grid.show_range(0, found.artists.len());
         self.search_albums_grid.replace(cards(&found.albums));
         self.search_albums_grid.show_range(0, found.albums.len());
+        self.search_playlists_grid
+            .replace(playlists::cards(&found.playlists));
+        self.search_playlists_grid
+            .show_range(0, found.playlists.len());
         let rows: Vec<TrackRow> = found
             .tracks
             .iter()
-            .map(|track| {
-                // Artist and album in one column; the separator is not a word to
-                // translate.
-                let artist = track.artist.as_deref().unwrap_or_default();
-                let album = track.album.as_deref().unwrap_or_default();
-                let source = match (artist.is_empty(), album.is_empty()) {
-                    (false, false) => format!("{artist} · {album}"),
-                    (false, true) => artist.to_string(),
-                    (true, _) => album.to_string(),
-                };
-                TrackRow {
-                    title: track.title.as_str().into(),
-                    artist: source.into(),
-                    duration: format_duration(track.duration).into(),
-                    path: track.path.to_string_lossy().as_ref().into(),
-                    ..TrackRow::default()
-                }
+            .map(|track| TrackRow {
+                title: track.title.as_str().into(),
+                artist: playlists::source(track).into(),
+                duration: format_duration(track.duration).into(),
+                path: track.path.to_string_lossy().as_ref().into(),
+                ..TrackRow::default()
             })
             .collect();
         window.set_search_tracks(ModelRc::new(VecModel::from(rows)));
@@ -533,6 +554,10 @@ impl LibraryView {
     /// The folder browser.
     pub fn folders(&self) -> &Rc<FolderBrowser> {
         &self.folders
+    }
+
+    pub fn playlists(&self) -> &Rc<PlaylistBrowser> {
+        &self.playlists
     }
 
     /// The tracks the last search found, in the order shown.
@@ -779,6 +804,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
                 disc: disc(track) as i32,
                 disc_start,
                 path: track.path.to_string_lossy().as_ref().into(),
+                unavailable: false,
             }
         })
         .collect();

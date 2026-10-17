@@ -8,6 +8,7 @@ pub mod library_service;
 pub mod library_view;
 pub mod media_keys;
 pub mod player_service;
+pub mod playlists;
 pub mod preferences;
 pub mod saved_queue;
 pub mod shortcuts;

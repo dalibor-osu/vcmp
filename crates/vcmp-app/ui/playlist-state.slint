@@ -1,0 +1,9 @@
+// The playlists every track menu can add to. Rust keeps `names` current, in the
+// Playlists page's order, and implements the callback (src/playlists.rs).
+export global Playlists {
+    in property <[string]> names;
+    // The name a playlist made from a track menu gets; renamed on its page.
+    out property <string> new-name: @tr("Playlist {}", root.names.length + 1);
+    // Adds the track with this file path to playlist `index` (-1: to a new one).
+    callback add-track(int, string);
+}

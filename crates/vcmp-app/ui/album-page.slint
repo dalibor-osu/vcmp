@@ -2,6 +2,7 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Button, FocusRing } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
+import { Playlists } from "playlist-state.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -32,6 +33,9 @@ export struct TrackRow {
     disc-start: bool,
     // File path, matched against the playing track.
     path: string,
+    // A playlist entry whose file is gone (deleted, or on a drive not plugged in).
+    // It stays in the list, dimmed, and playback skips it.
+    unavailable: bool,
 }
 
 // Returns to the page before. The chevron points the way back.
@@ -144,7 +148,8 @@ export component TrackLine {
             border-radius: Theme.radius-m;
             background: touch.has-hover ? Theme.colors.surface : transparent;
             accessible-role: list-item;
-            accessible-label: root.track.artist == "" ? root.track.title : @tr("{0}, {1}", root.track.title, root.track.artist);
+            accessible-label: root.track.unavailable ? @tr("{0}, file not found", root.track.title)
+                : root.track.artist == "" ? root.track.title : @tr("{0}, {1}", root.track.title, root.track.artist);
             accessible-item-selected: root.focused;
             accessible-action-default => {
                 root.clicked();
@@ -182,7 +187,7 @@ export component TrackLine {
                     horizontal-stretch: 2;
                     preferred-width: 0;
                     text: root.track.title;
-                    color: root.playing ? Theme.colors.accent : Theme.colors.text;
+                    color: root.playing ? Theme.colors.accent : root.track.unavailable ? Theme.colors.text-muted : Theme.colors.text;
                     font-size: Theme.font-body;
                     font-weight: root.playing ? Theme.weight-strong : Theme.weight-regular;
                     vertical-alignment: center;
@@ -190,10 +195,11 @@ export component TrackLine {
                     accessible-role: none;
                 }
 
-                if root.track.artist != "": Text {
+                // A missing file says so in words, not only by its dimmed title.
+                if root.track.artist != "" || root.track.unavailable: Text {
                     horizontal-stretch: 1;
                     preferred-width: 0;
-                    text: root.track.artist;
+                    text: root.track.unavailable ? @tr("File not found") : root.track.artist;
                     color: Theme.colors.text-muted;
                     font-size: Theme.font-body;
                     vertical-alignment: center;
@@ -233,10 +239,11 @@ export component TrackLine {
     }
 }
 
-// Tracks as a list that is one tab stop: Up/Down and Home/End move, Enter or Space
-// plays, and the Menu key (or a right click) opens a track's menu: Play now, Play
-// next, Add to queue. The owner scrolls the row reported by `shown-focused` into
-// view.
+// Tracks as a list that is one tab stop: Up/Down and Home/End move, Enter plays,
+// and the Menu key (or a right click) opens a track's menu: Play now, Play next,
+// Add to queue, Add to playlist. A playlist's own list (`editable`) also moves and
+// removes tracks: from the menu, with Alt+Up/Down, and with Delete. The owner
+// scrolls the row reported by `shown-focused` into view.
 export component TrackList {
     in property <[TrackRow]> tracks;
     in property <string> label;
@@ -244,10 +251,22 @@ export component TrackList {
     in property <bool> show-disc;
     // Path of the track now playing, to mark it.
     in property <string> playing-path;
+    in property <bool> editable;
     callback play(int);
     // Puts a track into Up next: at its front (`next`), or at its end.
     callback queue(int, bool);
+    callback remove(int);
+    // Moves the track at the first position to the second.
+    callback reorder(int, int);
     callback shown-focused(length, length);
+
+    function move-current(by: int) {
+        let to = root.current + by;
+        if to >= 0 && to < root.tracks.length {
+            root.reorder(root.current, to);
+            root.current = to;
+        }
+    }
 
     // The keyboard's current track.
     private property <int> current: 0;
@@ -281,6 +300,42 @@ export component TrackList {
                     root.queue(root.current, false);
                 }
             }
+            Menu {
+                title: @tr("Add to playlist");
+
+                MenuItem {
+                    title: @tr("New playlist");
+                    activated => {
+                        Playlists.add-track(-1, root.tracks[root.current].path);
+                    }
+                }
+                if Playlists.names.length > 0: MenuSeparator { }
+                for name[index] in Playlists.names: MenuItem {
+                    title: name;
+                    activated => {
+                        Playlists.add-track(index, root.tracks[root.current].path);
+                    }
+                }
+            }
+            if root.editable: MenuSeparator { }
+            if root.editable && root.current > 0: MenuItem {
+                title: @tr("Move up");
+                activated => {
+                    root.move-current(-1);
+                }
+            }
+            if root.editable && root.current < root.tracks.length - 1: MenuItem {
+                title: @tr("Move down");
+                activated => {
+                    root.move-current(1);
+                }
+            }
+            if root.editable: MenuItem {
+                title: @tr("Remove from playlist");
+                activated => {
+                    root.remove(root.current);
+                }
+            }
         }
 
         list := FocusScope {
@@ -292,7 +347,13 @@ export component TrackList {
                 }
             }
             key-pressed(event) => {
-                if event.text == Key.DownArrow {
+                if root.editable && event.modifiers.alt && event.text == Key.UpArrow {
+                    root.move-current(-1);
+                } else if root.editable && event.modifiers.alt && event.text == Key.DownArrow {
+                    root.move-current(1);
+                } else if root.editable && event.text == Key.Delete {
+                    root.remove(root.current);
+                } else if event.text == Key.DownArrow {
                     root.current = min(root.tracks.length - 1, root.current + 1);
                 } else if event.text == Key.UpArrow {
                     root.current = max(0, root.current - 1);

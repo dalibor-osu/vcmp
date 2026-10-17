@@ -116,6 +116,26 @@ INSERT INTO album_search (rowid, title, artist)
     SELECT albums.id, albums.title, IFNULL(artists.name, '')
     FROM albums LEFT JOIN artists ON artists.id = albums.artist_id;
 "#,
+    r#"
+-- Playlists. image: file name of the owner's own picture under the data directory's
+-- images/playlists/, NULL for one made from album covers. Entries point at tracks,
+-- which are never deleted, so an entry outlives its file going missing.
+CREATE TABLE playlists (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    image TEXT,
+    created_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE playlist_entries (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    track_id INTEGER NOT NULL REFERENCES tracks(id),
+    PRIMARY KEY (playlist_id, position)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX playlist_entries_track ON playlist_entries(track_id);
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

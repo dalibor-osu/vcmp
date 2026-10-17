@@ -1,13 +1,15 @@
 import { ScrollView } from "std-widgets.slint";
 import "../../../assets/fonts/sora/Sora[wght].ttf";
 import { Theme, ThemeMode, ThemePalette } from "theme.slint";
-import { NavItem } from "components.slint";
-import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
+import { NavItem, PlaylistLink } from "components.slint";
+import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
 import { FolderRow } from "folders-page.slint";
 import { SongColumn, SongRow } from "songs-page.slint";
 import { ArtistDetail } from "artist-page.slint";
 import { AlbumTile, ArtworkState } from "album-grid.slint";
 import { AlbumDetail, TrackRow } from "album-page.slint";
+import { PlaylistDetail } from "playlist-page.slint";
+import { Playlists } from "playlist-state.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
 import { ProgressBar } from "components.slint";
 import { PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
@@ -17,10 +19,10 @@ import { NowPlayingView } from "now-playing.slint";
 import { Glyph, IconArt } from "icons.slint";
 
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
-export { FolderRow, SongColumn, SongRow }
+export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
-export enum Page { search, albums, artists, songs, folders, settings, about }
+export enum Page { search, albums, artists, playlists, songs, folders, settings, about }
 
 struct NavEntry {
     page: Page,
@@ -59,6 +61,27 @@ export component AppWindow inherits Window {
     callback play-artist(bool);
     callback play-artist-appearance(int);
     callback queue-artist-appearance(int, bool);
+    // The Playlists page: its grid, and the playlist open instead of it.
+    in property <[AlbumTile]> playlists;
+    in-out property <bool> playlist-open;
+    in property <PlaylistDetail> playlist-detail;
+    in property <[TrackRow]> playlist-tracks;
+    // Position of the open playlist in `playlists` and the sidebar; -1 for none.
+    in property <int> open-playlist-index: -1;
+    callback playlist-activated(int);
+    callback playlist-range-changed(int, int);
+    // Makes a playlist with this name and opens it.
+    callback create-playlist(string);
+    // Edits the open playlist.
+    callback rename-playlist(string);
+    callback delete-playlist();
+    callback choose-playlist-picture();
+    callback clear-playlist-picture();
+    callback remove-playlist-track(int);
+    callback move-playlist-track(int, int);
+    // Plays the open playlist from an entry (-1: from its start), shuffled or not.
+    callback play-playlist(int, bool);
+    callback queue-playlist-track(int, bool);
     // The queue panel is shown beside the page.
     in-out property <bool> queue-open;
     // The library database could not be opened or read.
@@ -76,12 +99,14 @@ export component AppWindow inherits Window {
     in-out property <string> search-text;
     in property <[AlbumTile]> search-artists;
     in property <[AlbumTile]> search-albums;
+    in property <[AlbumTile]> search-playlists;
     in property <[TrackRow]> search-tracks;
     // An album or artist page was opened from search; its back button returns there.
     in-out property <bool> opened-from-search;
     callback search-edited(string);
     callback search-artist-activated(int);
     callback search-album-activated(int);
+    callback search-playlist-activated(int);
     // Plays the found tracks from one of them, or puts one into Up next.
     callback play-search-track(int);
     callback queue-search-track(int, bool);
@@ -112,6 +137,7 @@ export component AppWindow inherits Window {
         { page: Page.search, label: @tr("Search") },
         { page: Page.albums, label: @tr("Albums") },
         { page: Page.artists, label: @tr("Artists") },
+        { page: Page.playlists, label: @tr("Playlists") },
         { page: Page.songs, label: @tr("Songs") },
         { page: Page.folders, label: @tr("Folders") },
         { page: Page.settings, label: @tr("Settings") },
@@ -140,6 +166,13 @@ export component AppWindow inherits Window {
     public function release-focus() {
         shortcuts.focus();
         Theme.keyboard-navigation = false;
+    }
+
+    // Opens playlist `index` on the Playlists page, from the sidebar.
+    function show-playlist(index: int) {
+        root.playlist-activated(index);
+        root.opened-from-search = false;
+        root.selected-index = 3;
     }
 
     // Shows the Search page with its field focused.
@@ -212,10 +245,10 @@ export component AppWindow inherits Window {
                         sidebar-layout := VerticalLayout {
                             padding: Theme.space-l;
                             spacing: Theme.space-xl;
-                            alignment: start;
 
                             // Wordmark, inset to line up with the navigation labels.
                             HorizontalLayout {
+                                vertical-stretch: 0;
                                 padding-left: Theme.space-l;
 
                                 Text {
@@ -227,6 +260,7 @@ export component AppWindow inherits Window {
                             }
 
                             nav-list := VerticalLayout {
+                                vertical-stretch: 0;
                                 spacing: root.nav-spacing;
                                 accessible-role: tab-list;
                                 accessible-label: @tr("Sections");
@@ -242,8 +276,70 @@ export component AppWindow inherits Window {
                                         if index == root.selected-index && entry.page == Page.artists {
                                             artists-page.show-grid();
                                         }
+                                        if index == root.selected-index && entry.page == Page.playlists {
+                                            playlists-page.close-playlist();
+                                        }
                                         root.selected-index = index;
                                     }
+                                }
+                            }
+
+                            // The playlists, below the sections; the rest of the
+                            // sidebar's height, scrolling when they don't fit.
+                            VerticalLayout {
+                                vertical-stretch: 1;
+                                spacing: Theme.space-s;
+
+                                if Playlists.names.length > 0: HorizontalLayout {
+                                    padding-left: Theme.space-l;
+
+                                    Text {
+                                        text: @tr("Playlists");
+                                        color: Theme.colors.text-muted;
+                                        font-size: Theme.font-small;
+                                        accessible-role: none;
+                                    }
+                                }
+
+                                if Playlists.names.length > 0: ScrollView {
+                                    vertical-stretch: 1;
+
+                                    VerticalLayout {
+                                        spacing: root.nav-spacing;
+                                        alignment: start;
+                                        accessible-role: list;
+                                        accessible-label: @tr("Playlists");
+
+                                        for name[index] in Playlists.names: PlaylistLink {
+                                            label: name;
+                                            selected: root.current-page == Page.playlists && root.playlist-open && index == root.open-playlist-index;
+                                            activated => {
+                                                root.show-playlist(index);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Takes the height when there are no playlists, so
+                                // the rest of the sidebar keeps its size.
+                                if Playlists.names.length == 0: Rectangle { }
+                            }
+
+                            // Scan status, visible from every page while albums appear.
+                            if LibraryState.scanning: VerticalLayout {
+                                vertical-stretch: 0;
+                                padding-left: Theme.space-s;
+                                spacing: Theme.space-s;
+
+                                Text {
+                                    text: @tr("Scanning your music");
+                                    color: Theme.colors.text-muted;
+                                    font-size: Theme.font-small;
+                                }
+
+                                ProgressBar {
+                                    progress: LibraryState.progress;
+                                    label: @tr("Scan progress");
                                 }
                             }
                         }
@@ -261,28 +357,6 @@ export component AppWindow inherits Window {
                             animate y { duration: Theme.duration-medium; easing: ease-in-out; }
                         }
 
-                        // Scan status, visible from every page while albums appear.
-                        // Its own height: left to the default, the layout would fill the
-                        // sidebar from `y` down and push the bar out of sight.
-                        if LibraryState.scanning: VerticalLayout {
-                            y: parent.height - self.height;
-                            width: parent.width;
-                            height: self.preferred-height;
-                            padding: Theme.space-l;
-                            padding-left: Theme.space-xl;
-                            spacing: Theme.space-s;
-
-                            Text {
-                                text: @tr("Scanning your music");
-                                color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
-                            }
-
-                            ProgressBar {
-                                progress: LibraryState.progress;
-                                label: @tr("Scan progress");
-                            }
-                        }
                     }
 
                     pages := Rectangle {
@@ -295,6 +369,7 @@ export component AppWindow inherits Window {
                             text <=> root.search-text;
                             artists: root.search-artists;
                             albums: root.search-albums;
+                            playlists: root.search-playlists;
                             tracks: root.search-tracks;
                             edited(text) => {
                                 root.search-edited(text);
@@ -308,6 +383,11 @@ export component AppWindow inherits Window {
                                 root.search-album-activated(index);
                                 root.opened-from-search = true;
                                 root.selected-index = 1;
+                            }
+                            playlist-activated(index) => {
+                                root.search-playlist-activated(index);
+                                root.opened-from-search = true;
+                                root.selected-index = 3;
                             }
                             play-track(index) => {
                                 root.play-search-track(index);
@@ -401,6 +481,56 @@ export component AppWindow inherits Window {
                             }
                             queue-album-track(index, next) => {
                                 root.queue-album-track(index, next);
+                            }
+                        }
+                        playlists-page := PlaylistsPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.playlists;
+                            from-search: root.opened-from-search;
+                            back-to-search => {
+                                root.playlist-open = false;
+                                root.show-search();
+                            }
+                            playlists: root.playlists;
+                            library-failed: root.library-failed;
+                            playlist-open <=> root.playlist-open;
+                            playlist: root.playlist-detail;
+                            tracks: root.playlist-tracks;
+                            range-changed(first, count) => {
+                                root.playlist-range-changed(first, count);
+                            }
+                            activated(index) => {
+                                root.opened-from-search = false;
+                                root.playlist-activated(index);
+                            }
+                            create(name) => {
+                                root.opened-from-search = false;
+                                root.create-playlist(name);
+                            }
+                            play(start, shuffle) => {
+                                root.play-playlist(start, shuffle);
+                            }
+                            queue-track(index, next) => {
+                                root.queue-playlist-track(index, next);
+                            }
+                            remove-track(index) => {
+                                root.remove-playlist-track(index);
+                            }
+                            move-track(from, to) => {
+                                root.move-playlist-track(from, to);
+                            }
+                            rename(name) => {
+                                root.rename-playlist(name);
+                            }
+                            choose-picture => {
+                                root.choose-playlist-picture();
+                            }
+                            clear-picture => {
+                                root.clear-playlist-picture();
+                            }
+                            delete => {
+                                root.delete-playlist();
                             }
                         }
                         SongsPage {
