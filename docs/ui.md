@@ -14,7 +14,9 @@ dials come from DESIGN.md).
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` enum, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
 | `ui/components.slint` | `FocusRing`, `NavItem`, `SegmentedChoice`, `Toggle`, `SettingRow` |
-| `ui/pages.slint` | `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/pages.slint` | `AlbumsPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/album-grid.slint` | `AlbumGrid` and its cards, created only for the rows in view |
+| `src/albums.rs` | `AlbumBrowser`: the grid's model and background cover loading |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
@@ -64,6 +66,39 @@ subtext1 and overlay2 instead.
 | Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Settings, About) |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+
+## Album grid
+
+The grid creates cards only for the rows in view plus one, places them by index,
+and reuses them while scrolling. It reports the range in view through
+`visible-range-changed`. `AlbumBrowser` responds:
+
+- It queues covers for that range first, then one screen below, then one above.
+- Background threads decode each cached 400 px thumbnail and shrink it to the tile's
+  pixel size.
+- Covers more than three screens away are released, so memory stays flat however
+  long the library is.
+
+Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
+on every frame, which doubled the grid's render time.
+
+Measured with `examples/grid_benchmark.rs`: 5,000 synthetic albums, a 1256x1388
+window, Radeon RX 7800 XT (Mesa), femtovg renderer, scrolling top to bottom.
+
+| | RGB covers | RGBA covers |
+|---|---|---|
+| Render time p50 / p95 / max | 10.8 / 12.8 / 21.9 ms | 5.1 / 7.7 / 11.4 ms |
+| Frames missing two refreshes | 0 | 0 |
+| Covers on screen after opening | 0.1 s | 0.1 s |
+| Covers kept in memory at the end | 165 | 165 |
+| Process memory after scrolling | 234 MiB | 250 MiB |
+
+Without text labels a frame took 6.2 ms (with RGB covers), so text is about 4.5 ms
+of the RGB frame. Rounded clipping of the covers made no measurable difference.
+
+```bash
+cargo run --release -p vcmp-app --example grid_benchmark -- 5000 120
+```
 
 ## Accessibility patterns
 

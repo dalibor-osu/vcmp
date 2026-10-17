@@ -1,6 +1,7 @@
 import { AboutSlint, Palette } from "std-widgets.slint";
 import { Theme, ThemeMode } from "theme.slint";
 import { FocusRing, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { AlbumGrid, AlbumTile } from "album-grid.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -151,6 +152,53 @@ export component AboutPage inherits Page {
                 around-height: parent.height;
                 radius: Theme.radius-l;
             }
+        }
+    }
+}
+
+export component AlbumsPage inherits VerticalLayout {
+    in property <[AlbumTile]> albums;
+    callback range-changed(int, int);
+    callback activated(int);
+
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    HorizontalLayout {
+        padding-left: Theme.space-xxl;
+        padding-right: Theme.space-xxl;
+        padding-top: Theme.space-xxl;
+
+        Text {
+            text: @tr("Albums");
+            color: Theme.colors.text;
+            font-size: Theme.font-title;
+            font-weight: Theme.weight-strong;
+        }
+    }
+
+    if root.albums.length == 0: VerticalLayout {
+        padding: Theme.space-xxl;
+        alignment: start;
+
+        Text {
+            text: @tr("No albums in the library yet.");
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+        }
+    }
+    if root.albums.length > 0: AlbumGrid {
+        vertical-stretch: 1;
+        albums: root.albums;
+        visible-range-changed(first, count) => {
+            root.range-changed(first, count);
+        }
+        activated(index) => {
+            root.activated(index);
         }
     }
 }

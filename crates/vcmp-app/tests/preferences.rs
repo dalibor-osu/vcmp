@@ -33,6 +33,7 @@ fn choices_are_saved_and_restored() {
         ThemeMode::System,
         "nothing saved yet"
     );
+    click(&window, AccessibleRole::Tab, "Settings");
     click(&window, AccessibleRole::RadioButton, "Dark");
     click(&window, AccessibleRole::Switch, "Reduce motion");
     drop(window);

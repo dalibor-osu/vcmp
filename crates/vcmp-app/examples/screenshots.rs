@@ -4,6 +4,9 @@
 //! size; the smallest-size layout is covered by tests/ui_behaviour.rs instead.
 //!
 //!     cargo run -p vcmp-app --example screenshots
+//!
+//! With `VCMP_HOME` pointing at a library (for example `target/scan-example`), the
+//! album shots show that library; without it they show the empty state.
 
 use std::cell::Cell;
 use std::fs::File;
@@ -14,60 +17,39 @@ use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, SharedString, Timer, TimerMode};
+use vcmp_app::albums::AlbumBrowser;
 use vcmp_app::{AppWindow, Theme, ThemeMode};
+use vcmp_library::Library;
 
 struct Shot {
     name: &'static str,
     mode: ThemeMode,
+    // Sidebar position: 0 Albums, 1 Settings, 2 About.
     page: i32,
     // Tab presses before the frame, to show the keyboard focus ring. Focus carries
     // over between shots, so the count continues from the previous shot.
     tabs: usize,
 }
 
+const fn shot(name: &'static str, mode: ThemeMode, page: i32, tabs: usize) -> Shot {
+    Shot {
+        name,
+        mode,
+        page,
+        tabs,
+    }
+}
+
 const SHOTS: &[Shot] = &[
-    Shot {
-        name: "settings-light",
-        mode: ThemeMode::Light,
-        page: 0,
-        tabs: 0,
-    },
-    Shot {
-        name: "settings-dark",
-        mode: ThemeMode::Dark,
-        page: 0,
-        tabs: 0,
-    },
-    Shot {
-        name: "about-light",
-        mode: ThemeMode::Light,
-        page: 1,
-        tabs: 0,
-    },
-    Shot {
-        name: "about-dark",
-        mode: ThemeMode::Dark,
-        page: 1,
-        tabs: 0,
-    },
-    Shot {
-        name: "focus-nav-light",
-        mode: ThemeMode::Light,
-        page: 0,
-        tabs: 1,
-    },
-    Shot {
-        name: "focus-theme-dark",
-        mode: ThemeMode::Dark,
-        page: 0,
-        tabs: 2,
-    },
-    Shot {
-        name: "focus-switch-light",
-        mode: ThemeMode::Light,
-        page: 0,
-        tabs: 1,
-    },
+    shot("albums-light", ThemeMode::Light, 0, 0),
+    shot("albums-dark", ThemeMode::Dark, 0, 0),
+    shot("settings-light", ThemeMode::Light, 1, 0),
+    shot("settings-dark", ThemeMode::Dark, 1, 0),
+    shot("about-light", ThemeMode::Light, 2, 0),
+    shot("about-dark", ThemeMode::Dark, 2, 0),
+    shot("focus-nav-light", ThemeMode::Light, 1, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 1, 3),
+    shot("focus-switch-light", ThemeMode::Light, 1, 1),
 ];
 
 fn press(window: &AppWindow, key: Key) {
@@ -107,6 +89,12 @@ fn main() -> Result<(), slint::PlatformError> {
     std::fs::create_dir_all(&out_dir).expect("output directory");
 
     let window = vcmp_app::create_window()?;
+    let _albums = std::env::var_os("VCMP_HOME").map(|home| {
+        let home = PathBuf::from(home);
+        let library =
+            Library::open(&home.join("library.sqlite3"), &home.join("cache")).expect("library");
+        AlbumBrowser::connect(&window, &library.albums().expect("albums"))
+    });
     // Frames are taken without waiting for transitions to finish.
     window.global::<Theme>().set_reduced_motion(true);
 

@@ -1,0 +1,132 @@
+import { Theme } from "theme.slint";
+
+export enum ArtworkState { none, loading, loaded }
+
+export struct AlbumTile {
+    id: int,
+    title: string,
+    artist: string,
+    // First letter of the title, shown while there is no cover.
+    initial: string,
+    artwork: ArtworkState,
+    cover: image,
+}
+
+component AlbumCard {
+    in property <AlbumTile> album;
+    in property <length> cover-size;
+    callback clicked;
+
+    accessible-role: button;
+    accessible-label: root.album.artist == "" ? root.album.title : @tr("{0}, {1}", root.album.title, root.album.artist);
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-s;
+        alignment: start;
+
+        Rectangle {
+            width: root.cover-size;
+            height: root.cover-size;
+            border-radius: Theme.radius-m;
+            clip: true;
+            background: Theme.colors.surface;
+
+            if root.album.artwork == ArtworkState.none: Text {
+                text: root.album.initial;
+                color: Theme.colors.text-muted;
+                font-size: root.cover-size / 3;
+                font-weight: Theme.weight-strong;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+            if root.album.artwork == ArtworkState.loaded: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.album.cover;
+                image-fit: ImageFit.cover;
+                accessible-role: none;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            Text {
+                text: root.album.title;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                overflow: elide;
+                accessible-role: none;
+            }
+
+            Text {
+                text: root.album.artist;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+                accessible-role: none;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A grid of album covers that only creates cards for the rows in view. The owner
+// loads covers for the range reported through `visible-range-changed`.
+export component AlbumGrid {
+    in property <[AlbumTile]> albums;
+    callback visible-range-changed(int, int);
+    callback activated(int);
+
+    private property <length> edge: Theme.space-xxl;
+    private property <length> gap: Theme.space-xl;
+    private property <length> min-tile: 160px;
+    private property <length> text-height: 44px;
+    private property <int> columns: max(1, floor((self.width - 2 * self.edge + self.gap) / (self.min-tile + self.gap)));
+    private property <length> tile-width: (self.width - 2 * self.edge - (self.columns - 1) * self.gap) / self.columns;
+    private property <length> row-height: self.tile-width + Theme.space-s + self.text-height + self.gap;
+    private property <int> rows: ceil(self.albums.length / self.columns);
+    private property <int> first-row: max(0, floor((-flick.content-y - self.edge) / self.row-height));
+    private property <int> visible-rows: ceil(self.height / self.row-height) + 1;
+    private property <int> first-index: self.first-row * self.columns;
+    private property <int> slot-count: self.visible-rows * self.columns;
+
+    changed first-index => {
+        root.visible-range-changed(self.first-index, self.slot-count);
+    }
+    changed slot-count => {
+        root.visible-range-changed(self.first-index, self.slot-count);
+    }
+    init => {
+        root.visible-range-changed(self.first-index, self.slot-count);
+    }
+
+    accessible-role: list;
+
+    flick := Flickable {
+        content-height: root.rows * root.row-height + 2 * root.edge;
+
+        for slot in root.slot-count: AlbumCard {
+            property <int> index: root.first-index + slot;
+            visible: self.index < root.albums.length;
+            x: root.edge + mod(self.index, root.columns) * (root.tile-width + root.gap);
+            y: root.edge + floor(self.index / root.columns) * root.row-height;
+            width: root.tile-width;
+            cover-size: root.tile-width;
+            album: root.albums[self.index];
+            clicked => {
+                root.activated(self.index);
+            }
+        }
+    }
+}

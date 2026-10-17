@@ -32,6 +32,11 @@ fn press(window: &AppWindow, text: impl Into<SharedString>) {
         .dispatch_event(WindowEvent::KeyReleased { text });
 }
 
+/// Opens a page through its sidebar entry.
+fn open_page(window: &AppWindow, label: &str) {
+    find(window, AccessibleRole::Tab, label).invoke_accessible_default_action();
+}
+
 fn marker_y(window: &AppWindow) -> f32 {
     ElementHandle::find_by_element_id(window, "AppWindow::marker")
         .next()
@@ -50,7 +55,7 @@ fn page_opacity(window: &AppWindow, type_name: &str) -> f32 {
 #[test]
 fn clicking_navigation_switches_pages() {
     let window = open_window();
-    assert_eq!(window.get_current_page(), Page::Settings);
+    assert_eq!(window.get_current_page(), Page::Albums);
 
     find(&window, AccessibleRole::Tab, "About").mock_single_click(PointerEventButton::Left);
     assert_eq!(window.get_current_page(), Page::About);
@@ -68,6 +73,7 @@ fn clicking_navigation_switches_pages() {
 fn clicking_settings_controls_changes_them() {
     let window = open_window();
     let theme = window.global::<Theme>();
+    open_page(&window, "Settings");
 
     find(&window, AccessibleRole::RadioButton, "Dark").mock_single_click(PointerEventButton::Left);
     assert_eq!(theme.get_mode(), ThemeMode::Dark);
@@ -85,7 +91,8 @@ fn everything_works_from_the_keyboard() {
     let window = open_window();
     let theme = window.global::<Theme>();
 
-    // Tab order follows the visual order: Settings, About, theme choice, motion switch.
+    // Tab order follows the visual order: Albums, Settings, About, then the page.
+    press(&window, Key::Tab);
     press(&window, Key::Tab);
     press(&window, Key::Tab);
     press(&window, Key::Return);
@@ -120,6 +127,7 @@ fn everything_works_from_the_keyboard() {
 fn theme_choice_selects_the_palette() {
     let window = open_window();
     let theme = window.global::<Theme>();
+    open_page(&window, "Settings");
 
     find(&window, AccessibleRole::RadioButton, "Dark").invoke_accessible_default_action();
     assert!(theme.get_dark());
@@ -138,18 +146,18 @@ fn theme_choice_selects_the_palette() {
 #[test]
 fn transitions_animate_by_default() {
     let window = open_window();
-    let settings_marker = marker_y(&window);
+    let albums_marker = marker_y(&window);
     assert_eq!(
-        page_opacity(&window, "SettingsPage"),
+        page_opacity(&window, "AlbumsPage"),
         0.0,
         "page starts its fade-in"
     );
 
-    window.set_selected_index(1);
+    open_page(&window, "About");
     assert_eq!(
         marker_y(&window),
-        settings_marker,
-        "marker starts sliding from Settings"
+        albums_marker,
+        "marker starts sliding from Albums"
     );
     assert_eq!(
         page_opacity(&window, "AboutPage"),
@@ -161,12 +169,13 @@ fn transitions_animate_by_default() {
 #[test]
 fn reduced_motion_makes_transitions_instant() {
     let window = open_window();
-    let settings_marker = marker_y(&window);
+    let albums_marker = marker_y(&window);
+    open_page(&window, "Settings");
     find(&window, AccessibleRole::Switch, "Reduce motion").invoke_accessible_default_action();
 
-    window.set_selected_index(1);
+    open_page(&window, "About");
     assert!(
-        marker_y(&window) > settings_marker,
+        marker_y(&window) > albums_marker,
         "marker is already at About"
     );
     assert_eq!(
@@ -175,9 +184,9 @@ fn reduced_motion_makes_transitions_instant() {
         "page is fully shown"
     );
 
-    window.set_selected_index(0);
-    assert_eq!(marker_y(&window), settings_marker);
-    assert_eq!(page_opacity(&window, "SettingsPage"), 1.0);
+    open_page(&window, "Albums");
+    assert_eq!(marker_y(&window), albums_marker);
+    assert_eq!(page_opacity(&window, "AlbumsPage"), 1.0);
 }
 
 #[test]
@@ -186,7 +195,7 @@ fn smallest_window_keeps_everything_inside() {
     let width = 720.0;
     window.window().set_size(LogicalSize::new(width, 480.0));
 
-    for page in [0, 1] {
+    for page in [0, 1, 2] {
         window.set_selected_index(page);
         let roles = [
             AccessibleRole::Tab,

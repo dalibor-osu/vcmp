@@ -5127,6 +5127,7 @@ dependencies = [
  "directories",
  "env_logger",
  "i-slint-backend-testing",
+ "image",
  "log",
  "png",
  "slint",

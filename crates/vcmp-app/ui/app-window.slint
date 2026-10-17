@@ -2,11 +2,12 @@ import { ScrollView } from "std-widgets.slint";
 import "../../../assets/fonts/sora/Sora[wght].ttf";
 import { Theme, ThemeMode, ThemePalette } from "theme.slint";
 import { NavItem } from "components.slint";
-import { AboutPage, SettingsPage } from "pages.slint";
+import { AboutPage, AlbumsPage, SettingsPage } from "pages.slint";
+import { AlbumTile, ArtworkState } from "album-grid.slint";
 
-export { Theme, ThemeMode, ThemePalette }
+export { AlbumTile, ArtworkState, Theme, ThemeMode, ThemePalette }
 
-export enum Page { settings, about }
+export enum Page { albums, settings, about }
 
 struct NavEntry {
     page: Page,
@@ -15,10 +16,15 @@ struct NavEntry {
 
 export component AppWindow inherits Window {
     in property <string> version;
+    in property <[AlbumTile]> albums;
     in-out property <int> selected-index: 0;
+    // The album grid's rows in view changed: first album index and how many fit.
+    callback album-range-changed(int, int);
+    callback album-activated(int);
     out property <Page> current-page: root.nav[root.selected-index].page;
 
     private property <[NavEntry]> nav: [
+        { page: Page.albums, label: @tr("Albums") },
         { page: Page.settings, label: @tr("Settings") },
         { page: Page.about, label: @tr("About") },
     ];
@@ -84,15 +90,28 @@ export component AppWindow inherits Window {
             }
         }
 
-        ScrollView {
+        Rectangle {
             accessible-role: tab-panel;
 
-            if root.current-page == Page.settings: SettingsPage {
-                width: parent.width;
+            if root.current-page == Page.albums: AlbumsPage {
+                albums: root.albums;
+                range-changed(first, count) => {
+                    root.album-range-changed(first, count);
+                }
+                activated(index) => {
+                    root.album-activated(index);
+                }
             }
-            if root.current-page == Page.about: AboutPage {
-                width: parent.width;
-                version: root.version;
+            if root.current-page == Page.settings: ScrollView {
+                SettingsPage {
+                    width: parent.width;
+                }
+            }
+            if root.current-page == Page.about: ScrollView {
+                AboutPage {
+                    width: parent.width;
+                    version: root.version;
+                }
             }
         }
     }

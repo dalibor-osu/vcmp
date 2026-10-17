@@ -41,6 +41,11 @@ The core crates must never depend on `vcmp-app` or Slint.
 cargo run -p vcmp-app
 ```
 
+`VCMP_HOME=<dir>` makes the app use `<dir>/library.sqlite3` and `<dir>/cache/`
+instead of the platform data and cache directories. For example,
+`VCMP_HOME=target/scan-example cargo run -p vcmp-app` opens the library that
+`cargo run --example scan` built.
+
 On Linux, building needs the fontconfig and xkbcommon development packages
 (`libfontconfig1-dev libxkbcommon-dev` on Debian/Ubuntu; `fontconfig libxkbcommon`
 on Arch).
@@ -62,7 +67,10 @@ window in each theme and focus state:
 cargo run -p vcmp-app --example screenshots
 ```
 
-The PNGs land in `target/screenshots/`.
+The PNGs land in `target/screenshots/`. Set `VCMP_HOME` to show a real library in
+the album shots. `--example grid_benchmark` scrolls the album grid through thousands
+of synthetic albums and reports render times and memory (see
+[docs/ui.md](docs/ui.md#album-grid)).
 
 Library tests use the tiny silent files in `crates/vcmp-library/tests/fixtures/`
 (see the README there for how they were made) and write tags into temporary copies.
