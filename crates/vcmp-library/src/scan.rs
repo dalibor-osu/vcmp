@@ -360,6 +360,23 @@ pub(crate) fn reread_edited(
         albums.extend(old_album);
         albums.extend(new_album);
 
+        // A cover the user fetched belongs to the album's group key, which a new
+        // title or album artist changes: it moves with the edit, unless the album
+        // the track joined has one already.
+        if let (Some(old_album), Some(new_album)) = (old_album, new_album)
+            && old_album != new_album
+        {
+            tx.execute(
+                "INSERT OR IGNORE INTO fetched_covers
+                     (group_key, artwork_hash, cover_kind, cover_mbid, fetched_ms)
+                 SELECT new.group_key, f.artwork_hash, f.cover_kind, f.cover_mbid, f.fetched_ms
+                 FROM albums old JOIN fetched_covers f ON f.group_key = old.group_key,
+                      albums new
+                 WHERE old.id = ?1 AND new.id = ?2",
+                params![old_album, new_album],
+            )?;
+        }
+
         // Albums and artists are matched ignoring case, so a scan keeps the spelling
         // it met first. An edit is the user's spelling, so it wins.
         if let (FieldEdit::Set(_), Some(album), Some(title)) =
