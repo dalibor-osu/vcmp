@@ -888,6 +888,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
         minutes: total.as_secs().div_ceil(60) as i32,
         has_cover: cover.is_some(),
         cover: cover.unwrap_or_default(),
+        fetched_cover: album.fetched_cover,
         initial: initial(&album.title).into(),
         failed,
         missing: false,

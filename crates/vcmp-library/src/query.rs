@@ -49,6 +49,8 @@ pub struct Album {
     pub track_count: u32,
     /// The files' own art, or else a cover the user fetched online.
     pub artwork: Option<Artwork>,
+    /// `artwork` is a cover the user fetched online, not the files' own.
+    pub fetched_cover: bool,
     /// MusicBrainz release ID, when the files are tagged with one.
     pub musicbrainz_id: Option<String>,
 }
@@ -141,6 +143,9 @@ const ALBUM_QUERY: &str = "SELECT a.id, a.title, ar.name, a.artist_id, a.year, C
     LEFT JOIN fetched_covers fc ON fc.group_key = a.group_key";
 
 fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
+    let cached = |key: Option<String>| key.and_then(|key| store.get(&key));
+    let own = cached(row.get(6)?);
+    let fetched = cached(row.get(8)?);
     Ok(Album {
         id: AlbumId(row.get(0)?),
         title: row.get(1)?,
@@ -148,10 +153,8 @@ fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
         artist_id: row.get::<_, Option<i64>>(3)?.map(ArtistId),
         year: row.get(4)?,
         track_count: row.get(5)?,
-        artwork: [row.get::<_, Option<String>>(6)?, row.get(8)?]
-            .into_iter()
-            .flatten()
-            .find_map(|key| store.get(&key)),
+        artwork: own.clone().or(fetched.clone()),
+        fetched_cover: own.is_none() && fetched.is_some(),
         musicbrainz_id: row.get(7)?,
     })
 }

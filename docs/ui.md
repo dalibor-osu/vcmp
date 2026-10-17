@@ -177,7 +177,10 @@ its scroll position and current card survive.
 - **Track artist:** shown only where it differs from the album artist, as on a
   compilation.
 - **Find cover online:** an album without artwork has this button under its
-  missing cover. Nothing is sent anywhere before it is chosen.
+  missing cover. Nothing is sent anywhere before it is chosen. An album showing a
+  cover fetched this way has "Change cover…" there instead, whose menu offers "Find
+  another cover" (the same picker) and "Remove cover", which goes back to no cover
+  and lets the automatic Discord lookup run again.
   - It opens the cover picker (`CoverPicker`) over the sidebar and pages, and
     `CoverFetch` asks `vcmp-integrations::musicbrainz::CoverPicker` for covers. That
     sends the album title and artist to musicbrainz.org, at one request a second
@@ -663,8 +666,6 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   name in one library share it.
 - Photos found online were tried only against scripted answers; a real search needs
   a build with VCMP's fanart.tv key.
-- A fetched cover can't be replaced or removed from the UI yet: "Find cover
-  online" is offered only while an album has no cover.
 - The track menus are Slint's own, styled by the operating system's colour scheme
   like `AboutSlint` below, so they can look out of place when VCMP's theme differs
   from the OS.
