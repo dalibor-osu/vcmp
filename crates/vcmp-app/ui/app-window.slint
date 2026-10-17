@@ -13,6 +13,7 @@ import { ProgressBar } from "components.slint";
 import { PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
 import { PlayerBar } from "player-bar.slint";
 import { QueuePanel } from "queue-panel.slint";
+import { NowPlayingView } from "now-playing.slint";
 import { Glyph, IconArt } from "icons.slint";
 
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
@@ -152,269 +153,290 @@ export component AppWindow inherits Window {
         }
 
         VerticalLayout {
-            HorizontalLayout {
-                sidebar := Rectangle {
-                    width: 220px;
-                    background: Theme.colors.mantle;
+            // The sidebar and pages, and the now playing view over them; the player
+            // bar stays below both.
+            Rectangle {
+                vertical-stretch: 1;
 
-                    sidebar-layout := VerticalLayout {
-                        padding: Theme.space-l;
-                        spacing: Theme.space-xl;
-                        alignment: start;
+                HorizontalLayout {
+                    width: parent.width;
+                    height: parent.height;
 
-                        // Wordmark, inset to line up with the navigation labels.
-                        HorizontalLayout {
-                            padding-left: Theme.space-l;
+                    sidebar := Rectangle {
+                        width: 220px;
+                        background: Theme.colors.mantle;
 
-                            Text {
-                                text: "VCMP";
-                                color: Theme.colors.text;
-                                font-size: Theme.font-wordmark;
-                                font-weight: Theme.weight-strong;
+                        sidebar-layout := VerticalLayout {
+                            padding: Theme.space-l;
+                            spacing: Theme.space-xl;
+                            alignment: start;
+
+                            // Wordmark, inset to line up with the navigation labels.
+                            HorizontalLayout {
+                                padding-left: Theme.space-l;
+
+                                Text {
+                                    text: "VCMP";
+                                    color: Theme.colors.text;
+                                    font-size: Theme.font-wordmark;
+                                    font-weight: Theme.weight-strong;
+                                }
                             }
-                        }
 
-                        nav-list := VerticalLayout {
-                            spacing: root.nav-spacing;
-                            accessible-role: tab-list;
-                            accessible-label: @tr("Sections");
+                            nav-list := VerticalLayout {
+                                spacing: root.nav-spacing;
+                                accessible-role: tab-list;
+                                accessible-label: @tr("Sections");
 
-                            for entry[index] in root.nav: NavItem {
-                                label: entry.label;
-                                selected: index == root.selected-index;
-                                activated => {
-                                    // Choosing Albums or Artists again goes back to the grid.
-                                    if index == root.selected-index && entry.page == Page.albums {
-                                        albums-page.close-album();
+                                for entry[index] in root.nav: NavItem {
+                                    label: entry.label;
+                                    selected: index == root.selected-index;
+                                    activated => {
+                                        // Choosing Albums or Artists again goes back to the grid.
+                                        if index == root.selected-index && entry.page == Page.albums {
+                                            albums-page.close-album();
+                                        }
+                                        if index == root.selected-index && entry.page == Page.artists {
+                                            artists-page.show-grid();
+                                        }
+                                        root.selected-index = index;
                                     }
-                                    if index == root.selected-index && entry.page == Page.artists {
-                                        artists-page.show-grid();
-                                    }
-                                    root.selected-index = index;
                                 }
                             }
                         }
-                    }
 
-                    // Current-page marker: the one place the neon glow is used.
-                    marker := Rectangle {
-                        x: Theme.space-l - 6px;
-                        y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
-                        width: 3px;
-                        height: root.marker-height;
-                        border-radius: Theme.radius-s;
-                        background: Theme.colors.accent;
-                        drop-shadow-blur: 8px;
-                        drop-shadow-color: Theme.colors.glow;
-                        animate y { duration: Theme.duration-medium; easing: ease-in-out; }
-                    }
-
-                    // Scan status, visible from every page while albums appear.
-                    // Its own height: left to the default, the layout would fill the
-                    // sidebar from `y` down and push the bar out of sight.
-                    if LibraryState.scanning: VerticalLayout {
-                        y: parent.height - self.height;
-                        width: parent.width;
-                        height: self.preferred-height;
-                        padding: Theme.space-l;
-                        padding-left: Theme.space-xl;
-                        spacing: Theme.space-s;
-
-                        Text {
-                            text: @tr("Scanning your music");
-                            color: Theme.colors.text-muted;
-                            font-size: Theme.font-small;
+                        // Current-page marker: the one place the neon glow is used.
+                        marker := Rectangle {
+                            x: Theme.space-l - 6px;
+                            y: sidebar-layout.y + nav-list.y + root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+                            width: 3px;
+                            height: root.marker-height;
+                            border-radius: Theme.radius-s;
+                            background: Theme.colors.accent;
+                            drop-shadow-blur: 8px;
+                            drop-shadow-color: Theme.colors.glow;
+                            animate y { duration: Theme.duration-medium; easing: ease-in-out; }
                         }
 
-                        ProgressBar {
-                            progress: LibraryState.progress;
-                            label: @tr("Scan progress");
-                        }
-                    }
-                }
+                        // Scan status, visible from every page while albums appear.
+                        // Its own height: left to the default, the layout would fill the
+                        // sidebar from `y` down and push the bar out of sight.
+                        if LibraryState.scanning: VerticalLayout {
+                            y: parent.height - self.height;
+                            width: parent.width;
+                            height: self.preferred-height;
+                            padding: Theme.space-l;
+                            padding-left: Theme.space-xl;
+                            spacing: Theme.space-s;
 
-                pages := Rectangle {
-                    accessible-role: tab-panel;
+                            Text {
+                                text: @tr("Scanning your music");
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
 
-                    search-page := SearchPage {
-                        x: 0;
-                        width: root.page-width;
-                        shown: root.current-page == Page.search;
-                        text <=> root.search-text;
-                        artists: root.search-artists;
-                        albums: root.search-albums;
-                        tracks: root.search-tracks;
-                        edited(text) => {
-                            root.search-edited(text);
-                        }
-                        artist-activated(index) => {
-                            root.search-artist-activated(index);
-                            root.opened-from-search = true;
-                            root.selected-index = 2;
-                        }
-                        album-activated(index) => {
-                            root.search-album-activated(index);
-                            root.opened-from-search = true;
-                            root.selected-index = 1;
-                        }
-                        play-track(index) => {
-                            root.play-search-track(index);
-                        }
-                        queue-track(index, next) => {
-                            root.queue-search-track(index, next);
+                            ProgressBar {
+                                progress: LibraryState.progress;
+                                label: @tr("Scan progress");
+                            }
                         }
                     }
-                    albums-page := AlbumsPage {
-                        x: 0;
-                        width: root.page-width;
-                        shown: root.current-page == Page.albums;
-                        from-search: root.opened-from-search;
-                        back-to-search => {
-                            root.album-open = false;
-                            root.show-search();
+
+                    pages := Rectangle {
+                        accessible-role: tab-panel;
+
+                        search-page := SearchPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.search;
+                            text <=> root.search-text;
+                            artists: root.search-artists;
+                            albums: root.search-albums;
+                            tracks: root.search-tracks;
+                            edited(text) => {
+                                root.search-edited(text);
+                            }
+                            artist-activated(index) => {
+                                root.search-artist-activated(index);
+                                root.opened-from-search = true;
+                                root.selected-index = 2;
+                            }
+                            album-activated(index) => {
+                                root.search-album-activated(index);
+                                root.opened-from-search = true;
+                                root.selected-index = 1;
+                            }
+                            play-track(index) => {
+                                root.play-search-track(index);
+                            }
+                            queue-track(index, next) => {
+                                root.queue-search-track(index, next);
+                            }
                         }
-                        albums: root.albums;
-                        album: root.album-detail;
-                        tracks: root.album-tracks;
-                        multi-disc: root.album-multi-disc;
-                        album-open <=> root.album-open;
-                    library-failed: root.library-failed;
-                    play-album(start, shuffle) => {
-                        root.play-album(start, shuffle);
-                    }
-                    queue-album-track(index, next) => {
-                        root.queue-album-track(index, next);
-                    }
-                        range-changed(first, count) => {
-                            root.album-range-changed(first, count);
-                        }
-                        activated(index) => {
-                            root.opened-from-search = false;
-                            root.album-activated(index);
-                        }
-                    }
-                    artists-page := ArtistsPage {
-                        x: 0;
-                        width: root.page-width;
-                        shown: root.current-page == Page.artists;
-                        from-search: root.opened-from-search;
-                        back-to-search => {
-                            root.artist-album-open = false;
-                            root.artist-open = false;
-                            root.show-search();
-                        }
-                        artists: root.artists;
-                        show-all <=> root.artists-show-all;
+                        albums-page := AlbumsPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.albums;
+                            from-search: root.opened-from-search;
+                            back-to-search => {
+                                root.album-open = false;
+                                root.show-search();
+                            }
+                            albums: root.albums;
+                            album: root.album-detail;
+                            tracks: root.album-tracks;
+                            multi-disc: root.album-multi-disc;
+                            album-open <=> root.album-open;
                         library-failed: root.library-failed;
-                        artist-open <=> root.artist-open;
-                        album-open <=> root.artist-album-open;
-                        artist: root.artist-detail;
-                        artist-albums: root.artist-albums;
-                        appearances: root.artist-appearances;
-                        album: root.album-detail;
-                        tracks: root.album-tracks;
-                        multi-disc: root.album-multi-disc;
-                        activated(index) => {
-                            root.opened-from-search = false;
-                            root.artist-activated(index);
-                        }
-                        range-changed(first, count) => {
-                            root.artist-range-changed(first, count);
-                        }
-                        filter-changed => {
-                            root.artists-filter-changed();
-                        }
-                        album-activated(index) => {
-                            root.artist-album-activated(index);
-                        }
-                        play-artist(shuffle) => {
-                            root.play-artist(shuffle);
-                        }
-                        play-appearance(index) => {
-                            root.play-artist-appearance(index);
-                        }
-                        queue-appearance(index, next) => {
-                            root.queue-artist-appearance(index, next);
-                        }
                         play-album(start, shuffle) => {
                             root.play-album(start, shuffle);
                         }
                         queue-album-track(index, next) => {
                             root.queue-album-track(index, next);
                         }
-                    }
-                    SongsPage {
-                        x: 0;
-                        width: root.page-width;
-                        shown: root.current-page == Page.songs;
-                        songs: root.songs;
-                        sort-column: root.songs-sort-column;
-                        sort-descending: root.songs-sort-descending;
-                        library-failed: root.library-failed;
-                        needed => {
-                            root.songs-needed();
+                            range-changed(first, count) => {
+                                root.album-range-changed(first, count);
+                            }
+                            activated(index) => {
+                                root.opened-from-search = false;
+                                root.album-activated(index);
+                            }
                         }
-                        sort(column) => {
-                            root.sort-songs(column);
+                        artists-page := ArtistsPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.artists;
+                            from-search: root.opened-from-search;
+                            back-to-search => {
+                                root.artist-album-open = false;
+                                root.artist-open = false;
+                                root.show-search();
+                            }
+                            artists: root.artists;
+                            show-all <=> root.artists-show-all;
+                            library-failed: root.library-failed;
+                            artist-open <=> root.artist-open;
+                            album-open <=> root.artist-album-open;
+                            artist: root.artist-detail;
+                            artist-albums: root.artist-albums;
+                            appearances: root.artist-appearances;
+                            album: root.album-detail;
+                            tracks: root.album-tracks;
+                            multi-disc: root.album-multi-disc;
+                            activated(index) => {
+                                root.opened-from-search = false;
+                                root.artist-activated(index);
+                            }
+                            range-changed(first, count) => {
+                                root.artist-range-changed(first, count);
+                            }
+                            filter-changed => {
+                                root.artists-filter-changed();
+                            }
+                            album-activated(index) => {
+                                root.artist-album-activated(index);
+                            }
+                            play-artist(shuffle) => {
+                                root.play-artist(shuffle);
+                            }
+                            play-appearance(index) => {
+                                root.play-artist-appearance(index);
+                            }
+                            queue-appearance(index, next) => {
+                                root.queue-artist-appearance(index, next);
+                            }
+                            play-album(start, shuffle) => {
+                                root.play-album(start, shuffle);
+                            }
+                            queue-album-track(index, next) => {
+                                root.queue-album-track(index, next);
+                            }
                         }
-                        play(index) => {
-                            root.play-song(index);
+                        SongsPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.songs;
+                            songs: root.songs;
+                            sort-column: root.songs-sort-column;
+                            sort-descending: root.songs-sort-descending;
+                            library-failed: root.library-failed;
+                            needed => {
+                                root.songs-needed();
+                            }
+                            sort(column) => {
+                                root.sort-songs(column);
+                            }
+                            play(index) => {
+                                root.play-song(index);
+                            }
+                            queue(index, next) => {
+                                root.queue-song(index, next);
+                            }
                         }
-                        queue(index, next) => {
-                            root.queue-song(index, next);
+                        FoldersPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.folders;
+                            crumbs: root.folder-crumbs;
+                            folders: root.folder-rows;
+                            files: root.folder-files;
+                            needed => {
+                                root.folders-needed();
+                            }
+                            open-folder(index) => {
+                                root.open-folder(index);
+                            }
+                            go-to(index) => {
+                                root.folder-go-to(index);
+                            }
+                            play-file(index) => {
+                                root.play-folder-file(index);
+                            }
+                            queue-file(index, next) => {
+                                root.queue-folder-file(index, next);
+                            }
                         }
-                    }
-                    FoldersPage {
-                        x: 0;
-                        width: root.page-width;
-                        shown: root.current-page == Page.folders;
-                        crumbs: root.folder-crumbs;
-                        folders: root.folder-rows;
-                        files: root.folder-files;
-                        needed => {
-                            root.folders-needed();
+                        if root.current-page == Page.settings: ScrollView {
+                            x: 0;
+                            width: root.page-width;
+                            SettingsPage {
+                                width: parent.width;
+                            }
                         }
-                        open-folder(index) => {
-                            root.open-folder(index);
+                        if root.current-page == Page.about: ScrollView {
+                            x: 0;
+                            width: root.page-width;
+                            AboutPage {
+                                width: parent.width;
+                                version: root.version;
+                            }
                         }
-                        go-to(index) => {
-                            root.folder-go-to(index);
-                        }
-                        play-file(index) => {
-                            root.play-folder-file(index);
-                        }
-                        queue-file(index, next) => {
-                            root.queue-folder-file(index, next);
-                        }
-                    }
-                    if root.current-page == Page.settings: ScrollView {
-                        x: 0;
-                        width: root.page-width;
-                        SettingsPage {
-                            width: parent.width;
-                        }
-                    }
-                    if root.current-page == Page.about: ScrollView {
-                        x: 0;
-                        width: root.page-width;
-                        AboutPage {
-                            width: parent.width;
-                            version: root.version;
+
+                        if root.queue-open: QueuePanel {
+                            x: parent.width - self.width;
+                            width: root.queue-width;
+                            height: parent.height;
                         }
                     }
 
-                    if root.queue-open: QueuePanel {
-                        x: parent.width - self.width;
-                        width: root.queue-width;
-                        height: parent.height;
-                    }
+
                 }
 
-
+                if PlayerState.now-playing-open: NowPlayingView {
+                    width: parent.width;
+                    height: parent.height;
+                    close => {
+                        PlayerState.now-playing-open = false;
+                    }
+                }
             }
 
             PlayerBar {
                 queue-open <=> root.queue-open;
+                show-now-playing => {
+                    PlayerState.now-playing-open = true;
+                    PlayerState.load-large-cover();
+                }
             }
         }
     }

@@ -1,0 +1,171 @@
+import { Theme } from "theme.slint";
+import { IconButton } from "components.slint";
+import { Glyph } from "icons.slint";
+import { PlayerState } from "player-state.slint";
+
+// The cover as large as the view allows: the full-size image once it is decoded,
+// the bar's small one until then, the title's first letter without any.
+component BigCover inherits Rectangle {
+    in property <length> size;
+
+    width: root.size;
+    height: root.size;
+    border-radius: Theme.radius-l;
+    clip: true;
+    background: Theme.colors.surface;
+
+    if PlayerState.has-large-cover || PlayerState.has-cover: Image {
+        width: parent.width;
+        height: parent.height;
+        source: PlayerState.has-large-cover ? PlayerState.large-cover : PlayerState.cover;
+        image-fit: ImageFit.cover;
+        accessible-role: none;
+    }
+    if !PlayerState.has-large-cover && !PlayerState.has-cover: Text {
+        text: PlayerState.initial;
+        color: Theme.colors.text-muted;
+        font-size: root.size / 3;
+        font-weight: Theme.weight-strong;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+}
+
+// Title, artist and album, and what plays next. `centered` under the cover in a
+// narrow window, beside it otherwise.
+component TrackDetails inherits VerticalLayout {
+    in property <bool> centered;
+    private property <TextHorizontalAlignment> align: root.centered ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
+
+    spacing: Theme.space-s;
+    alignment: center;
+
+    Text {
+        text: PlayerState.has-track ? PlayerState.title : @tr("Nothing playing");
+        color: PlayerState.has-track ? Theme.colors.text : Theme.colors.text-muted;
+        font-size: Theme.font-display;
+        font-weight: Theme.weight-strong;
+        wrap: word-wrap;
+        horizontal-alignment: root.align;
+    }
+    if PlayerState.artist != "": Text {
+        text: PlayerState.artist;
+        color: Theme.colors.text;
+        font-size: Theme.font-heading;
+        wrap: word-wrap;
+        horizontal-alignment: root.align;
+    }
+    if PlayerState.album != "": Text {
+        text: PlayerState.album;
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-body;
+        wrap: word-wrap;
+        horizontal-alignment: root.align;
+    }
+
+    if PlayerState.next-title != "": VerticalLayout {
+        padding-top: Theme.space-xl;
+        spacing: Theme.space-xs;
+
+        Text {
+            text: @tr("Next");
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            font-weight: Theme.weight-strong;
+            horizontal-alignment: root.align;
+        }
+        Text {
+            text: PlayerState.next-artist == "" ? PlayerState.next-title : @tr("{0} · {1}", PlayerState.next-title, PlayerState.next-artist);
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            overflow: elide;
+            horizontal-alignment: root.align;
+        }
+    }
+}
+
+// The track playing, large: its cover, title, artist and album, and what plays
+// next. It covers the pages; the player bar below stays and holds the controls.
+// Escape or the close button returns; this is where lyrics would go later.
+export component NowPlayingView inherits Rectangle {
+    callback close();
+
+    public function focus-close() {
+        close-button.focus();
+    }
+
+    private property <bool> wide: root.width > root.height * 1.2;
+    private property <length> room: Theme.space-xxl * 2;
+    private property <length> cover-size: max(120px, root.wide
+        ? min(root.height - root.room, root.width * 0.45, 560px)
+        : min(root.width - root.room, root.height * 0.5, 560px));
+
+    background: Theme.colors.base;
+    accessible-role: groupbox;
+    accessible-label: @tr("Now playing");
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+        // Escape works at once; the focus ring shows only for keyboard users.
+        close-button.focus();
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    // Escape closes, wherever the focus is in the view.
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.close();
+                return accept;
+            }
+            reject
+        }
+
+        if root.wide: HorizontalLayout {
+            padding: Theme.space-xxl;
+            spacing: Theme.space-xxl;
+            alignment: center;
+
+            VerticalLayout {
+                alignment: center;
+
+                BigCover {
+                    size: root.cover-size;
+                }
+            }
+            TrackDetails {
+                max-width: 480px;
+            }
+        }
+
+        if !root.wide: VerticalLayout {
+            padding: Theme.space-xxl;
+            spacing: Theme.space-xl;
+            alignment: center;
+
+            HorizontalLayout {
+                alignment: center;
+
+                BigCover {
+                    size: root.cover-size;
+                }
+            }
+            TrackDetails {
+                centered: true;
+            }
+        }
+
+        close-button := IconButton {
+            x: Theme.space-l;
+            y: Theme.space-l;
+            glyph: Glyph.chevron-down;
+            label: @tr("Close now playing");
+            clicked => {
+                root.close();
+            }
+        }
+    }
+}

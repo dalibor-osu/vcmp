@@ -948,3 +948,39 @@ fn the_playing_track_reaches_the_media_widget() {
     app.service.handle_event(Event::TrackChanged(None));
     assert_eq!(widget.last().track, None, "the queue ran out");
 }
+
+#[test]
+fn the_now_playing_view_opens_from_the_bar_and_escape_closes_it() {
+    let app = start(|_| {});
+    let button = ElementHandle::find_by_accessible_label(&app.window, "Show now playing")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Button))
+        .expect("the bar's track area is a button");
+    assert_eq!(
+        button.accessible_enabled(),
+        Some(false),
+        "nothing to show yet"
+    );
+
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        upcoming: vec![app.entry("2.flac")],
+        ..QueueView::default()
+    }));
+    assert_eq!(app.state().get_album(), "Record");
+    assert_eq!(
+        (
+            app.state().get_next_title().as_str(),
+            app.state().get_next_artist().as_str()
+        ),
+        ("Closing", "Band")
+    );
+
+    app.press(AccessibleRole::Button, "Show now playing");
+    assert!(app.state().get_now_playing_open());
+    let view = ElementHandle::find_by_accessible_label(&app.window, "Now playing")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Groupbox));
+    assert!(view.is_some(), "the view is shown");
+
+    app.key(Key::Escape);
+    assert!(!app.state().get_now_playing_open(), "Escape closes it");
+}

@@ -29,6 +29,7 @@ dials come from DESIGN.md).
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
 | `ui/player-state.slint` | `PlayerState` global: the current track, position, volume, shuffle, repeat |
 | `ui/player-bar.slint` | `PlayerBar`, its play button and the `Slider` |
+| `ui/now-playing.slint` | `NowPlayingView`: the playing track's large cover and details over the pages |
 | `ui/queue-panel.slint` | `QueuePanel`: the track playing, Up next and what follows |
 | `ui/icons/*.svg` | The control icons, painted in `currentColor` |
 | `src/icons.rs` | `IconArt`: writes the tint into an icon's SVG and keeps the result |
@@ -76,7 +77,8 @@ subtext1 and overlay2 instead.
 | Pink marks what is active (page, option, switch) | Gives the neon accent a job, so it stays an accent rather than decoration |
 | Glow only on the current-page marker | DESIGN.md asks for subtle neon; one glowing element per screen keeps it subtle |
 | Sora for everything, two weights (400, 600) | The owner's choice; two weights carry hierarchy without a second family at ENERGY 1 |
-| Type scale 12 / 14 / 16 / 20 / 26 px | Small steps suit a calm UI; the page title is the one large element per screen |
+| Type scale 12 / 14 / 16 / 20 / 26 px, and 34 px for the track in the now playing view | Small steps suit a calm UI; the page title is the one large element per screen, and the now playing view's title takes its place there |
+| Now playing covers the pages, not the player bar | The bar already holds every control, so the view needs none of its own and the controls stay where people know them |
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
 | Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
@@ -228,6 +230,22 @@ shown, because the page itself stays alive while hidden.
   folders are one tab stop (arrows, Enter opens), the files another (`TrackList`).
 - **Playing:** a file plays its folder's files from that one; the queue panel names
   the folder.
+
+## Now playing view
+
+- **Opening:** the track area of the player bar (cover and title) is a button,
+  "Show now playing", while a track is loaded. The view (`NowPlayingView`) lies
+  over the sidebar and pages and fades in; the player bar stays below it with the
+  controls. Escape or the close button (top left) returns, and the focus starts
+  on that button so Escape works at once.
+- **Content:** the cover as large as the view allows (up to 560 px), then the
+  title, artist and album, and the next track as the queue stands. Beside each
+  other in a wide window, stacked and centred in a narrow one.
+- **The large cover** is the full-size artwork, decoded off the UI thread at up to
+  1200 px when the view opens (and for each new track while it is open). The bar's
+  small cover stands in until then; a decode that arrives after the track changed
+  is dropped.
+- Lyrics would go here later.
 
 ## Music folders and scanning
 

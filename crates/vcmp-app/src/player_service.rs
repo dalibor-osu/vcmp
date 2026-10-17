@@ -8,13 +8,15 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
+use slint::{
+    ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+};
 use vcmp_library::{Album, AlbumId, ArtistId, CoverArtId, CoverLookup, Library, Track};
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackSnapshot, PlaybackState, Player, QueueEntry,
@@ -147,7 +149,14 @@ pub struct PlayerService {
     // The OS media controls, once registered, and the track they show.
     media: RefCell<Option<Box<dyn MediaSink>>>,
     media_track: RefCell<Option<MediaTrack>>,
+    // The playing track's full-size cover, for the now playing view, and whether it
+    // is decoded or on its way.
+    large_cover: RefCell<Option<PathBuf>>,
+    large_cover_requested: Cell<bool>,
 }
+
+/// The longest side the now playing view's cover is decoded at.
+const LARGE_COVER_PIXELS: u32 = 1200;
 
 thread_local! {
     /// The service engine events are delivered to, on the UI thread.
@@ -183,6 +192,8 @@ impl PlayerService {
             list_devices: Cell::new(vcmp_playback::output_devices),
             media: RefCell::default(),
             media_track: RefCell::default(),
+            large_cover: RefCell::default(),
+            large_cover_requested: Cell::new(false),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -336,6 +347,7 @@ impl PlayerService {
             }
         });
         state.on_refresh_output_devices(with(|service| service.refresh_output_devices()));
+        state.on_load_large_cover(with(|service| service.load_large_cover()));
         window.on_play_artist({
             let weak = weak.clone();
             move |shuffle| {
@@ -692,6 +704,55 @@ impl PlayerService {
         state.set_output_device(index);
     }
 
+    /// Decodes the playing track's full-size cover off the UI thread, for the now
+    /// playing view; the bar's small cover stands in until it arrives.
+    fn load_large_cover(&self) {
+        if self.large_cover_requested.replace(true) {
+            return;
+        }
+        let Some(path) = self.large_cover.borrow().clone() else {
+            return;
+        };
+        let wanted = path.clone();
+        thread::Builder::new()
+            .name("vcmp-large-cover".into())
+            .spawn(move || {
+                let Ok(image) = image::open(&path) else {
+                    log::info!("could not decode the cover {}", path.display());
+                    return;
+                };
+                let rgba = image
+                    .thumbnail(LARGE_COVER_PIXELS, LARGE_COVER_PIXELS)
+                    .into_rgba8();
+                let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                    rgba.as_raw(),
+                    rgba.width(),
+                    rgba.height(),
+                );
+                Self::post(move |service| service.show_large_cover(&wanted, buffer));
+            })
+            .expect("spawning the cover thread");
+    }
+
+    fn show_large_cover(&self, path: &Path, buffer: SharedPixelBuffer<Rgba8Pixel>) {
+        // The track changed while the cover was decoded.
+        if self.large_cover.borrow().as_deref() != Some(path) {
+            return;
+        }
+        if let Some(window) = self.window.upgrade() {
+            let state = window.global::<PlayerState>();
+            state.set_large_cover(Image::from_rgba8(buffer));
+            state.set_has_large_cover(true);
+        }
+    }
+
+    fn forget_large_cover(&self, state: &PlayerState) {
+        *self.large_cover.borrow_mut() = None;
+        self.large_cover_requested.set(false);
+        state.set_has_large_cover(false);
+        state.set_large_cover(Image::default());
+    }
+
     /// Fills the queue panel.
     fn show_queue(&self, state: &PlayerState, view: &QueueView) {
         let rows = |entries: &[QueueEntry]| -> ModelRc<QueueRow> {
@@ -704,6 +765,17 @@ impl PlayerService {
         };
         state.set_up_next(rows(&view.up_next));
         state.set_upcoming(rows(&view.upcoming));
+        let next = view
+            .up_next
+            .first()
+            .or(view.upcoming.first())
+            .map(|entry| self.queue_row(entry));
+        state.set_next_title(
+            next.as_ref()
+                .map(|row| row.title.clone())
+                .unwrap_or_default(),
+        );
+        state.set_next_artist(next.map(|row| row.artist).unwrap_or_default());
         let origin = view
             .origin
             .as_deref()
@@ -953,6 +1025,8 @@ impl PlayerService {
             state.set_track_path("".into());
             state.set_has_cover(false);
             state.set_cover(Image::default());
+            state.set_album(SharedString::default());
+            self.forget_large_cover(state);
             *self.listening.borrow_mut() = None;
             *self.media_track.borrow_mut() = None;
             self.album.set(None);
@@ -1012,7 +1086,7 @@ impl PlayerService {
                 .and_then(|listening| listening.cover_url.clone()),
             duration: (!duration.is_zero()).then_some(duration),
         });
-        self.album.set(album.map(|album| album.id));
+        self.album.set(album.as_ref().map(|album| album.id));
         self.position.set(Duration::ZERO);
         self.update_presence();
 
@@ -1027,6 +1101,21 @@ impl PlayerService {
         );
         state.set_has_cover(cover.is_some());
         state.set_cover(cover.unwrap_or_default());
+        state.set_album(
+            album
+                .as_ref()
+                .map(|album| album.title.as_str())
+                .unwrap_or_default()
+                .into(),
+        );
+        self.forget_large_cover(state);
+        *self.large_cover.borrow_mut() = album
+            .as_ref()
+            .and_then(|album| album.artwork.as_ref())
+            .map(|artwork| artwork.original.clone());
+        if state.get_now_playing_open() {
+            self.load_large_cover();
+        }
         state.set_track_path(path.into());
         state.set_duration_ms(duration.as_millis() as i32);
         state.set_duration_text(format_duration(duration).into());

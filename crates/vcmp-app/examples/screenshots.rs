@@ -21,7 +21,7 @@ use slint::{ComponentHandle, SharedString, Timer, TimerMode};
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
-use vcmp_app::{AppWindow, Theme, ThemeMode};
+use vcmp_app::{AppWindow, PlayerState, Theme, ThemeMode};
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
 use vcmp_library::Library;
@@ -38,6 +38,8 @@ struct Shot {
     // Tab presses before the frame, to show the keyboard focus ring. Focus carries
     // over between shots, so the count continues from the previous shot.
     tabs: usize,
+    // The now playing view is open over the page.
+    now_playing: bool,
 }
 
 const fn shot(
@@ -53,6 +55,14 @@ const fn shot(
         page,
         album,
         tabs,
+        now_playing: false,
+    }
+}
+
+const fn now_playing(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        now_playing: true,
+        ..shot(name, mode, 1, None, 0)
     }
 }
 
@@ -74,6 +84,8 @@ const SHOTS: &[Shot] = &[
     shot("songs-dark", ThemeMode::Dark, 3, None, 0),
     shot("folders-light", ThemeMode::Light, 4, None, 0),
     shot("folders-dark", ThemeMode::Dark, 4, None, 0),
+    now_playing("now-playing-light", ThemeMode::Light),
+    now_playing("now-playing-dark", ThemeMode::Dark),
     shot("settings-light", ThemeMode::Light, 5, None, 0),
     shot("settings-dark", ThemeMode::Dark, 5, None, 0),
     shot("about-light", ThemeMode::Light, 6, None, 0),
@@ -123,6 +135,11 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     let theme = window.global::<Theme>();
     theme.set_mode(shot.mode);
     window.set_selected_index(shot.page);
+    let player = window.global::<PlayerState>();
+    player.set_now_playing_open(shot.now_playing);
+    if shot.now_playing {
+        player.invoke_load_large_cover();
+    }
     if shot.page == 4 {
         // Inside the first music folder, where there is more than one row.
         window.invoke_folders_needed();

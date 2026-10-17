@@ -207,13 +207,17 @@ fn smallest_window_keeps_everything_inside() {
     let width = 720.0;
     window.window().set_size(LogicalSize::new(width, 480.0));
 
-    // Every page, with the queue panel closed and open.
-    for (page, queue_open) in [0, 1, 2, 3, 4, 5, 6]
+    // Every page, with the queue panel closed and open, and the now playing view.
+    for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6]
         .into_iter()
-        .flat_map(|page| [(page, false), (page, true)])
+        .flat_map(|page| [(page, false, false), (page, true, false)])
+        .chain([(1, false, true)])
     {
         window.set_selected_index(page);
         window.set_queue_open(queue_open);
+        window
+            .global::<vcmp_app::PlayerState>()
+            .set_now_playing_open(now_playing);
         let roles = [
             AccessibleRole::Combobox,
             AccessibleRole::Tab,
@@ -235,7 +239,7 @@ fn smallest_window_keeps_everything_inside() {
                 let label = element.accessible_label().unwrap_or_default();
                 assert!(
                     left >= 0.0 && right <= width + 0.5,
-                    "page {page} (queue open: {queue_open}): {role:?} {label:?} spans x {left}..{right} in a {width}px window",
+                    "page {page} (queue: {queue_open}, now playing: {now_playing}): {role:?} {label:?} spans x {left}..{right} in a {width}px window",
                 );
             }
         }

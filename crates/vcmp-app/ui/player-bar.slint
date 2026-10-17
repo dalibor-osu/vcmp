@@ -189,6 +189,8 @@ export component Slider {
 // volume.
 export component PlayerBar inherits Rectangle {
     in-out property <bool> queue-open;
+    // The track was chosen: show it in the now playing view.
+    callback show-now-playing();
 
     background: Theme.colors.mantle;
     height: 88px;
@@ -205,67 +207,111 @@ export component PlayerBar inherits Rectangle {
         padding-right: Theme.space-xl;
         spacing: Theme.space-xl;
 
-        // What is playing.
-        HorizontalLayout {
+        // What is playing: a button that opens the now playing view.
+        Rectangle {
             min-width: 160px;
             preferred-width: 280px;
             horizontal-stretch: 1;
-            spacing: Theme.space-m;
-            alignment: start;
-
-            Rectangle {
-                width: 56px;
-                height: 56px;
-                y: (parent.height - self.height) / 2;
-                border-radius: Theme.radius-m;
-                clip: true;
-                background: Theme.colors.surface;
-
-                if PlayerState.has-cover: Image {
-                    width: parent.width;
-                    height: parent.height;
-                    source: PlayerState.cover;
-                    image-fit: ImageFit.cover;
-                    accessible-role: none;
+            accessible-role: button;
+            accessible-label: @tr("Show now playing");
+            accessible-enabled: PlayerState.has-track;
+            accessible-action-default => {
+                if PlayerState.has-track {
+                    root.show-now-playing();
                 }
-                if PlayerState.has-track && !PlayerState.has-cover: Text {
-                    text: PlayerState.initial;
-                    color: Theme.colors.text-muted;
-                    font-size: Theme.font-heading;
-                    font-weight: Theme.weight-strong;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    accessible-role: none;
+            }
+            forward-focus: now-focus;
+
+            HorizontalLayout {
+                spacing: Theme.space-m;
+                alignment: start;
+
+                Rectangle {
+                    width: 56px;
+                    height: 56px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: Theme.radius-m;
+                    clip: true;
+                    background: Theme.colors.surface;
+
+                    if PlayerState.has-cover: Image {
+                        width: parent.width;
+                        height: parent.height;
+                        source: PlayerState.cover;
+                        image-fit: ImageFit.cover;
+                        accessible-role: none;
+                    }
+                    if PlayerState.has-track && !PlayerState.has-cover: Text {
+                        text: PlayerState.initial;
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-heading;
+                        font-weight: Theme.weight-strong;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+
+                    Text {
+                        text: PlayerState.has-track ? PlayerState.title : @tr("Nothing playing");
+                        color: PlayerState.has-track ? Theme.colors.text : Theme.colors.text-muted;
+                        font-size: Theme.font-body;
+                        font-weight: PlayerState.has-track ? Theme.weight-strong : Theme.weight-regular;
+                        overflow: elide;
+                    }
+
+                    if PlayerState.has-track && PlayerState.artist != "": Text {
+                        text: PlayerState.artist;
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                        overflow: elide;
+                    }
+
+                    if PlayerState.problem != PlayerProblem.none: Text {
+                        text: PlayerState.problem == PlayerProblem.no-output ? @tr("No sound output: {}. Press play to try again.", PlayerState.problem-detail)
+                            : @tr("A track could not be played and was skipped: {}", PlayerState.problem-detail);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-small;
+                        overflow: elide;
+                    }
                 }
             }
 
-            VerticalLayout {
-                alignment: center;
-                spacing: 2px;
-                horizontal-stretch: 1;
-
-                Text {
-                    text: PlayerState.has-track ? PlayerState.title : @tr("Nothing playing");
-                    color: PlayerState.has-track ? Theme.colors.text : Theme.colors.text-muted;
-                    font-size: Theme.font-body;
-                    font-weight: PlayerState.has-track ? Theme.weight-strong : Theme.weight-regular;
-                    overflow: elide;
+            TouchArea {
+                enabled: PlayerState.has-track;
+                mouse-cursor: pointer;
+                clicked => {
+                    Theme.keyboard-navigation = false;
+                    root.show-now-playing();
                 }
+            }
 
-                if PlayerState.has-track && PlayerState.artist != "": Text {
-                    text: PlayerState.artist;
-                    color: Theme.colors.text-muted;
-                    font-size: Theme.font-small;
-                    overflow: elide;
+            now-focus := FocusScope {
+                enabled: PlayerState.has-track;
+                focus-on-click: false;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        Theme.keyboard-navigation = true;
+                    }
                 }
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        root.show-now-playing();
+                        return accept;
+                    }
+                    reject
+                }
+            }
 
-                if PlayerState.problem != PlayerProblem.none: Text {
-                    text: PlayerState.problem == PlayerProblem.no-output ? @tr("No sound output: {}. Press play to try again.", PlayerState.problem-detail)
-                        : @tr("A track could not be played and was skipped: {}", PlayerState.problem-detail);
-                    color: Theme.colors.text;
-                    font-size: Theme.font-small;
-                    overflow: elide;
-                }
+            if now-focus.has-focus: FocusRing {
+                around-width: parent.width;
+                around-height: parent.height;
+                radius: Theme.radius-m;
             }
         }
 
