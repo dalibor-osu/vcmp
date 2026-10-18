@@ -1,15 +1,30 @@
 //! The audio device: listing, choosing by name, and the cpal stream that runs the
 //! [`Renderer`].
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::thread;
+use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{
+    BufferSize, Device, DeviceId, FromSample, SampleFormat, SizedSample, Stream, StreamConfig,
+};
 
 use crate::error::PlaybackError;
 use crate::ring::Renderer;
 use crate::source::AudioFormat;
+
+/// Frames per request on a PulseAudio stream at 48 kHz, scaled to the device's
+/// rate: PipeWire's default quantum. The server holds two of them, about 43 ms.
+/// cpal's `BufferSize::Default` leaves the size to the server, which buffers 2 s,
+/// so pause, seek and volume would be heard 2 s late. A shorter period lowers the
+/// quantum of the whole PipeWire graph, which wakes every app's audio more often.
+const PULSE_PERIOD_AT_48K: u32 = 1024;
+
+/// How often a PulseAudio stream checks that it still plays on the device `open`
+/// would pick (see [`watch`]).
+const WATCH_INTERVAL: Duration = Duration::from_millis(500);
 
 /// A device that is ready to start.
 pub(crate) struct OpenedDevice {
@@ -32,11 +47,46 @@ pub(crate) trait Output {
     fn lost(&self) -> bool;
 }
 
+/// The cpal host, shared by the device list and the output. On Linux it is
+/// PulseAudio when a PulseAudio or pipewire-pulse server answers, ALSA otherwise.
+/// A PulseAudio host holds a connection whose thread never ends once the host is
+/// dropped, so one host serves the whole run. It is replaced when its connection
+/// has died (the server restarted or stopped), and ALSA is replaced when a server
+/// is there again.
+fn host() -> Arc<cpal::Host> {
+    static HOST: Mutex<Option<Arc<cpal::Host>>> = Mutex::new(None);
+    let mut host = HOST.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(current) = host.as_ref()
+        && still_usable(current)
+    {
+        return current.clone();
+    }
+    let fresh = Arc::new(cpal::default_host());
+    *host = Some(fresh.clone());
+    fresh
+}
+
+fn still_usable(host: &cpal::Host) -> bool {
+    if is_pulse(host) {
+        host.output_devices().is_ok()
+    } else {
+        // Only checks for the server's socket; connecting is `default_host`'s job.
+        !cpal::available_hosts()
+            .iter()
+            .any(|id| id.name() == "PulseAudio")
+    }
+}
+
+fn is_pulse(host: &cpal::Host) -> bool {
+    host.id().name() == "PulseAudio"
+}
+
 /// Names of the output devices, for a settings list. The system default is not
-/// listed by name; select it with `None`. ALSA's utility plugins are left out (see
-/// [`hidden_alsa_device`]); a saved name still opens.
+/// listed by name; select it with `None`. With PulseAudio these are the server's
+/// output names; with ALSA its utility plugins are left out (see
+/// [`hidden_alsa_device`]), and a saved name still opens.
 pub fn output_devices() -> Result<Vec<String>, PlaybackError> {
-    let host = cpal::default_host();
+    let host = host();
     let alsa = host.id().name() == "ALSA";
     let mut names = Vec::new();
     for device in host.output_devices().map_err(output_error)? {
@@ -88,34 +138,101 @@ fn device_name(device: &Device) -> Option<String> {
     device.description().ok().map(|d| d.name().to_owned())
 }
 
+/// The device picked by `open`, with what `start` needs.
+struct Chosen {
+    host: Arc<cpal::Host>,
+    requested: Option<String>,
+    device: Device,
+    config: StreamConfig,
+    sample_format: SampleFormat,
+}
+
 pub(crate) struct CpalOutput {
-    host: cpal::Host,
-    chosen: Option<(Device, StreamConfig, SampleFormat)>,
+    chosen: Option<Chosen>,
     stream: Option<Stream>,
+    /// Set when the running stream needs opening again. Each stream gets a new
+    /// flag, so a late report about an old stream can't touch the next one.
     lost: Arc<AtomicBool>,
 }
 
 impl CpalOutput {
     pub(crate) fn new() -> Self {
         CpalOutput {
-            host: cpal::default_host(),
             chosen: None,
             stream: None,
             lost: Arc::new(AtomicBool::new(false)),
         }
     }
+}
 
-    fn find(&self, name: &str) -> Option<Device> {
-        self.host
-            .output_devices()
+/// The device `open` takes: the one named `requested` when it is there, the
+/// system default otherwise (then `true`: the requested one was missing).
+fn pick(host: &cpal::Host, requested: Option<&str>) -> Result<(Device, bool), PlaybackError> {
+    let found = requested.and_then(|name| {
+        host.output_devices()
             .ok()?
             .find(|device| device_name(device).as_deref() == Some(name))
+    });
+    let fell_back = requested.is_some() && found.is_none();
+    let device = match found {
+        Some(device) => device,
+        None => host
+            .default_output_device()
+            .ok_or_else(|| PlaybackError::Output("no audio output device".into()))?,
+    };
+    Ok((device, fell_back))
+}
+
+/// Checks a PulseAudio stream's device from a thread of its own until the stream
+/// ends (its `lost` flag, held weakly, is dropped). The server moves a stream by
+/// itself when its device goes away, and cpal reports nothing; PulseAudio also
+/// keeps a stream on its device when the system default changes. So every
+/// [`WATCH_INTERVAL`] the device `open` would pick now is looked up, and when it
+/// is another one (the chosen device went or came back, or the default changed),
+/// the stream is marked lost and the engine opens the output again.
+fn watch(
+    host: Arc<cpal::Host>,
+    requested: Option<String>,
+    playing: DeviceId,
+    lost: &Arc<AtomicBool>,
+) {
+    let lost = Arc::downgrade(lost);
+    // Without the thread the stream still plays; it only stays where it is.
+    let _ = thread::Builder::new()
+        .name("vcmp-output-watch".into())
+        .spawn(move || watch_loop(&host, requested.as_deref(), &playing, &lost));
+}
+
+fn watch_loop(
+    host: &cpal::Host,
+    requested: Option<&str>,
+    playing: &DeviceId,
+    lost: &Weak<AtomicBool>,
+) {
+    loop {
+        thread::sleep(WATCH_INTERVAL);
+        let Some(lost) = lost.upgrade() else {
+            return;
+        };
+        // No device at all (or no server): the stream itself reports a dead
+        // connection.
+        let Ok((device, _)) = pick(host, requested) else {
+            continue;
+        };
+        if device.id().ok().as_ref() != Some(playing) {
+            lost.store(true, Ordering::Relaxed);
+            return;
+        }
     }
 }
 
 /// The device's default configuration, switched to stereo when the device offers
-/// it at the same rate and sample format.
-fn choose_config(device: &Device) -> Result<(StreamConfig, SampleFormat), PlaybackError> {
+/// it at the same rate and sample format. A PulseAudio stream gets a fixed period
+/// (see [`PULSE_PERIOD_AT_48K`]).
+fn choose_config(
+    device: &Device,
+    pulse: bool,
+) -> Result<(StreamConfig, SampleFormat), PlaybackError> {
     let default = device.default_output_config().map_err(output_error)?;
     let mut config = default.config();
     if config.channels != 2
@@ -127,6 +244,10 @@ fn choose_config(device: &Device) -> Result<(StreamConfig, SampleFormat), Playba
             .find_map(|range| range.try_with_sample_rate(config.sample_rate))
     {
         config = stereo.config();
+    }
+    if pulse {
+        config.buffer_size =
+            BufferSize::Fixed((config.sample_rate * PULSE_PERIOD_AT_48K).div_ceil(48_000));
     }
     Ok((config, default.sample_format()))
 }
@@ -157,22 +278,21 @@ fn build<T: SizedSample + FromSample<f32>>(
 impl Output for CpalOutput {
     fn open(&mut self, requested: Option<&str>) -> Result<OpenedDevice, PlaybackError> {
         self.close();
-        let found = requested.and_then(|name| self.find(name));
-        let fell_back = requested.is_some() && found.is_none();
-        let device = match found {
-            Some(device) => device,
-            None => self
-                .host
-                .default_output_device()
-                .ok_or_else(|| PlaybackError::Output("no audio output device".into()))?,
-        };
-        let (config, sample_format) = choose_config(&device)?;
+        let host = host();
+        let (device, fell_back) = pick(&host, requested)?;
+        let (config, sample_format) = choose_config(&device, is_pulse(&host))?;
         let name = device_name(&device).unwrap_or_else(|| "System default".into());
         let format = AudioFormat {
             sample_rate: config.sample_rate,
             channels: config.channels,
         };
-        self.chosen = Some((device, config, sample_format));
+        self.chosen = Some(Chosen {
+            host,
+            requested: requested.map(str::to_owned),
+            device,
+            config,
+            sample_format,
+        });
         Ok(OpenedDevice {
             name,
             format,
@@ -181,14 +301,13 @@ impl Output for CpalOutput {
     }
 
     fn start(&mut self, renderer: Renderer) -> Result<(), PlaybackError> {
-        let (device, config, sample_format) = self
+        let chosen = self
             .chosen
             .as_ref()
             .ok_or_else(|| PlaybackError::Output("no device chosen".into()))?;
-        self.lost.store(false, Ordering::Relaxed);
         let lost = self.lost.clone();
-        let config = *config;
-        let stream = match sample_format {
+        let (device, config) = (&chosen.device, chosen.config);
+        let stream = match chosen.sample_format {
             SampleFormat::F32 => build::<f32>(device, config, renderer, lost),
             SampleFormat::F64 => build::<f64>(device, config, renderer, lost),
             SampleFormat::I16 => build::<i16>(device, config, renderer, lost),
@@ -204,6 +323,16 @@ impl Output for CpalOutput {
             ))),
         }?;
         stream.play().map_err(output_error)?;
+        if is_pulse(&chosen.host)
+            && let Ok(playing) = device.id()
+        {
+            watch(
+                chosen.host.clone(),
+                chosen.requested.clone(),
+                playing,
+                &self.lost,
+            );
+        }
         self.stream = Some(stream);
         Ok(())
     }
@@ -211,6 +340,7 @@ impl Output for CpalOutput {
     fn close(&mut self) {
         self.stream = None;
         self.chosen = None;
+        self.lost = Arc::new(AtomicBool::new(false));
     }
 
     fn lost(&self) -> bool {

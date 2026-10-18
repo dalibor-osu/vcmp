@@ -19,7 +19,7 @@ Read it before changing anything structural.
 |---|---|
 | Language | Rust, edition 2024, minimum Rust 1.92 |
 | UI | Slint 1.18, royalty-free license (the `AboutSlint` widget must stay on the About page) |
-| Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output), rubato 5 (resampling), rtrb (lock-free ring buffer) |
+| Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output; on Linux its pure-Rust PulseAudio backend, ALSA when no server answers), rubato 5 (resampling), rtrb (lock-free ring buffer) |
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty |
 | OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
 | OS reduce-motion setting | zbus to the XDG settings portal (Linux), windows-sys (Windows), objc2-app-kit, objc2-foundation and block2 (macOS); all already come with Slint |

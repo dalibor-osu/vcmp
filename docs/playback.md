@@ -20,9 +20,11 @@ player.send(Command::PlayContext { entries, origin: Some("album:42".into()), sta
 
 - **Events into Slint (workstream 4):** forward them from a thread blocking on the
   receiver, through `slint::invoke_from_event_loop`.
-- **Device list:** `output_devices()` lists output devices by name for Settings,
-  without ALSA's converter and utility plugins (see Known limits). The system
-  default is `None`.
+- **Device list:** `output_devices()` lists output devices by name for Settings. On
+  Linux these are the sound server's outputs, named as in the desktop's sound
+  settings, or ALSA's devices without its converter and utility plugins when no
+  server answers (see [Linux: PulseAudio, then ALSA](#linux-pulseaudio-then-alsa)).
+  The system default is `None`.
 - **Queue entries:** each entry is a `TrackRef` (source plus id; a local file's id is
   its path) and optional artist and album keys.
   - Shuffle uses the keys to keep the same artist or album apart.
@@ -40,6 +42,7 @@ player.send(Command::PlayContext { entries, origin: Some("album:42".into()), sta
 | Caller (UI) | `Player::send`, `Player::snapshot` | Briefly, in `snapshot` only |
 | `vcmp-playback` | Owns the queue, decoder, converter and output stream. Writes the ring and sends events | Yes: file I/O, decoding |
 | Audio callback (cpal) | `Renderer::render`: reads the ring, applies gain, writes the device buffer | **Never** |
+| `vcmp-output-watch` (PulseAudio only) | Checks twice a second that the stream plays on the device it should (see [Output](#output)) | Yes: requests to the sound server |
 
 **The callback rule.** The callback never allocates, locks, waits or does I/O. It only
 touches two rtrb queues (wait-free) and a few atomics:
@@ -63,6 +66,17 @@ touches two rtrb queues (wait-free) and a few atomics:
   A single allocation or free fails the test.
 - **Locks:** these are kept out by construction. The callback type holds nothing that
   can lock.
+
+**Around the callback with PulseAudio.** The rule covers `Renderer::render`, not
+the backend around it. With PulseAudio the callback runs on the client's socket
+thread whenever the server asks for audio. That thread is not real-time and holds
+the client's mutex during the callback. Afterwards, cpal wakes its own latency
+thread through a mutex and a condition variable. Its latency queries allocate a
+little on the socket thread when their replies come in. This is acceptable here
+because the deadline is not the sound card's interrupt. The server keeps two periods
+(about 43 ms) buffered and asks for the next period when one has played, so the
+client has about 21 ms to answer. Measured in an optimised build, a stream on
+PipeWire had no underruns in 15 s with 64 busy threads on 16 cores (4× overload).
 
 ## Data path
 
@@ -143,6 +157,24 @@ resume) would let tag edits through sooner, but isn't built.
 | Unplugged device or invalidated stream | The engine reopens the output and resumes at the same position |
 | No device at all | `OutputFailed`; playback pauses, the queue keeps working, and Play retries |
 | Volume | `SetVolume(0.0..=1.0)` is a slider position. The amplitude is its cube, which is close to how loudness is heard. Changes ramp over 10 ms |
+
+### Linux: PulseAudio, then ALSA
+
+cpal's `pulseaudio` feature is on. When a PulseAudio server answers, the output goes
+through it. That is PipeWire's pipewire-pulse on most desktops, or PulseAudio itself.
+The client is the pure-Rust `pulseaudio` crate, so nothing is needed at build time
+and libpulse isn't needed at run time. Otherwise, the output is ALSA.
+
+| Behaviour | How |
+|---|---|
+| Choosing the backend | cpal's `default_host()` tries PulseAudio first: `$PULSE_SERVER` (a `unix:` path) or `$XDG_RUNTIME_DIR/pulse/native`, giving up after 2 s. One host serves the whole run (`host()` in `src/output.rs`). Each open checks it: a dead PulseAudio connection (the server stopped or restarted) is replaced, possibly by ALSA, and ALSA is replaced once a server is there again |
+| Device list | The server's outputs (sinks) by description, such as "Scarlett Solo (3rd Gen.) Headphones / Line 1-2". Any of them opens while other apps play, and mixes with them |
+| Buffer | A fixed period of 1024 frames at 48 kHz, scaled to the device's rate. The server holds two, so seek, pause and volume are heard 25 to 45 ms later. With cpal's `BufferSize::Default` the server would buffer 2 s |
+| Device changes | cpal reports neither moves nor default changes. A `vcmp-output-watch` thread therefore looks up the device `open` would pick, twice a second. When that is another device, it marks the stream lost and the engine reopens. This covers three cases: the default changed, the chosen device went (the server has already moved the sound to the default; now Settings says so), or the chosen device came back (playback returns to it) |
+| Server gone | The stream reports a lost connection and the engine reopens, through ALSA if no server answers |
+
+With ALSA, the device list is ALSA's PCMs without the utility plugins. A card opens
+directly, past any sound server (see Known limits).
 
 ## Channels
 
@@ -240,7 +272,7 @@ paused.
 | `src/source.rs`, `src/local.rs` | `TrackSource`, `TrackStream` and the symphonia-based `LocalSource` |
 | `src/convert.rs` | Channel mapping and resampling |
 | `src/ring.rs` | The ring buffer, `Control`s and `Renderer` (the callback) |
-| `src/output.rs` | cpal devices and stream, plus the test device |
+| `src/output.rs` | cpal devices and stream, the shared host, the PulseAudio device watch, plus the test device |
 | `src/alloc_counter.rs` | The counting allocator used by the no-allocation test |
 | `tests/fixtures/` | Tone fixtures and `make-fixtures.sh`, which regenerates them with ffmpeg |
 | `examples/play.rs` | Plays files on the real device and prints events |
@@ -255,23 +287,51 @@ paused.
 | rubato's FFT resampler with fixed input and output chunks | The best quality the crate offers for fixed ratios, and allocation-free per call. It adds a constant latency of half an input sample, which is harmless |
 | Seeks start 4096 samples early and decode up to the target | Right after a reset, the MP3 decoder lacks the previous frame's overlap. The first frame would be distorted at the target |
 | Errors carry English `Display` text | Meant for logs. The UI shows its own translated text per `PlaybackError` variant |
+| PulseAudio on Linux, through cpal, with ALSA as the fallback (2026-10-18) | Through ALSA, a sound card opened directly fails as busy while PipeWire uses it, and the device list is ALSA's plugins. cpal's PulseAudio backend lists the server's outputs and mixes with other apps. It is pure Rust, so nothing new is needed at build time, and pipewire-pulse serves it too. cpal's PipeWire backend would need libpipewire's headers to build |
+| A 1024-frame period at 48 kHz | PipeWire's default quantum. A 960-frame period already lowered the graph's quantum to 512 (measured with `pw-top`), which wakes every app's audio twice as often. On real hardware the latency measured 27 ms, against 16 ms for the ALSA path's 512-frame periods |
+| One shared host | Each dropped PulseAudio host leaves its connection and a thread behind (measured: five hosts, five threads, five server clients), and Settings lists the devices every time it opens |
+| Polling for device changes, off the engine thread | The `pulseaudio` crate ignores the server's "stream moved" and "stream killed" messages, and cpal has no device events. A request to a server that stops answering would block, and the engine thread must keep answering `snapshot` |
+| Reopening on a default change, also on PipeWire | PipeWire moves the stream to the new default by itself: cpal opens the default by its index, and WirePlumber moves streams that pointed at the old default. PulseAudio keeps such a stream where it is, so VCMP reopens on both |
 
 ## Known limits
 
 - **MP3 gapless:** an MP3 without a LAME/Xing header, or with only iTunes' `iTunSMPB`,
   plays with its encoder delay and padding, so with a small gap.
-- **Linux devices are ALSA's:** Settings lists "System default" first, then the
-  sound servers ALSA reaches (PipeWire, PulseAudio, JACK) and the cards' own
+- **Linux without a PulseAudio server uses ALSA:** Settings lists "System default"
+  first, then the sound servers ALSA reaches (PipeWire, JACK) and the cards' own
   devices. `output_devices` leaves out the plugins that convert or discard audio
   (rate converters, up- and downmix, speex, null), the OSS and USB stream plugins,
-  which almost never open, and ALSA's own names for the default. A card is opened directly, past the sound
-  server: while PipeWire or PulseAudio holds it, opening fails as busy and the
-  player shows that as a problem. A saved device that is now hidden still opens.
-  cpal's optional PulseAudio backend (pure Rust, also served by pipewire-pulse)
-  would list the sound server's outputs by their own names instead.
-- **No return to the requested device:** after a fallback, the engine stays on the
-  default even if the requested device comes back. It switches on the next
-  `SetOutputDevice` or restart.
+  which almost never open, and ALSA's own names for the default. A card is opened
+  directly, past any sound server: while one holds it, opening fails as busy and
+  the player shows that as a problem. A saved device that is now hidden still opens.
+- **PulseAudio device names:** the saved name is the output's description, which is
+  what Settings shows. Two outputs with the same description (two identical USB
+  interfaces) are one entry, and the first one opens. A description that changes
+  counts as another device. Examples: an HDMI output named after the monitor
+  plugged in, a renamed Bluetooth device, another card profile. A name saved while
+  VCMP used ALSA ("Scarlett Solo USB, USB Audio") is no longer listed, so the default
+  plays and Settings says so until another device is chosen.
+- **A reopen skips a little:** reopening drops what the server still holds (up to
+  43 ms) and takes a few milliseconds. On PipeWire this happens up to half a second
+  after the server has already moved the sound to a new default.
+- **How VCMP shows up in the mixer:** with PulseAudio, the per-app volume controls of
+  the desktop list VCMP as `cpal-pulseaudio-<pid>`. cpal sets that client name and
+  gives the stream no name or icon.
+- **`PULSE_RUNTIME_PATH`:** the `pulseaudio` crate looks for the socket in
+  `$PULSE_RUNTIME_PATH/pulse/native`, but libpulse uses `$PULSE_RUNTIME_PATH/native`.
+  The crate also gives up at the first missing path, so with that variable set VCMP
+  uses ALSA. `PULSE_SERVER` is used only for a `unix:` path.
+- **A PulseAudio server that stops answering:** connecting gives up after 2 s, but
+  later requests have no timeout. A server that keeps the connection open and never
+  answers blocks the engine thread while it opens the output.
+- **Unoptimised `pulseaudio` crate:** the crate zero-fills a 1 MB buffer before each
+  socket read. Unoptimised, that took about 20 ms per read under load and caused
+  constant underruns. The dev profile optimises dependencies
+  (`[profile.dev.package."*"]`); keep it that way.
+- **No return to the requested device with ALSA (and on Windows and macOS):** after
+  a fallback, the engine stays on the default even if the requested device comes
+  back. It switches on the next `SetOutputDevice` or restart. With PulseAudio it
+  returns by itself.
 - **Silence after a seek:** with a full ring, the new audio can arrive one callback
   period after the fade-out, which leaves a few milliseconds of silence.
 - **Replaced next track while resampling:** if the track that was to follow is replaced

@@ -67,8 +67,9 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Settings, Output device: "System default" is first, then the outputs. Pick
       another output while a track plays: the sound moves.
 - [ ] Unplug the chosen output (USB or Bluetooth) while playing: sound continues on
-      the default, and Settings names the device playing instead. Plug it back and
-      choose it again.
+      the default, and Settings names the device playing instead. Plug it back: on
+      Linux with a sound server, sound returns to it within half a second
+      **(never seen working with a real device)**; elsewhere, choose it again.
 
 ### Selecting tracks
 
@@ -149,11 +150,26 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Media keys and the desktop's media widget (GNOME's, KDE's) show the track
       and cover and control play, pause, next, previous, seek, volume, shuffle and
       repeat; Raise brings the window back; Quit closes VCMP.
-- [ ] Output device list: no rate converters, mixers or "Discard all samples".
-      Choosing a sound card that PipeWire is using shows that it's busy; PipeWire
-      Sound Server and System default play.
+- [ ] Output device list: the outputs carry the names the desktop's sound settings
+      use ("Scarlett Solo (3rd Gen.) Headphones / Line 1-2"). Choose one while
+      another app plays through it: both are heard, nothing is busy.
+- [ ] With System default chosen, switch the default output in the desktop's sound
+      settings while a track plays: the sound moves within half a second. On
+      PipeWire it moves at once, with a short skip up to half a second later.
+      **(seen only with a separate test server)**
+- [ ] Restart the sound server while a track plays
+      (`systemctl --user restart pipewire-pulse`, or `pulseaudio -k`): playback
+      carries on after a short gap. **(seen only with a separate test server, and
+      never with PulseAudio itself)**
+- [ ] Without a PulseAudio server, start VCMP with
+      `PULSE_SERVER=unix:/nonexistent cargo run -p vcmp-app`. Settings lists ALSA's
+      devices, without rate converters, mixers or "Discard all samples". Choosing a
+      sound card that PipeWire is using shows that it's busy. PipeWire Sound Server
+      and System default play.
 - [ ] AppImage and .deb from a release: install, start from the menu, the icon
-      shows in the menu and in the media widget, uninstall.
+      shows in the menu and in the media widget, uninstall. On a system without
+      PipeWire or PulseAudio (a plain ALSA install, such as a minimal Debian VM),
+      sound plays through ALSA. **(never seen working)**
 
 ## Windows (never compiled locally)
 
