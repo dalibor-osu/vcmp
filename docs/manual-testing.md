@@ -140,6 +140,13 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Find photo online (build with the fanart.tv key) for a well-known artist,
       an obscure one, and one with a name that several artists share.
       **(never seen working with a live key)**
+- [ ] A photo picked there says "Photo from fanart.tv" under it, and the link
+      opens fanart.tv; a photo from a file says nothing. About names fanart.tv,
+      the Cover Art Archive and MusicBrainz, and each link opens its site.
+- [ ] Settings → Artist photos: paste your fanart.tv personal key, Save, and
+      search again; photos still come. Type a wrong key: the picker says fanart.tv
+      didn't accept the personal key. Remove it: searches work with VCMP's key
+      alone. The key is kept after a restart.
 
 ### Window, look and keyboard
 

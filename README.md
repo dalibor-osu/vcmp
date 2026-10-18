@@ -50,7 +50,9 @@ Early development. In place so far:
   click or the arrow keys selects several, to queue them, add them to a playlist or
   edit their tags together; the columns can be resized by dragging their edges;
 - artist photos: your own image, or one found on fanart.tv through MusicBrainz when
-  you ask (in builds made with VCMP's fanart.tv API key).
+  you ask (in builds made with VCMP's fanart.tv project key), with an optional
+  personal fanart.tv key of your own in Settings; photos from fanart.tv are
+  credited under them and on About.
 
 The rest of the [v1 specification](docs/specs/2026-10-17-vcmp-music-player.md) is
 still to be built.
@@ -155,7 +157,8 @@ VCMP_LASTFM_API_KEY=<api key> VCMP_LASTFM_SHARED_SECRET=<shared secret> cargo ru
 ```
 
 To try artist photos, get a project API key at <https://fanart.tv/get-an-api-key/>
-and build with it:
+and build with it. Users can add their own personal fanart.tv key in Settings,
+which goes with the project key, as fanart.tv's terms ask apps to allow:
 
 ```bash
 VCMP_FANARTTV_API_KEY=<api key> cargo run -p vcmp-app

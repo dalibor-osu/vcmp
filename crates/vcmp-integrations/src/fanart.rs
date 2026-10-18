@@ -5,7 +5,9 @@
 //! downloaded in full. Nothing is asked until the user searches.
 //!
 //! fanart.tv needs a project API key, compiled into release builds from
-//! `VCMP_FANARTTV_API_KEY`. Without one there is no online search.
+//! `VCMP_FANARTTV_API_KEY`. Without one there is no online search. A user's own
+//! personal key, when they gave one, goes with it as `client_key`, as fanart.tv's
+//! terms ask apps to allow; fanart.tv then shows them newer photos sooner.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -47,27 +49,73 @@ pub struct Photo {
     pub preview: Vec<u8>,
 }
 
+/// Why a search found nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SearchError {
+    /// fanart.tv refused a key (its status): VCMP's, or the user's personal key.
+    Refused(u16),
+    /// MusicBrainz or fanart.tv could not be asked, or answered something else.
+    Failed(String),
+}
+
+impl std::fmt::Display for SearchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SearchError::Refused(status) => write!(f, "fanart.tv refused the API key ({status})"),
+            SearchError::Failed(error) => f.write_str(error),
+        }
+    }
+}
+
 /// What a [`PhotoPicker`] reports about a job, which it names by number.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PhotoEvent {
     /// A photo for the search, as soon as its preview is downloaded.
     Found(Photo),
-    /// The search ended. `Err` when the services could not be asked; photos found
-    /// before that were reported.
-    Searched(Result<(), String>),
+    /// The search ended. `Err` when the services could not be asked or fanart.tv
+    /// refused a key; photos found before that were reported.
+    Searched(Result<(), SearchError>),
     /// The picked photo's image, or why it could not be downloaded.
     Downloaded(Result<Vec<u8>, String>),
 }
 
 /// The photos of `artist` that could be offered, each sent to `found` as soon as its
-/// preview is in. Setting `stop` ends the search before its next request.
+/// preview is in. `client_key` is the user's personal key, sent with VCMP's
+/// `api_key`. Setting `stop` ends the search before its next request.
 pub fn photos<T: Transport>(
     searcher: &mut Searcher<T>,
     api_key: &str,
+    client_key: Option<&str>,
+    artist: &ArtistQuery,
+    stop: &AtomicBool,
+    found: impl FnMut(Photo),
+) -> Result<(), SearchError> {
+    // Error messages end up in the log; the keys don't.
+    let scrub = |error: String| {
+        let error = error.replace(api_key, "<api key>");
+        match client_key {
+            Some(key) => error.replace(key, "<personal key>"),
+            None => error,
+        }
+    };
+    search(searcher, api_key, client_key, artist, stop, found).map_err(|error| match error {
+        SearchError::Failed(error) => SearchError::Failed(scrub(error)),
+        refused => refused,
+    })
+}
+
+fn search<T: Transport>(
+    searcher: &mut Searcher<T>,
+    api_key: &str,
+    client_key: Option<&str>,
     artist: &ArtistQuery,
     stop: &AtomicBool,
     mut found: impl FnMut(Photo),
-) -> Result<(), String> {
+) -> Result<(), SearchError> {
+    let mut keys = vec![("api_key", api_key)];
+    if let Some(key) = client_key {
+        keys.push(("client_key", key));
+    }
     let mut artists = Vec::new();
     if let Some(mbid) = &artist.mbid {
         artists.push(ArtistMatch {
@@ -77,7 +125,10 @@ pub fn photos<T: Transport>(
         });
     }
     if !stop.load(Ordering::Relaxed) {
-        for candidate in searcher.artists(&artist.name)? {
+        for candidate in searcher
+            .artists(&artist.name)
+            .map_err(SearchError::Failed)?
+        {
             if !artists.iter().any(|known| known.id == candidate.id) {
                 artists.push(candidate);
             }
@@ -89,11 +140,13 @@ pub fn photos<T: Transport>(
             break;
         }
         let url = format!("{API_URL}/{}", candidate.id);
-        let (status, body) = searcher.fetch(&url, &[("api_key", api_key)])?;
+        let (status, body) = searcher.fetch(&url, &keys).map_err(SearchError::Failed)?;
         let images = match status {
             200 => {
                 let mut images = serde_json::from_str::<ArtistImages>(&body)
-                    .map_err(|error| format!("unexpected answer from fanart.tv: {error}"))?
+                    .map_err(|error| {
+                        SearchError::Failed(format!("unexpected answer from fanart.tv: {error}"))
+                    })?
                     .artistthumb;
                 // The best liked first.
                 images.sort_by_key(|image| std::cmp::Reverse(image.likes()));
@@ -101,7 +154,7 @@ pub fn photos<T: Transport>(
             }
             // fanart.tv has no images of this artist.
             404 => continue,
-            401 | 403 => return Err(format!("fanart.tv refused the API key ({status})")),
+            401 | 403 => return Err(SearchError::Refused(status)),
             other => {
                 problem = Some(format!("fanart.tv answered {other}"));
                 continue;
@@ -127,7 +180,7 @@ pub fn photos<T: Transport>(
         }
     }
     match problem {
-        Some(problem) if offered == 0 => Err(problem),
+        Some(problem) if offered == 0 => Err(SearchError::Failed(problem)),
         _ => Ok(()),
     }
 }
@@ -155,6 +208,7 @@ enum Job {
     Search {
         id: u64,
         artist: ArtistQuery,
+        client_key: Option<String>,
         stop: Arc<AtomicBool>,
     },
     Download {
@@ -194,10 +248,20 @@ impl PhotoPicker {
             .spawn(move || {
                 for job in inbox {
                     match job {
-                        Job::Search { id, artist, stop } => {
-                            let result = photos(&mut searcher, &api_key, &artist, &stop, |photo| {
-                                on_event(id, PhotoEvent::Found(photo))
-                            });
+                        Job::Search {
+                            id,
+                            artist,
+                            client_key,
+                            stop,
+                        } => {
+                            let result = photos(
+                                &mut searcher,
+                                &api_key,
+                                client_key.as_deref(),
+                                &artist,
+                                &stop,
+                                |photo| on_event(id, PhotoEvent::Found(photo)),
+                            );
                             if !stop.load(Ordering::Relaxed) {
                                 on_event(id, PhotoEvent::Searched(result));
                             }
@@ -215,11 +279,17 @@ impl PhotoPicker {
         }
     }
 
-    /// Searches photos of `artist`, ending the search before it.
-    pub fn search(&self, id: u64, artist: ArtistQuery) {
+    /// Searches photos of `artist`, with the user's personal key when they gave
+    /// one, ending the search before it.
+    pub fn search(&self, id: u64, artist: ArtistQuery, client_key: Option<String>) {
         let stop = Arc::new(AtomicBool::new(false));
         self.replace_current(Some(stop.clone()));
-        let _ = self.jobs.send(Job::Search { id, artist, stop });
+        let _ = self.jobs.send(Job::Search {
+            id,
+            artist,
+            client_key,
+            stop,
+        });
     }
 
     pub fn download(&self, id: u64, url: String) {
@@ -306,6 +376,7 @@ mod tests {
         photos(
             &mut searcher,
             "key",
+            None,
             &query,
             &AtomicBool::new(false),
             |photo| found.push(photo),
@@ -344,11 +415,12 @@ mod tests {
         let result = photos(
             &mut searcher,
             "key",
+            None,
             &query,
             &AtomicBool::new(false),
             |_| {},
         );
-        assert!(result.unwrap_err().contains("refused"));
+        assert_eq!(result, Err(SearchError::Refused(401)));
 
         let (transport, _) =
             Scripted::new([artists(&[("a", "Band", 100)]), Ok((404, "{}".into()))]);
@@ -357,6 +429,7 @@ mod tests {
         photos(
             &mut searcher,
             "key",
+            None,
             &query,
             &AtomicBool::new(false),
             |_| found += 1,
@@ -382,11 +455,106 @@ mod tests {
         photos(
             &mut searcher,
             "key",
+            None,
             &query,
             &AtomicBool::new(false),
             |photo| found.push(photo),
         )
         .unwrap();
         assert_eq!(found[0].preview, b"full a");
+    }
+
+    /// A request's parameters, as names and values.
+    type Parameters = Vec<(String, String)>;
+
+    /// Answers every lookup with 404 and keeps each request's parameters.
+    struct Keys(Arc<Mutex<Vec<Parameters>>>);
+
+    impl Transport for Keys {
+        fn get(&mut self, url: &str, query: &[(&str, &str)]) -> Result<(u16, String), String> {
+            if url.contains("musicbrainz") {
+                return artists(&[]);
+            }
+            let pairs = query
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+            self.0.lock().unwrap().push(pairs);
+            Ok((404, String::new()))
+        }
+
+        fn head(&mut self, _: &str) -> Result<u16, String> {
+            Ok(404)
+        }
+
+        fn get_bytes(&mut self, _: &str) -> Result<(u16, Vec<u8>), String> {
+            Ok((404, Vec::new()))
+        }
+    }
+
+    #[test]
+    fn a_personal_key_goes_with_the_project_key() {
+        let query = ArtistQuery {
+            name: "Band".into(),
+            mbid: Some("tagged".into()),
+        };
+        let sent = |client_key: Option<&str>| {
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let mut searcher = Searcher::new(Keys(requests.clone()), Duration::ZERO);
+            photos(
+                &mut searcher,
+                "project",
+                client_key,
+                &query,
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+            requests.lock().unwrap().remove(0)
+        };
+        let pair = |key: &str, value: &str| (key.to_string(), value.to_string());
+        assert_eq!(sent(None), [pair("api_key", "project")]);
+        assert_eq!(
+            sent(Some("mine")),
+            [pair("api_key", "project"), pair("client_key", "mine")]
+        );
+    }
+
+    #[test]
+    fn keys_are_scrubbed_from_errors() {
+        struct Failing;
+        impl Transport for Failing {
+            fn get(&mut self, url: &str, query: &[(&str, &str)]) -> Result<(u16, String), String> {
+                if url.contains("musicbrainz") {
+                    return artists(&[]);
+                }
+                Err(format!("could not reach {url}?{}", query[1].1))
+            }
+            fn head(&mut self, _: &str) -> Result<u16, String> {
+                Ok(404)
+            }
+            fn get_bytes(&mut self, _: &str) -> Result<(u16, Vec<u8>), String> {
+                Ok((404, Vec::new()))
+            }
+        }
+        let mut searcher = Searcher::new(Failing, Duration::ZERO);
+        let query = ArtistQuery {
+            name: "Band".into(),
+            mbid: Some("tagged".into()),
+        };
+        let error = photos(
+            &mut searcher,
+            "project",
+            Some("mine"),
+            &query,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap_err();
+        let SearchError::Failed(message) = error else {
+            panic!("{error:?}");
+        };
+        assert!(!message.contains("mine"), "{message}");
+        assert!(message.contains("<personal key>"), "{message}");
     }
 }

@@ -266,6 +266,8 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     lastfm.set_status(shot.lastfm.unwrap_or(LastfmStatus::Disconnected));
     lastfm.set_user("listener".into());
     lastfm.set_unsent(3);
+    // As in release builds, which have VCMP's fanart.tv key; the shots search nothing.
+    window.global::<PhotoSearch>().set_available(true);
     if shot.now_playing {
         player.invoke_load_large_cover();
     }

@@ -256,7 +256,20 @@ shown, because the page itself stays alive while hidden.
     and its disambiguation ("UK rock band"), so two artists of the same name can be
     told apart. A click or Enter picks one, which is downloaded in full; Escape or
     Cancel closes. Nothing is sent until the button is used, and the button is
-    there only in builds with VCMP's fanart.tv key (`VCMP_FANARTTV_API_KEY`).
+    there only in builds with VCMP's fanart.tv project key (`VCMP_FANARTTV_API_KEY`).
+    When fanart.tv refuses a key, the picker says so apart from an unreachable
+    service, and names the personal key when one was sent.
+  - **The user's own key:** Settings → Artist photos takes a fanart.tv personal
+    API key (only in builds with the project key). It is optional: fanart.tv's
+    terms ask apps to let users give their own, which goes with VCMP's key on each
+    request (`client_key`) and gets them new photos sooner. Enter or Save keeps it
+    (trimmed), Escape puts the kept one back, Remove forgets it. It is kept in the
+    library's settings (`integrations.fanart_personal_key`) and never written to
+    the log: fanart.tv's error messages have both keys scrubbed.
+  - **Credit:** a photo found on fanart.tv says "Photo from fanart.tv" under it, a
+    link to the site; a file of the owner's says nothing. About names fanart.tv,
+    the Cover Art Archive and MusicBrainz as the sources of what VCMP finds online,
+    with links, as fanart.tv's terms ask.
   - "Choose photo…" takes a JPEG, PNG or WebP file. One that can't be read says so
     under the buttons.
   - The photo is kept by the library (see `docs/library.md`) and shows at once on

@@ -4,12 +4,13 @@
 //! "Remove photo" goes back to the newest album's cover. The photo is kept by the
 //! library and shows at once on the artist page and on the artist cards. Nothing goes
 //! to the network until the user asks, and only in builds with VCMP's fanart.tv key.
+//! The user's own fanart.tv personal key, set in Settings, goes with each search.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
-use vcmp_integrations::fanart::{ArtistQuery, Photo, PhotoEvent, PhotoPicker};
+use vcmp_integrations::fanart::{ArtistQuery, Photo, PhotoEvent, PhotoPicker, SearchError};
 use vcmp_library::{ArtistId, Library};
 
 use crate::albums::{TILE_PIXELS, initial};
@@ -19,18 +20,23 @@ use crate::{AlbumTile, AppWindow, ArtworkState, PhotoSearch, PhotoSearchStatus};
 /// Image files "Choose photo…" offers.
 const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
 
+/// The user's fanart.tv personal API key, in the library's settings; absent or empty
+/// while they have given none.
+pub const SETTING_FANART_KEY: &str = "integrations.fanart_personal_key";
+
 /// Where photo searches go: MusicBrainz and fanart.tv, or a fake in tests. Answers
 /// come back through `ArtistPhotos::handle`, tagged with the search's number.
 pub trait PhotoSource {
-    fn search(&self, search: u64, artist: ArtistQuery);
+    /// Searches with the user's personal key, when they gave one.
+    fn search(&self, search: u64, artist: ArtistQuery, personal_key: Option<String>);
     fn download(&self, search: u64, url: String);
     /// Stops the running search.
     fn cancel(&self);
 }
 
 impl PhotoSource for PhotoPicker {
-    fn search(&self, search: u64, artist: ArtistQuery) {
-        PhotoPicker::search(self, search, artist);
+    fn search(&self, search: u64, artist: ArtistQuery, personal_key: Option<String>) {
+        PhotoPicker::search(self, search, artist, personal_key);
     }
 
     fn download(&self, search: u64, url: String) {
@@ -75,6 +81,10 @@ impl ArtistPhotos {
         let state = window.global::<PhotoSearch>();
         state.set_photos(ModelRc::from(tiles.clone()));
         state.set_available(source.is_some());
+        match library.setting(SETTING_FANART_KEY) {
+            Ok(key) => state.set_personal_key(key.unwrap_or_default().into()),
+            Err(error) => log::warn!("could not read the fanart.tv personal key: {error}"),
+        }
         let photos = Rc::new(Self {
             window: window.as_weak(),
             library,
@@ -120,12 +130,32 @@ impl ArtistPhotos {
                 }
             }
         });
+        state.on_set_personal_key({
+            let weak = weak.clone();
+            move |key| {
+                if let Some(photos) = weak.upgrade() {
+                    photos.set_personal_key(&key);
+                }
+            }
+        });
         state.on_remove(move || {
             if let Some(photos) = weak.upgrade() {
                 photos.remove();
             }
         });
         photos
+    }
+
+    /// Keeps the user's fanart.tv personal key for the searches to come; an empty one
+    /// forgets it.
+    pub fn set_personal_key(&self, key: &str) {
+        let key = key.trim();
+        if let Err(error) = self.library.set_setting(SETTING_FANART_KEY, key) {
+            log::warn!("could not save the fanart.tv personal key: {error}");
+        }
+        if let Some(window) = self.window.upgrade() {
+            window.global::<PhotoSearch>().set_personal_key(key.into());
+        }
     }
 
     /// Runs `action` with the service on the UI thread, from any thread. False once
@@ -165,12 +195,14 @@ impl ArtistPhotos {
             );
             None
         });
+        let personal_key = Some(state.get_personal_key().to_string()).filter(|key| !key.is_empty());
         source.search(
             search,
             ArtistQuery {
                 name: artist.name,
                 mbid,
             },
+            personal_key,
         );
     }
 
@@ -217,10 +249,11 @@ impl ArtistPhotos {
                 // A download started meanwhile keeps its status.
                 if state.get_status() == PhotoSearchStatus::Searching {
                     let found = !self.photos.borrow().is_empty();
-                    state.set_status(match (result.is_ok(), found) {
+                    state.set_status(match (result, found) {
                         (_, true) => PhotoSearchStatus::Found,
-                        (true, false) => PhotoSearchStatus::NothingFound,
-                        (false, false) => PhotoSearchStatus::Failed,
+                        (Ok(()), false) => PhotoSearchStatus::NothingFound,
+                        (Err(SearchError::Refused(_)), false) => PhotoSearchStatus::Refused,
+                        (Err(SearchError::Failed(_)), false) => PhotoSearchStatus::Failed,
                     });
                 }
             }

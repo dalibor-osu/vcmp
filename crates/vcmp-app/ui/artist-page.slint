@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, SectionHeading } from "components.slint";
+import { Button, SectionHeading, TextLink } from "components.slint";
 import { PlayerState } from "player-state.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
@@ -17,6 +17,8 @@ export struct ArtistDetail {
     picture: image,
     // The picture is a photo chosen for the artist.
     has-photo: bool,
+    // That photo was found on fanart.tv, which the page credits under it.
+    photo-from-fanart: bool,
     // The artist left the library while the page was open.
     missing: bool,
 }
@@ -142,6 +144,15 @@ export component ArtistView {
                             }
                         }
 
+                        if root.artist.photo-from-fanart && !root.artist.missing: TextLink {
+                            text: @tr("Photo from fanart.tv");
+                            label: @tr("Photo from fanart.tv, opens the website");
+                            color: Theme.colors.text-muted;
+                            font-size: Theme.font-small;
+                            clicked => {
+                                Platform.open-url("https://fanart.tv");
+                            }
+                        }
                         if !root.artist.missing && PhotoSearch.available: Button {
                             text: @tr("Find photo online");
                             label: @tr("Find a photo of {} online", root.artist.name);
