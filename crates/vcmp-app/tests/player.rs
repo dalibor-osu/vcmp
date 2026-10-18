@@ -807,6 +807,80 @@ fn up_next_rows_can_be_dragged_to_a_new_place() {
 }
 
 #[test]
+fn up_next_scrolls_while_a_drag_is_held_at_its_edge() {
+    let app = start(|_| {});
+    app.window
+        .window()
+        .set_size(slint::LogicalSize::new(1100.0, 600.0));
+    app.window.set_queue_open(true);
+    // Opening, Closing, Opening, ...: longer than the panel.
+    let up_next = (0..30)
+        .map(|i| app.entry(if i % 2 == 0 { "1.flac" } else { "2.flac" }))
+        .collect();
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        up_next,
+        ..QueueView::default()
+    }));
+    let _ = ElementHandle::find_by_element_type_name(&app.window, "QueuePanel").count();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    // Only the rows in view can be found.
+    let rows = |label: &str| -> Vec<ElementHandle> {
+        ElementHandle::find_by_accessible_label(&app.window, label)
+            .filter(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+            .collect()
+    };
+    let centre = |row: &ElementHandle| {
+        let (position, size) = (row.absolute_position(), row.size());
+        slint::LogicalPosition::new(position.x + 60.0, position.y + size.height / 2.0)
+    };
+    assert!(
+        rows("Opening, Band").len() < 15,
+        "the list is longer than the panel"
+    );
+    // Drags from `from` to `to`, and holds the pointer still there for a while.
+    let hold = |from: slint::LogicalPosition, to: slint::LogicalPosition| {
+        let window = app.window.window();
+        let button = slint::platform::PointerEventButton::Left;
+        window.dispatch_event(WindowEvent::PointerMoved { position: from });
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position: from,
+            button,
+        });
+        for step in 1..=4 {
+            let y = from.y + (to.y - from.y) * step as f32 / 4.0;
+            window.dispatch_event(WindowEvent::PointerMoved {
+                position: slint::LogicalPosition::new(from.x, y),
+            });
+        }
+        for _ in 0..300 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(20));
+        }
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position: to,
+            button,
+        });
+    };
+    app.sent.take();
+
+    let first = centre(&rows("Opening, Band")[0]);
+    hold(first, slint::LogicalPosition::new(first.x, 599.0));
+    assert_eq!(
+        app.sent.take(),
+        [Command::MoveInUpNext { from: 0, to: 29 }],
+        "held past the bottom, it goes to the end"
+    );
+
+    // The recorder leaves the queue as it was, scrolled to its end.
+    let last = centre(rows("Closing, Band").last().unwrap());
+    hold(last, slint::LogicalPosition::new(last.x, 1.0));
+    assert_eq!(
+        app.sent.take(),
+        [Command::MoveInUpNext { from: 29, to: 0 }],
+        "held past the top, it goes to the start"
+    );
+}
+
+#[test]
 fn album_tracks_go_into_up_next() {
     let app = start(|_| {});
     app.open_album();

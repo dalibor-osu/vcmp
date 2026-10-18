@@ -80,4 +80,10 @@ export global Theme {
 
     out property <duration> duration-fast: root.reduced-motion ? 0ms : 120ms;
     out property <duration> duration-medium: root.reduced-motion ? 0ms : 220ms;
+
+    // A list scrolls while a dragged row is held near its edge: up to one step per
+    // tick, so about 750 px a second at the edge itself. The pointer drives it, so
+    // reduced motion leaves it on.
+    out property <duration> drag-scroll-tick: 16ms;
+    out property <length> drag-scroll-step: 12px;
 }

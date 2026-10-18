@@ -17,6 +17,38 @@ export component FocusRing inherits Rectangle {
     border-radius: self.radius + 3px;
 }
 
+// Scrolls a view while a drag holds the pointer near its top or bottom edge: faster
+// the closer the pointer is to the edge, fastest at it or past it. The owner says
+// where the view is and binds `content-y` to its ScrollView's.
+export component EdgeScroll {
+    width: 0;
+    height: 0;
+    // A drag is on, and the pointer's window y.
+    in property <bool> active;
+    in property <length> pointer-y;
+    // The view's top (window y) and visible height, and its content's height.
+    in property <length> view-top;
+    in property <length> view-height;
+    in property <length> content-height;
+    in-out property <length> content-y;
+
+    // How deep the pointer is in the band along each edge.
+    private property <length> band: min(Theme.target-height * 1.5, root.view-height / 3);
+    // From -1 (scroll up at full speed) to 1 (down at full speed).
+    private property <float> pull: !root.active || root.band <= 0 ? 0
+        : root.pointer-y < root.view-top + root.band ? -min(1, (root.view-top + root.band - root.pointer-y) / root.band)
+        : root.pointer-y > root.view-top + root.view-height - root.band ? min(1, (root.pointer-y - root.view-top - root.view-height + root.band) / root.band)
+        : 0;
+
+    Timer {
+        interval: Theme.drag-scroll-tick;
+        running: root.pull != 0;
+        triggered => {
+            root.content-y = max(min(0px, root.view-height - root.content-height), min(0px, root.content-y - root.pull * Theme.drag-scroll-step));
+        }
+    }
+}
+
 // One entry of the sidebar navigation. The sliding current-page marker is drawn by
 // the sidebar, so it can move between entries.
 export component NavItem {

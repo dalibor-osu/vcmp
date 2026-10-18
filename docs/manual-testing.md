@@ -59,7 +59,8 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Space plays and pauses from anywhere except a text field, also after
       clicking around and after closing the now playing view.
 - [ ] Queue panel: it slides in (at once with Reduce motion on); Play next and Add
-      to queue land in the right places; drag an Up next track to another place;
+      to queue land in the right places; drag an Up next track to another place,
+      also past the visible rows (the list scrolls while you hold it at the edge);
       Clear; Delete and Alt+Up/Down on the focused row.
 - [ ] Quit while paused mid-track and start again: the queue comes back, paused at
       the same position.
@@ -95,7 +96,9 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 - [ ] Make a playlist from New playlist and from a track's menu; rename it, delete
       it.
-- [ ] Reorder by dragging and with Alt+Up/Down.
+- [ ] Reorder by dragging and with Alt+Up/Down. In a playlist longer than the
+      window, hold a dragged track near the bottom, then the top: the page scrolls
+      smoothly, faster nearer the edge, and the track lands where the line shows.
 - [ ] The picture is made from the first four album covers; choose your own and
       go back.
 - [ ] Delete one of the files: its entry is dimmed and skipped while playing.
