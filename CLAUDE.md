@@ -30,7 +30,7 @@ Read it before changing anything structural.
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
-| Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`. Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
+| Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`; while that can't run, `packaging/release-local.sh` builds the Windows and Linux ones locally in Docker (README, "Building the archives locally"). Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
 | License | MIT OR Apache-2.0 |
 
 Workspace layout:
