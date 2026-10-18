@@ -1,9 +1,9 @@
 name: Release
 
-# A pushed tag vYY.MM.PATCH on main (a calendar version, README "Versions") builds
-# VCMP for each platform and attaches an archive of each to a draft GitHub Release:
-# a zip of vcmp.exe on Windows, a zip of VCMP.app on macOS, a tar.gz of vcmp on
-# Linux, each with the licence texts. Running the workflow by hand
+# A pushed tag vYY.MM.PATCH on main (a calendar version, docs/development.md,
+# "Versions") builds VCMP for each platform and attaches an archive of each to a
+# draft GitHub Release: a zip of vcmp.exe on Windows, a zip of VCMP.app on macOS, a
+# tar.gz of vcmp on Linux, each with the licence texts. Running the workflow by hand
 # (workflow_dispatch) builds the same archives as downloadable workflow artifacts
 # and creates no release. Installers (the cargo-packager configuration in
 # crates/vcmp-app/Cargo.toml) are left for later; the builds are unsigned.

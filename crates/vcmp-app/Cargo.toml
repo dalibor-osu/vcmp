@@ -44,7 +44,7 @@ png = "0.18.1"
 tempfile = "3.27.0"
 vcmp-integrations = { path = "../vcmp-integrations" }
 
-# Installers, built by cargo-packager (see "Releases" in the README and
+# Installers, built by cargo-packager (see "Installers" in docs/development.md and
 # .github/workflows/release.yml). Paths are relative to this file. Build the binary
 # first (`cargo build --release -p vcmp-app`), then run
 # `cargo packager --release -p vcmp-app`; the installers land in target/packages/.

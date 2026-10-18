@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Linux and Windows release archives on this machine, in Docker, for when
-# the Release workflow can't run (README, "Building the archives locally").
+# the Release workflow can't run (docs/development.md, "Building the archives
+# locally").
 #
 # The build runs in Ubuntu 22.04 like the workflow's Linux runner, so the Linux
 # program runs on glibc 2.35 or newer; built on the host, it would need the host's

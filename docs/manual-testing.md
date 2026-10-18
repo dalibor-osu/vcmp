@@ -25,9 +25,10 @@ reading the code or with a simulated system, so they are the most likely to fail
   Then add `target/manual-test/music` in Settings. Never use Edit tags on the real
   collection. Everything else (scanning, playback, covers and photos found online,
   playlists) only reads the music files.
-- Last.fm and "Find photo online" exist only in builds made with the keys (README,
-  "Integration keys"): set `VCMP_LASTFM_API_KEY`, `VCMP_LASTFM_SHARED_SECRET` and
-  `VCMP_FANARTTV_API_KEY` in the shell that runs `cargo run`.
+- Last.fm and "Find photo online" exist only in builds made with the keys
+  (docs/development.md, "Integration keys"): set `VCMP_LASTFM_API_KEY`,
+  `VCMP_LASTFM_SHARED_SECRET` and `VCMP_FANARTTV_API_KEY` in the shell that runs
+  `cargo run`.
 - Note the platform, the desktop (GNOME, KDE, ...) and the commit you tested.
 
 ## Every platform

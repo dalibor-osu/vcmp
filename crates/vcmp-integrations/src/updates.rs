@@ -88,7 +88,8 @@ pub fn is_newer(candidate: &Version, current: &Version) -> bool {
 }
 
 /// The version a release tag names ("v1.2.0" or "1.2.0"), unless it is a
-/// pre-release. Tags are calendar versions, `vYY.MM.PATCH` (README "Versions").
+/// pre-release. Tags are calendar versions, `vYY.MM.PATCH` (docs/development.md,
+/// "Versions").
 fn tag_version(tag: &str) -> Option<Version> {
     let version = Version::parse(tag.strip_prefix(['v', 'V']).unwrap_or(tag)).ok()?;
     version.pre.is_empty().then_some(version)

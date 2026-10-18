@@ -744,8 +744,8 @@ The Albums page tells apart why it is empty:
     with a recorder (`LastfmWorker`) and the browser with another, and
     `PlayerService` hands plays over through `ScrobbleSink`.
   - The API key and shared secret are compiled in from `VCMP_LASTFM_API_KEY` and
-    `VCMP_LASTFM_SHARED_SECRET` (README, "Integration keys"). Without both there is
-    no row and nothing is sent.
+    `VCMP_LASTFM_SHARED_SECRET` (docs/development.md, "Integration keys"). Without
+    both there is no row and nothing is sent.
 - **OS media controls** (`vcmp-integrations::media_controls`, always on): MPRIS on
   Linux, System Media Transport Controls on Windows, Now Playing on macOS.
   - Media keys and the system's media widget play, pause, stop, skip, seek, set

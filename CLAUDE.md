@@ -8,10 +8,10 @@ Read it before changing anything structural.
 ## Branches
 
 - `main` is production: it only receives merged pull requests, and releases are tags
-  on `main` (`vYY.MM.PATCH`, a calendar version such as `v26.10.0`; README
-  "Versions"). Pushing such a tag runs `.github/workflows/release.yml`, which drafts
-  a GitHub Release with an archive of the build per platform; README "Releases" has
-  the steps.
+  on `main` (`vYY.MM.PATCH`, a calendar version such as `v26.10.0`;
+  docs/development.md, "Versions"). Pushing such a tag runs
+  `.github/workflows/release.yml`, which drafts a GitHub Release with an archive of
+  the build per platform; docs/development.md, "Releases", has the steps.
   Pre-releases have no version suffix: they are releases published with GitHub's
   pre-release box ticked.
 - All work happens on `feature/<topic>` branches that merge into `main` through a PR.
@@ -30,7 +30,7 @@ Read it before changing anything structural.
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
-| Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`; while that can't run, `packaging/release-local.sh` builds the Windows and Linux ones locally in Docker (README, "Building the archives locally"). Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
+| Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`; while that can't run, `packaging/release-local.sh` builds the Windows and Linux ones locally in Docker (docs/development.md, "Building the archives locally"). Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
 | License | MIT OR Apache-2.0 |
 
 Workspace layout:
@@ -58,8 +58,8 @@ instead of the platform data and cache directories. For example,
 Last.fm exists only in builds made with VCMP's API key: set `VCMP_LASTFM_API_KEY`
 and `VCMP_LASTFM_SHARED_SECRET` when building (read with `option_env!`; without both
 the Settings row is hidden and nothing is sent). Never commit them; CI and the
-release workflow take them from the repository secrets of the same names (README,
-"Integration keys"). The connected account's session key lives in the OS keyring,
+release workflow take them from the repository secrets of the same names
+(docs/development.md, "Integration keys"). The connected account's session key lives in the OS keyring,
 shared by every build and `VCMP_HOME` on the machine. "Find photo online" on artist
 pages likewise needs `VCMP_FANARTTV_API_KEY` at build time.
 
@@ -147,7 +147,8 @@ cargo run -p vcmp-playback --example play -- path/to/album
 
 | Path | Contents |
 |---|---|
-| `README.md` | What VCMP is, how to build, run and test |
+| `README.md` | For people using VCMP: what it does, download, first start, building it |
+| `docs/development.md` | Build, test, integration keys, versions and releases |
 | `CLAUDE.md` | This file: conventions for working in the repository |
 | `docs/specs/` | Agreed specifications, one file per planned change |
 | `docs/DESIGN.md` | The owner's design direction |
