@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, IconButton, TextField } from "components.slint";
+import { Button, EdgeScroll, IconButton, TextField } from "components.slint";
 import { Glyph } from "icons.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
 
@@ -364,7 +364,7 @@ export component PlaylistView {
                     max-width: Theme.content-max-width;
                 }
 
-                TrackList {
+                track-list := TrackList {
                     max-width: Theme.content-max-width;
                     label: @tr("Tracks");
                     tracks: root.tracks;
@@ -387,6 +387,16 @@ export component PlaylistView {
                     }
                 }
             }
+        }
+
+        // Scrolls the page while a dragged track is held near its top or bottom.
+        EdgeScroll {
+            active: track-list.dragging;
+            pointer-y: track-list.drag-y;
+            view-top: scroll.absolute-position.y;
+            view-height: scroll.visible-height;
+            content-height: scroll.content-height;
+            content-y <=> scroll.content-y;
         }
     }
 }

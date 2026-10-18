@@ -12,8 +12,8 @@ dials come from DESIGN.md).
 
 | File | Holds |
 |---|---|
-| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations |
-| `ui/components.slint` | `FocusRing`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar` |
+| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations, drag scrolling |
+| `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar` |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
@@ -277,6 +277,13 @@ shown, because the page itself stays alive while hidden.
   can also be dragged: past 6 px of movement the press becomes a drag, an accent
   line shows where the row would land, and letting go moves it without playing it.
   The keyboard's current track follows a moved one.
+  - Held near the top or bottom of the page (within 60 px, or a third of a short
+    view), a drag scrolls the page, faster the closer the pointer is to the edge
+    and fastest at or past it (about 750 px a second). `EdgeScroll`
+    (`components.slint`) does this on a timer (`Theme.drag-scroll-tick`), since
+    the pointer may be held still. The place the row would land is worked out from
+    the pointer's window position each time the list moves under it. Reduced
+    motion leaves it on: the pointer drives it, it is not an animation.
 - **Adding:** every track menu (album, artist, search, folder and playlist lists,
   the songs table and the queue panel) has Add to playlist, with New playlist and
   every playlist by name. New playlist there makes "Playlist n" with the track,
@@ -520,7 +527,8 @@ The Albums page tells apart why it is empty:
   - Each track shows its album's cover, decoded off the UI thread at 96 px and
     kept per album (up to 500), and filled into the rows when it arrives.
   - Tracks added to Up next can also be dragged to another place, like a
-    playlist's rows.
+    playlist's rows, and the list scrolls the same way while a drag is held near
+    its edge.
   - The track menu offers what applies: Play, then Remove, Move up and Move down
     for tracks added to Up next, or Play next and Add to queue for the album's (or
     list's) own tracks, which stay in their place too. The engine can't take a
@@ -716,8 +724,6 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - A play that started before its tags were edited is scrobbled to Last.fm with the
   tags it started with.
 
-- Dragging a row in a playlist or in Up next doesn't scroll the list: to move a row
-  further than the view shows, drag it in steps, or use Alt+Up/Down.
 - Going back is one step: an album opened from an artist found by search returns
   to the artist, and the artist to Search, but there is no general history.
 - The queue panel slides in when it opens but closes at once: the panel is made when

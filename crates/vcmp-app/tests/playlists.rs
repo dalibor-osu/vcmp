@@ -491,3 +491,87 @@ fn entries_can_be_dragged_to_a_new_place() {
     window.dispatch_event(WindowEvent::PointerReleased { position, button });
     assert_eq!(app.played().2, Some(1));
 }
+
+#[test]
+fn a_drag_held_at_the_edge_scrolls_the_list() {
+    let app = start();
+    app.window
+        .window()
+        .set_size(LogicalSize::new(1100.0, 600.0));
+    let id = app.library.create_playlist("Long").unwrap();
+    let ids: Vec<_> = app
+        .library
+        .tracks()
+        .unwrap()
+        .iter()
+        .map(|track| track.id)
+        .collect();
+    for _ in 0..15 {
+        app.library.add_to_playlist(id, &ids).unwrap();
+    }
+    app.view.reload();
+    app.open_page("Playlists");
+    app.window.invoke_playlist_activated(0);
+    mock_elapsed_time(Duration::ZERO);
+
+    let rows = |title: &str| -> Vec<ElementHandle> {
+        ElementHandle::find_by_accessible_label(&app.window, &format!("{title}, Band · Album"))
+            .filter(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+            .collect()
+    };
+    let centre = |row: &ElementHandle| {
+        let (position, size) = (row.absolute_position(), row.size());
+        slint::LogicalPosition::new(
+            position.x + size.width / 3.0,
+            position.y + size.height / 2.0,
+        )
+    };
+    // Drags from `from` to `to`, and holds the pointer still there for a while.
+    let hold = |from: slint::LogicalPosition, to: slint::LogicalPosition| {
+        let window = app.window.window();
+        let button = slint::platform::PointerEventButton::Left;
+        window.dispatch_event(WindowEvent::PointerMoved { position: from });
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position: from,
+            button,
+        });
+        for step in 1..=4 {
+            let y = from.y + (to.y - from.y) * step as f32 / 4.0;
+            let position = slint::LogicalPosition::new(from.x, y);
+            window.dispatch_event(WindowEvent::PointerMoved { position });
+        }
+        for _ in 0..300 {
+            mock_elapsed_time(Duration::from_millis(20));
+        }
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position: to,
+            button,
+        });
+    };
+    let mut expected: Vec<String> = ["One", "Two", "Three"]
+        .repeat(15)
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(app.entry_titles(id), expected);
+    // Rows outside the view can't be found.
+    assert_eq!(rows("One").len(), 2, "the list is longer than the window");
+
+    // The first track, held past the bottom edge, goes to the end.
+    let first = centre(&rows("One")[0]);
+    hold(first, slint::LogicalPosition::new(first.x, 599.0));
+    let moved = expected.remove(0);
+    expected.push(moved);
+    assert_eq!(app.entry_titles(id), expected);
+
+    // The last one, held at the top edge, goes back to the start.
+    let last = centre(rows("One").last().unwrap());
+    assert!(
+        rows("Three").last().unwrap().absolute_position().y < last.y,
+        "the view stays at the end of the list, where the moved track is"
+    );
+    hold(last, slint::LogicalPosition::new(last.x, 1.0));
+    let moved = expected.pop().unwrap();
+    expected.insert(0, moved);
+    assert_eq!(app.entry_titles(id), expected);
+}

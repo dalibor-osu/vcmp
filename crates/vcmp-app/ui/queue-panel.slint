@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, FocusRing, IconButton } from "components.slint";
+import { Button, EdgeScroll, FocusRing, IconButton } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
@@ -180,11 +180,19 @@ export component QueuePanel inherits Rectangle {
     private property <int> count: self.up-next-count + PlayerState.upcoming.length;
     // The keyboard's current track, counted over Up next then the context tracks.
     private property <int> current: 0;
-    // An Up next row being dragged, the place it would go, and where the line that
-    // shows it is drawn (in the list).
+    // An Up next row being dragged, where it is in the list and how tall, and the
+    // pointer's window y. The place it would go, and the line that shows it, follow
+    // the list when it scrolls under a pointer held still.
     private property <int> drag-from: -1;
-    private property <int> drag-to: -1;
-    private property <length> drag-line-y;
+    private property <length> drag-row-y;
+    private property <length> drag-row-height;
+    private property <length> drag-y;
+    // The dragged row stays put; places count from it.
+    private property <length> drag-pitch: root.drag-row-height + Theme.space-xs;
+    private property <int> drag-to: root.drag-from < 0 ? -1
+        : clamp(root.drag-from + round((root.drag-y - list.absolute-position.y - root.drag-row-y - root.drag-row-height / 2) / root.drag-pitch), 0, root.up-next-count - 1);
+    private property <length> drag-line-y: root.drag-row-y + (root.drag-to - root.drag-from) * root.drag-pitch
+        + (root.drag-to > root.drag-from ? root.drag-row-height + Theme.space-xs / 2 : -Theme.space-xs / 2) - 1px;
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
     function ensure-visible(top: length, height: length) {
@@ -402,23 +410,21 @@ export component QueuePanel inherits Rectangle {
                                 removable: true;
                                 draggable: true;
                                 drag-moved(y, top, height) => {
+                                    root.drag-row-y = top - list.absolute-position.y;
+                                    root.drag-row-height = height;
+                                    root.drag-y = y;
                                     if root.drag-from < 0 {
                                         root.drag-from = index;
                                         root.current = index;
                                     }
-                                    // The dragged row stays put; places count from it.
-                                    let pitch = height + Theme.space-xs;
-                                    root.drag-to = clamp(index + round((y - top - height / 2) / pitch), 0, root.up-next-count - 1);
-                                    root.drag-line-y = top - list.absolute-position.y + (root.drag-to - index) * pitch
-                                        + (root.drag-to > index ? height + Theme.space-xs / 2 : -Theme.space-xs / 2) - 1px;
                                 }
                                 drag-ended => {
-                                    if root.drag-from >= 0 && root.drag-to >= 0 && root.drag-to != root.drag-from {
-                                        PlayerState.move-in-up-next(root.drag-from, root.drag-to);
-                                        root.current = root.drag-to;
+                                    let to = root.drag-to;
+                                    if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
+                                        PlayerState.move-in-up-next(root.drag-from, to);
+                                        root.current = to;
                                     }
                                     root.drag-from = -1;
-                                    root.drag-to = -1;
                                 }
                                 focused: list.has-focus && index == root.current;
                                 clicked => {
@@ -473,5 +479,15 @@ export component QueuePanel inherits Rectangle {
                 }
             }
         }
+    }
+
+    // Scrolls the list while a dragged Up next track is held near its top or bottom.
+    EdgeScroll {
+        active: root.drag-from >= 0;
+        pointer-y: root.drag-y;
+        view-top: scroll.absolute-position.y;
+        view-height: scroll.visible-height;
+        content-height: scroll.content-height;
+        content-y <=> scroll.content-y;
     }
 }

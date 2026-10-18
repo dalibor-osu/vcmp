@@ -313,8 +313,9 @@ export component TrackLine {
 // menu: Ctrl+click (Cmd on macOS) or Ctrl+Space toggles one, Shift+click or
 // Shift+arrows select a range, Ctrl+A selects all, Escape clears; a plain click
 // plays and clears. A playlist's own list (`editable`) also moves and removes
-// tracks: from the menu, with Alt+Up/Down, and with Delete. The owner scrolls the
-// row reported by `shown-focused` into view.
+// tracks: from the menu, with Alt+Up/Down, with Delete, and by dragging. The owner
+// scrolls the row reported by `shown-focused` into view, and scrolls while a drag
+// holds the pointer near the view's edge (`dragging`, `drag-y`).
 export component TrackList {
     in property <[TrackRow]> tracks;
     in property <string> label;
@@ -330,6 +331,9 @@ export component TrackList {
     // Moves the track at the first position to the second.
     callback reorder(int, int);
     callback shown-focused(length, length);
+    // A row is being dragged, and the pointer's window y.
+    out property <bool> dragging: root.drag-from >= 0;
+    out property <length> drag-y;
 
     function move-current(by: int) {
         let to = root.current + by;
@@ -358,10 +362,12 @@ export component TrackList {
             root.anchor = root.current;
         }
     }
-    // A row being dragged in an editable list, and the place it would go.
+    // A row being dragged in an editable list, and the place it would go. The place
+    // follows the list when it scrolls under a pointer held still.
     private property <int> drag-from: -1;
-    private property <int> drag-to: -1;
     private property <length> drag-row-height;
+    private property <int> drag-to: root.drag-from < 0 ? -1
+        : clamp(floor((root.drag-y - list.absolute-position.y) / root.drag-row-height), 0, root.tracks.length - 1);
 
     // A row outside the selection gets the menu to itself.
     function show-menu(index: int, x: length, y: length) {
@@ -498,20 +504,20 @@ export component TrackList {
                     focused: list.has-focus && index == root.current;
                     draggable: root.editable;
                     drag-moved(y, height) => {
+                        root.drag-row-height = height;
+                        root.drag-y = y;
                         if root.drag-from < 0 {
                             root.drag-from = index;
                             root.current = index;
                         }
-                        root.drag-row-height = height;
-                        root.drag-to = clamp(floor((y - list.absolute-position.y) / height), 0, root.tracks.length - 1);
                     }
                     drag-ended => {
-                        if root.drag-from >= 0 && root.drag-to >= 0 && root.drag-to != root.drag-from {
-                            root.reorder(root.drag-from, root.drag-to);
-                            root.current = root.drag-to;
+                        let to = root.drag-to;
+                        if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
+                            root.reorder(root.drag-from, to);
+                            root.current = to;
                         }
                         root.drag-from = -1;
-                        root.drag-to = -1;
                     }
                     clicked(toggle, range) => {
                         root.current = index;
