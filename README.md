@@ -84,8 +84,10 @@ cargo test --workspace
 
 Each release on [GitHub Releases](https://github.com/dalibor-osu/vcmp/releases) has
 an archive per platform, built by the [Release workflow](.github/workflows/release.yml),
-with a `SHA256SUMS.txt` to check them against. There are no installers yet: unpack
-the archive and run VCMP from where it is.
+with a `SHA256SUMS.txt` to check them against. A release built on a developer's
+machine instead ([below](#building-the-archives-locally)) has only the Windows and
+Linux archives. There are no installers yet: unpack the archive and run VCMP from
+where it is.
 
 | Platform | Archive | How to run |
 |---|---|---|
@@ -109,9 +111,8 @@ correctly on the other two yet.
 
 VCMP isn't code-signed: that takes a paid Apple developer account and, on Windows, a
 certificate from a signing service, which the project doesn't have for now. The
-programs are the ones the Release workflow built from this repository (compare
-`SHA256SUMS.txt`), but Windows and macOS can't tell who made them, so they warn the
-first time:
+programs are built from this repository (compare `SHA256SUMS.txt`), but Windows and
+macOS can't tell who made them, so they warn the first time:
 
 - **Windows:** SmartScreen says "Windows protected your PC". Choose **More info**,
   then **Run anyway**. Windows remembers the choice for that copy.
@@ -182,6 +183,36 @@ A release build is `cargo build --release -p vcmp-app`; the program lands in
 platform making only its own (on macOS `--formats app` makes just `VCMP.app`, as the
 workflow does). On Linux distributions newer than the Ubuntu 22.04 the workflow
 uses, the AppImage step fails in `strip`; set `NO_STRIP=1` for it.
+
+### Building the archives locally
+
+While the Release workflow can't run, the Windows and Linux archives can be built on
+a Linux machine with Docker:
+
+```bash
+packaging/release-local.sh
+```
+
+It builds in an Ubuntu 22.04 container ([packaging/release-local.Dockerfile](packaging/release-local.Dockerfile)),
+as the workflow does, so the Linux program needs glibc 2.35 or newer; built on the
+host, it would need the host's glibc. Windows is cross-built there with MinGW-w64
+(the `x86_64-pc-windows-gnu` target), where the workflow builds with MSVC on
+Windows. The archives and their `SHA256SUMS.txt` land in `dist/`, the build in
+`target/release-local/`. The first run downloads Ubuntu, Rust and the crates;
+later runs reuse them and rebuild only what changed.
+
+Set the [integration keys](#integration-keys) in the environment for a build to
+release; the script passes the ones that are set into the container, and without
+them the build has no Last.fm and no "Find photo online". Then create a draft
+release with the archives, check it on GitHub and publish it; publishing creates
+the tag on `main`:
+
+```bash
+gh release create v26.10.0 dist/vcmp-26.10.0-* dist/SHA256SUMS.txt --draft --target main --title "VCMP 26.10.0" --generate-notes
+```
+
+The new tag also starts the Release workflow. While the workflow can't run, that
+run fails to start.
 
 ### Integration keys
 

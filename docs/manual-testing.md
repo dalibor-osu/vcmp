@@ -232,7 +232,7 @@ reading the code or with a simulated system, so they are the most likely to fail
       PipeWire or PulseAudio (a plain ALSA install, such as a minimal Debian VM),
       sound plays through ALSA. **(never seen working)**
 
-## Windows (never compiled locally)
+## Windows (never run on Windows itself)
 
 - [ ] It builds and runs: `cargo run -p vcmp-app`, or start
       `.github/workflows/ci.yml` by hand.
@@ -245,6 +245,10 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Output device list shows the WASAPI device names.
 - [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without
       a console window, after SmartScreen's More info → Run anyway.
+- [ ] The same for the zip that `packaging/release-local.sh` cross-builds with
+      MinGW, and the rest of this list with it: it plays, and the media flyout,
+      Credential Manager and the output devices work. **(seen only starting under
+      Wine on Linux)**
 
 ## macOS (never compiled locally)
 
