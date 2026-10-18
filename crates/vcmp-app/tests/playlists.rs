@@ -483,12 +483,14 @@ fn entries_can_be_dragged_to_a_new_place() {
             .any(|command| matches!(command, Command::PlayContext { .. })),
         "a drag is not a click"
     );
-    // A plain click still plays.
+    // A double-click plays.
     let position = centre("Two");
     let window = app.window.window();
     let button = slint::platform::PointerEventButton::Left;
-    window.dispatch_event(WindowEvent::PointerPressed { position, button });
-    window.dispatch_event(WindowEvent::PointerReleased { position, button });
+    for _ in 0..2 {
+        window.dispatch_event(WindowEvent::PointerPressed { position, button });
+        window.dispatch_event(WindowEvent::PointerReleased { position, button });
+    }
     assert_eq!(app.played().2, Some(1));
 }
 

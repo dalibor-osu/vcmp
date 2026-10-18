@@ -45,9 +45,10 @@ Early development. In place so far:
   off in Settings);
 - a tag editor for one track, a whole album or the selected tracks, cover included,
   writing only what was changed through a verified copy of each file;
-- selecting several tracks (Ctrl or Shift with a click or the arrow keys) in track
-  lists and the Songs table, to queue them, add them to a playlist or edit their
-  tags together;
+- track lists and a Songs table where a click selects a track and its play button
+  (in the track number's place) or a double-click plays it; Ctrl or Shift with a
+  click or the arrow keys selects several, to queue them, add them to a playlist or
+  edit their tags together; the columns can be resized by dragging their edges;
 - artist photos: your own image, or one found on fanart.tv through MusicBrainz when
   you ask (in builds made with VCMP's fanart.tv API key).
 

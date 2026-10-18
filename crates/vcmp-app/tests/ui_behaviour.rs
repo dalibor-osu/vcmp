@@ -397,9 +397,13 @@ fn a_short_window_scrolls_the_sidebar_to_the_focused_section() {
         bottom(&sections) <= bottom(&sidebar) + 0.5,
         "the sections stay inside the sidebar, above the player bar"
     );
-    let about = find(&window, AccessibleRole::Tab, "About");
+    // Elements wholly out of view can't be found.
+    let about = || {
+        ElementHandle::find_by_accessible_label(&window, "About")
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+    };
     assert!(
-        bottom(&about) > bottom(&sections),
+        about().is_none_or(|about| bottom(&about) > bottom(&sections)),
         "the last section starts out of view in the smallest window"
     );
     // From the start: Search, Albums, Artists, Playlists, Songs, Folders, Settings,
@@ -407,6 +411,7 @@ fn a_short_window_scrolls_the_sidebar_to_the_focused_section() {
     for _ in 0..8 {
         press(&window, Key::Tab);
     }
+    let about = about().expect("About in view");
     assert!(
         bottom(&about) <= bottom(&sections) + 0.5,
         "focusing About scrolls it into view"

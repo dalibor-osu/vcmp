@@ -26,6 +26,7 @@ dials come from DESIGN.md).
 | `src/folders.rs` | `FolderBrowser`: the folder tree built from the library's tracks |
 | `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares, and its `TrackSelection` global |
 | `ui/selection.slint` | `SelectionChange`: how a track list's selection changes |
+| `ui/columns.slint` | `ColumnWidths` global (the saved column shares) and `ColumnEdge`, the resizable edge between two column headings |
 | `src/selection.rs` | Applies selection changes to a list's rows, and picks the rows a menu acts on |
 | `ui/cover-picker.slint` | `CoverSearch` global and `CoverPicker`: "Find cover online" and the covers to pick from |
 | `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
@@ -99,8 +100,12 @@ subtext1 and overlay2 instead.
 | Titles, artists and albums of the playing track are links, underlined on hover | People expect to go from what plays to where it comes from; the underline marks a link without adding colour |
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
-| Content column capped at 720 px | Keeps a setting's label and its control within one glance on wide windows |
+| Content column capped at 720 px, except track lists and the songs table | Keeps a setting's label and its control within one glance on wide windows. Track lists span the page: the owner found half a wide window left empty beside them unfinished (2026-10-18) |
 | Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Playlists, Songs, Folders, Settings, About), then the playlists by name |
+| The sidebar's sections in three groups: Search; Albums to Folders; Settings and About | The owner's request (2026-10-18): Search and the app's own pages are not views of the library. A gap with a faint line sets the groups apart, the order stays; the page marker adds the gaps above its section |
+| A sidebar section always opens on its grid | The owner's request (2026-10-18): the album, artist or playlist last open is not where someone choosing Albums means to go |
+| A click selects a track; the play button in the number's place, a double-click or Enter plays | The owner's request (2026-10-18), as in Spotify and MusicBee: a stray click no longer starts music, and the button keeps playing one click away |
+| Column widths as shares, dragged at the edge between headings | The owner's request (2026-10-18). Shares fit any window width; one setting serves every track list, another the songs table |
 | Folder browser built from the library, files listed by file name | Instant, and it shows the music VCMP knows; the file name comes first because the browser is where badly tagged files are found |
 | Songs table without a track-number column, missing values sorted last | Numbers only mean something within an album, which the Album column already orders; untagged files at the top would hide the library behind them |
 | Search first in the sidebar, the app opening on Albums | Search is the way into every other page, as in most players; Albums is still what people come to see |
@@ -175,7 +180,12 @@ Choosing an album shows `AlbumView` in place of the grid. The grid stays alive, 
 its scroll position and current card survive.
 
 - **Getting back:** the back button, Escape, or the Albums sidebar entry. Focus
-  returns to the album's card.
+  returns to the album's card. The sidebar entry opens the grid from any section,
+  not the album last open (the same for Artists and Playlists).
+- **A renamed album:** when its title or album artist changes (the tag editor, or
+  another program and the watcher), the page follows its tracks to the album most
+  of them now make up (`LibraryView::reload`). It says the album is gone only when
+  its tracks are.
 - **Discs:** a "Disc n" heading appears above each disc only when the album has
   more than one.
 - **Track artist:** shown only where it differs from the album artist, as on a
@@ -270,9 +280,10 @@ shown, because the page itself stays alive while hidden.
   - **Choose picture** opens the system's file dialog for images. A file that can't
     be read as a picture leaves the picture as it was and says so on the page.
 - **Entries** are numbered by position. One whose file is gone is dimmed and says
-  "File not found" where the artist would be. Play, Shuffle and a click play the
-  entries that are there, as one context (`playlist:<id>`, named in the queue
-  panel); a click on a missing entry plays from the next one that is there.
+  "File not found" where the artist would be. Play, Shuffle and playing an entry
+  (its play button, a double-click or Enter) play the entries that are there, as
+  one context (`playlist:<id>`, named in the queue panel); playing a missing entry
+  plays from the next one that is there.
 - **Editing:** a playlist's `TrackList` adds Move up, Move down and Remove from
   playlist to its track menu, and Alt+Up, Alt+Down and Delete to its keys. A row
   can also be dragged: past 6 px of movement the press becomes a drag, an accent
@@ -358,9 +369,13 @@ shown, because the page itself stays alive while hidden.
 Every track list (album, artist, search, folder and playlist pages) and the songs
 table can select several tracks for the track menu.
 
-- **Mouse:** Ctrl+click (Cmd+click on macOS) adds or takes away a track; Shift+click
-  selects the tracks from the last one clicked. A plain click still plays, and
-  clears the selection.
+- **Mouse:** a click selects that track alone; Ctrl+click (Cmd+click on macOS) adds
+  or takes away a track; Shift+click selects the tracks from the last one clicked.
+  Playing is separate: under the pointer the track number turns into a play button
+  (a play cell starts each row of the songs table), and a click on it, or a
+  double-click anywhere on the row, plays from that track. With Ctrl or Shift held,
+  a click on the button selects instead. The playing track keeps its play mark in
+  the accent. Assistive technology's default action on a row plays it.
 - **Keyboard:** Shift with Up/Down, Home/End (and Page Up/Down in the songs table)
   selects as the current track moves; Ctrl+Space adds or takes away the current
   track; Ctrl+A selects all; Escape clears, and only a second Escape goes back. The
@@ -382,6 +397,26 @@ table can select several tracks for the track menu.
   selected rows when that row is one of them; Add to playlist and Edit tags go
   through the `TrackSelection` and `SongSelection` globals by file path.
 
+## Table columns
+
+- **Resizing:** the edge between two column headings (`ColumnEdge`,
+  `ui/columns.slint`) moves room from one column to the other: dragged, or with
+  Left and Right while it has the focus (a fiftieth of the two columns' room per
+  press). A double-click shares the room evenly. Each column keeps at least 64 px.
+  The edge is a faint line that turns strong while pointed at, dragged or focused,
+  with the resize cursor; assistive technology hears a slider named after the
+  column before it, with its share in percent.
+- **Widths** are shares of the room the resizable columns have together
+  (`ColumnWidths`), so they fit any window. The text columns have no minimum width
+  of their own (`min-width: 0`), so a column's width follows its share exactly and
+  the rows line up under the headings. The drag is measured in window coordinates,
+  as the edge moves with it.
+- **One setting per kind of table:** every track list shares the title and the
+  column beside it; the songs table has title, artist and album. They are saved in
+  the library's settings when a drag or key press ends (`ui.track_columns`,
+  `ui.song_columns`, numbers separated by spaces) and read at start
+  (`src/preferences.rs`); anything else saved there is ignored.
+
 ## Search
 
 - **The Search page** is first in the sidebar; Ctrl+F (Cmd+F on macOS) opens it
@@ -398,12 +433,16 @@ table can select several tracks for the track menu.
   its back button (or Escape) returns to Search, where the results are still
   shown. Opening something from those pages' own grids goes back to the grid as
   before.
-- **Tracks:** a click or Enter plays the found tracks from that one (the queue
-  panel says "Next from your search"); the track menu offers Play now, Play next
-  and Add to queue.
+- **Tracks:** playing one (its play button, a double-click or Enter) plays the
+  found tracks from there (the queue panel says "Next from your search"); the track
+  menu offers Play now, Play next and Add to queue.
 - **`TrackList`** is the track list on album, artist, folder and playlist pages and
   search: one tab stop, Up/Down, Home/End, Enter, and the Menu key or a right click
-  for the track menu (Play now, Play next, Add to queue, Add to playlist).
+  for the track menu (Play now, Play next, Add to queue, Add to playlist). It spans
+  the page, under a row of headings: #, the title (File on the folders page), the
+  column beside it when the list has one (Artist on a compilation's album page,
+  Album under "Appears on", Artist and album elsewhere, Title and artist for files)
+  and Time. See [Table columns](#table-columns).
 
 ## Page filters
 
@@ -429,8 +468,10 @@ field. Unlike Search, a filter only narrows the page it is on.
   Page Up/Down, Home/End and Enter. The Menu key or a right click opens
   the track menu. Rows are selected as in every track list (see
   [Selecting tracks](#selecting-tracks)).
-- **Playing:** a click or Enter plays every song in the table's order from that one;
-  the queue panel says "Next from all songs".
+- **Playing:** a row's play button, a double-click or Enter plays every song in the
+  table's order from that one; the queue panel says "Next from all songs".
+- **Columns:** the edges between the Title, Artist and Album headings resize those
+  columns (see [Table columns](#table-columns)); Year and Time keep their widths.
 
 ## Folders page
 
@@ -517,7 +558,8 @@ The Albums page tells apart why it is empty:
   back.
 - **On the album page:**
   - Play starts the album; Shuffle turns shuffle on and starts it;
-  - clicking a track, or pressing Enter on it, plays the album from there;
+  - a track's play button (in its number's place under the pointer), a
+    double-click, or Enter on it plays the album from there; a click selects it;
   - the track list is one tab stop (Up/Down, Home/End, Enter);
   - a track's menu (right click, or the Menu key on the current track) offers Play
     now, Play next (front of Up next) and Add to queue (end of Up next);
