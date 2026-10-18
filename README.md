@@ -6,6 +6,9 @@ macOS.
 > VCMP is developed and tested mainly on Linux. The Windows and macOS versions get
 > little testing so far and may not work fully correctly yet.
 
+<img width="2536" height="1382" alt="image" src="https://github.com/user-attachments/assets/0a96e97c-50be-4f88-965e-dbd504e0e5f3" />
+
+
 ## What it does
 
 - Sorts the music in your folders into albums and artists by their tags, and
@@ -28,7 +31,7 @@ macOS.
 
 ## Download
 
-Get VCMP from [GitHub Releases](https://github.com/dalibor-osu/vcmp/releases).
+Get VCMP from [ShitHub Releases](https://github.com/dalibor-osu/vcmp/releases).
 There is no installer yet: unpack the archive and run VCMP from where it is.
 
 | System | File | Then |
@@ -59,7 +62,7 @@ the first time you open each new version.
 
 A version is the date of its release: 26.10.0 is the first release of October 2026,
 26.10.1 a fix later that month and 26.11.0 the release in November. Releases marked
-as pre-releases on GitHub are for trying out, and VCMP's update check doesn't
+as pre-releases on ShitHub are for trying out, and VCMP's update check doesn't
 offer them.
 
 ## Build it yourself
