@@ -71,15 +71,31 @@ reading the code or with a simulated system, so they are the most likely to fail
       Linux with a sound server, sound returns to it within half a second
       **(never seen working with a real device)**; elsewhere, choose it again.
 
-### Selecting tracks
+### Selecting and playing tracks
 
+- [ ] A click selects a track and plays nothing. Under the pointer the track's
+      number turns into a play button, which plays from that track; so does a
+      double-click.
 - [ ] On an album page, Ctrl+click (Cmd+click) several tracks, then Shift+click:
-      the selection shows, and a plain click plays and clears it.
+      the selection shows, and a plain click leaves only that track selected.
 - [ ] Keyboard: Shift+Up/Down, Shift+Home/End, Ctrl+A (Cmd+A), Ctrl+Space toggles
       one track, Escape clears, a second Escape goes back.
 - [ ] The menu of a selected track says how many are selected, and Play next, Add
       to queue, Add to playlist and Edit tags take all of them.
-- [ ] The same in the Songs table, and Remove from playlist on a playlist page.
+- [ ] The same in the Songs table (its play button is at the start of each row),
+      and Remove from playlist on a playlist page.
+
+### Track list columns
+
+- [ ] In a wide window, album, artist, playlist, search and folder track lists
+      reach the page's right edge.
+- [ ] Drag the edge between the Title heading and the one beside it: both columns
+      follow the pointer, and neither gets narrower than about 64 px. A
+      double-click on the edge shares the room evenly. The Songs table has two
+      edges, between Title, Artist and Album.
+- [ ] Tab to an edge and move it with Left and Right; a screen reader names it as
+      a slider ("Width of the Title column").
+- [ ] Restart VCMP: the widths you set are kept.
 
 ### Tag editor (copies only)
 
@@ -88,6 +104,8 @@ reading the code or with a simulated system, so they are the most likely to fail
       show the new tags.
 - [ ] A field that differs between tracks shows "Several values" and keeps the
       values unless you type one.
+- [ ] Rename the album whose page is open (its title or album artist): the page
+      shows it under its new name, not as "no longer in your library".
 - [ ] Save an album or a selection: the editor first lists the number of files and
       each changed field, and writes only after "Write N files". A second Enter,
       Back and Escape return to the form with your values; one track still writes
@@ -127,6 +145,10 @@ reading the code or with a simulated system, so they are the most likely to fail
       "Instant"). **(never seen working on Windows, macOS or KDE)**
 - [ ] Tab reaches every control in order and focus rings show only after a key
       press; a click hides them.
+- [ ] The sidebar has three groups, set apart by a gap and a line: Search; Albums
+      to Folders; Settings and About. The page marker sits on the section shown.
+- [ ] With an album, artist or playlist open, go to another section and back by
+      its sidebar entry: the section opens on its grid.
 - [ ] Make the window as short as it goes: the sidebar scrolls and the focused
       entry stays in view.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the

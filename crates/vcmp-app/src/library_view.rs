@@ -4,11 +4,12 @@
 //! All of them are reloaded after every library change.
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
-use slint::{ComponentHandle, Image, ModelRc, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Image, Model, ModelRc, Timer, TimerMode, VecModel};
 use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Playlist, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
@@ -297,8 +298,9 @@ impl LibraryView {
     }
 
     /// Reads the albums again after the library changed: the grid, and the album
-    /// page when one is open. An album that disappeared stays on screen, marked as
-    /// gone, until the user leaves it.
+    /// page when one is open. When the open album's title or album artist changed,
+    /// the page follows its tracks to the album they now make up. An album that
+    /// disappeared stays on screen, marked as gone, until the user leaves it.
     pub fn reload(&self) {
         let albums = match self.library.albums() {
             Ok(albums) => albums,
@@ -325,8 +327,12 @@ impl LibraryView {
         let open = self.open.borrow().clone();
         let album_open = window.get_album_open() || window.get_artist_album_open();
         if let (true, Some(open)) = (album_open, open) {
-            match albums.into_iter().find(|album| album.id == open.id) {
-                Some(album) => show_album(&window, &self.library, &album),
+            let found = albums.iter().find(|album| album.id == open.id).cloned();
+            match found.or_else(|| self.renamed_album(&window, &albums)) {
+                Some(album) => {
+                    show_album(&window, &self.library, &album);
+                    *self.open.borrow_mut() = Some(album);
+                }
                 None => {
                     let mut detail = window.get_album_detail();
                     detail.missing = true;
@@ -335,6 +341,36 @@ impl LibraryView {
                 }
             }
         }
+    }
+
+    /// The album most of the open album page's tracks belong to now, after a change
+    /// to their album title or album artist made them another album.
+    fn renamed_album(&self, window: &AppWindow, albums: &[Album]) -> Option<Album> {
+        let shown: HashSet<String> = window
+            .get_album_tracks()
+            .iter()
+            .map(|row| row.path.to_string())
+            .collect();
+        if shown.is_empty() {
+            return None;
+        }
+        let tracks = self
+            .library
+            .tracks()
+            .inspect_err(|error| log::error!("could not read the tracks: {error}"))
+            .ok()?;
+        let mut counts: HashMap<AlbumId, usize> = HashMap::new();
+        for track in tracks {
+            if let Some(album) = track.album_id
+                && shown.contains(track.path.to_string_lossy().as_ref())
+            {
+                *counts.entry(album).or_default() += 1;
+            }
+        }
+        let (id, _) = counts
+            .into_iter()
+            .max_by_key(|(id, count)| (*count, id.0))?;
+        albums.iter().find(|album| album.id == id).cloned()
     }
 
     /// The artist the artist page shows, while it is open, with everything by them.
@@ -894,6 +930,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
         initial: initial(&album.title).into(),
         failed,
         missing: false,
+        track_artists: rows.iter().any(|row| !row.artist.is_empty()),
     });
     window.set_album_tracks(ModelRc::new(VecModel::from(rows)));
     window.set_album_multi_disc(discs.len() > 1);

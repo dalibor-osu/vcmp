@@ -12,10 +12,12 @@ use std::time::Duration;
 use common::{Song, add};
 use i_slint_backend_testing::{AccessibleRole, ElementHandle, ElementRoot, mock_elapsed_time};
 use slint::platform::{Key, WindowEvent};
-use slint::{ComponentHandle, LogicalSize, Model, ModelRc, SharedString, VecModel};
+use slint::{
+    ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc, SharedString, VecModel,
+};
 use vcmp_app::library_view::{LibraryView, SETTING_SONGS_SORT};
 use vcmp_app::player_service::{PlayerControl, PlayerService};
-use vcmp_app::{AppWindow, Page, SongColumn, SongRow};
+use vcmp_app::{AppWindow, ColumnWidths, Page, SongColumn, SongRow, preferences};
 use vcmp_library::Library;
 use vcmp_playback::Command;
 
@@ -268,4 +270,93 @@ fn the_filter_keeps_songs_with_every_word_after_a_pause() {
     mock_elapsed_time(vcmp_app::library_view::SEARCH_DELAY);
     assert!(app.titles().is_empty());
     find(&app.window, AccessibleRole::Text, "No songs match “zzz”.");
+}
+
+#[test]
+fn the_edges_between_columns_resize_them_and_the_widths_are_kept() {
+    let app = start();
+    preferences::connect(&app.window, app.library.clone()).unwrap();
+    app.show();
+    // A heading's label says whether its column sorts.
+    let width = |name: &str| {
+        let unsorted = format!("Sort by {name}");
+        let sorted = format!("{name}, sorted");
+        ElementHandle::find_by_accessible_label(&app.window, &unsorted)
+            .chain(ElementHandle::find_by_accessible_label(
+                &app.window,
+                &sorted,
+            ))
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Button))
+            .unwrap_or_else(|| panic!("no {name} heading"))
+            .size()
+            .width
+    };
+    let (title, artist, album) = (width("Title"), width("Artist"), width("Album"));
+
+    // The edge after Title, dragged 60 px to the right, then on past where Artist
+    // would be narrower than its least width.
+    let edge = find(
+        &app.window,
+        AccessibleRole::Slider,
+        "Width of the Title column",
+    );
+    let drag = |by: f32| {
+        let window = app.window.window();
+        let button = slint::platform::PointerEventButton::Left;
+        let (position, size) = (edge.absolute_position(), edge.size());
+        let from = LogicalPosition::new(
+            position.x + size.width / 2.0,
+            position.y + size.height / 2.0,
+        );
+        window.dispatch_event(WindowEvent::PointerMoved { position: from });
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position: from,
+            button,
+        });
+        for step in 1..=4 {
+            let position = LogicalPosition::new(from.x + by * step as f32 / 4.0, from.y);
+            window.dispatch_event(WindowEvent::PointerMoved { position });
+        }
+        let to = LogicalPosition::new(from.x + by, from.y);
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position: to,
+            button,
+        });
+    };
+    drag(60.0);
+    assert!((width("Title") - (title + 60.0)).abs() < 1.0, "Title grew");
+    assert!(
+        (width("Artist") - (artist - 60.0)).abs() < 1.0,
+        "Artist gave the room"
+    );
+    assert!((width("Album") - album).abs() < 1.0, "Album kept its width");
+    drag(200.0);
+    assert!(
+        (width("Artist") - 64.0).abs() < 1.0,
+        "Artist keeps its least width"
+    );
+    assert!((width("Title") + width("Artist") - (title + artist)).abs() < 1.0);
+
+    // From the keyboard, or assistive technology: a step of the two columns' room.
+    let columns = app.window.global::<ColumnWidths>();
+    let before = columns.get_song_artist();
+    find(
+        &app.window,
+        AccessibleRole::Slider,
+        "Width of the Artist column",
+    )
+    .invoke_accessible_increment_action();
+    assert!(columns.get_song_artist() > before);
+
+    // The widths are saved, and come back after a restart.
+    let restarted = vcmp_app::create_window().unwrap();
+    preferences::connect(&restarted, app.library.clone()).unwrap();
+    let kept = restarted.global::<ColumnWidths>();
+    for (now, then) in [
+        (kept.get_song_title(), columns.get_song_title()),
+        (kept.get_song_artist(), columns.get_song_artist()),
+        (kept.get_song_album(), columns.get_song_album()),
+    ] {
+        assert!((now - then).abs() < 1e-4, "{now} came back as {then}");
+    }
 }

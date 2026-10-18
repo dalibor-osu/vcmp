@@ -258,8 +258,8 @@ export component ArtistView {
                 }
 
                 TrackList {
-                    max-width: Theme.content-max-width;
                     label: @tr("Appears on");
+                    detail-heading: @tr("Album");
                     tracks: root.appearances;
                     playing-path: PlayerState.track-path;
                     play(index) => {

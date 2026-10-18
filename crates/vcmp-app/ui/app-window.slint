@@ -23,6 +23,7 @@ import { SidebarUpdateNote, UpdateState } from "updates.slint";
 import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint";
 import { PhotoPicker, PhotoSearch, PhotoSearchStatus } from "photo-picker.slint";
 import { TagChange, TagEditorState, TagEditorStatus, TagEditorView, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues } from "tag-editor.slint";
+import { ColumnWidths } from "columns.slint";
 
 export { LastfmProblem, LastfmState, LastfmStatus }
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
@@ -30,6 +31,7 @@ export { CoverSearch, CoverSearchStatus, PhotoSearch, PhotoSearchStatus }
 export { TagChange, TagEditorState, TagEditorStatus, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues }
 export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow, SongSelection }
 export { SelectionChange }
+export { ColumnWidths }
 export { UpdateState }
 export { TrackSelection }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
@@ -39,6 +41,9 @@ export enum Page { search, albums, artists, playlists, songs, folders, settings,
 struct NavEntry {
     page: Page,
     label: string,
+    // The sidebar groups its sections: Search, then the library, then the app's own
+    // pages. Numbered in order, from 0.
+    group: int,
 }
 
 export component AppWindow inherits Window {
@@ -146,14 +151,14 @@ export component AppWindow inherits Window {
     out property <Page> current-page: root.nav[root.selected-index].page;
 
     private property <[NavEntry]> nav: [
-        { page: Page.search, label: @tr("Search") },
-        { page: Page.albums, label: @tr("Albums") },
-        { page: Page.artists, label: @tr("Artists") },
-        { page: Page.playlists, label: @tr("Playlists") },
-        { page: Page.songs, label: @tr("Songs") },
-        { page: Page.folders, label: @tr("Folders") },
-        { page: Page.settings, label: @tr("Settings") },
-        { page: Page.about, label: @tr("About") },
+        { page: Page.search, label: @tr("Search"), group: 0 },
+        { page: Page.albums, label: @tr("Albums"), group: 1 },
+        { page: Page.artists, label: @tr("Artists"), group: 1 },
+        { page: Page.playlists, label: @tr("Playlists"), group: 1 },
+        { page: Page.songs, label: @tr("Songs"), group: 1 },
+        { page: Page.folders, label: @tr("Folders"), group: 1 },
+        { page: Page.settings, label: @tr("Settings"), group: 2 },
+        { page: Page.about, label: @tr("About"), group: 2 },
     ];
     // Opens the playing track's album, or its artist, on their page, from the
     // player bar or the now playing view (which closes).
@@ -203,7 +208,10 @@ export component AppWindow inherits Window {
     private property <length> page-width: pages.width - (root.queue-open && root.width >= 1000px ? root.queue-width : 0px);
     private property <length> marker-height: 20px;
     // The marker's place below the first section; it slides when the page changes.
-    private property <length> marker-offset: root.selected-index * (Theme.target-height + root.nav-spacing) + (Theme.target-height - root.marker-height) / 2;
+    // The room between two groups of sections, with a line across its middle.
+    private property <length> nav-group-gap: Theme.space-l;
+    private property <length> marker-offset: root.selected-index * (Theme.target-height + root.nav-spacing)
+        + root.nav[root.selected-index].group * root.nav-group-gap + (Theme.target-height - root.marker-height) / 2;
     animate marker-offset { duration: Theme.duration-medium; easing: ease-in-out; }
 
     // Scrolls the sidebar so the entry at window y `top` with `height` is in view,
@@ -300,24 +308,39 @@ export component AppWindow inherits Window {
                                     accessible-role: tab-list;
                                     accessible-label: @tr("Sections");
 
-                                    for entry[index] in root.nav: NavItem {
-                                        label: entry.label;
-                                        selected: index == root.selected-index;
-                                        activated => {
-                                            // Choosing Albums or Artists again goes back to the grid.
-                                            if index == root.selected-index && entry.page == Page.albums {
-                                                albums-page.close-album();
+                                    for entry[index] in root.nav: VerticalLayout {
+                                        // The first section of a group has the gap above it.
+                                        if index > 0 && root.nav[index - 1].group != entry.group: Rectangle {
+                                            height: root.nav-group-gap;
+
+                                            Rectangle {
+                                                x: Theme.space-l;
+                                                width: parent.width - 2 * Theme.space-l;
+                                                height: 1px;
+                                                background: Theme.colors.surface;
                                             }
-                                            if index == root.selected-index && entry.page == Page.artists {
-                                                artists-page.show-grid();
-                                            }
-                                            if index == root.selected-index && entry.page == Page.playlists {
-                                                playlists-page.close-playlist();
-                                            }
-                                            root.selected-index = index;
                                         }
-                                        shown-focused(top, height) => {
-                                            root.show-in-sidebar(top, height);
+
+                                        NavItem {
+                                            label: entry.label;
+                                            selected: index == root.selected-index;
+                                            activated => {
+                                                // A section opens on its grid, not on the album, artist or
+                                                // playlist it last showed.
+                                                root.selected-index = index;
+                                                if entry.page == Page.albums && root.album-open {
+                                                    albums-page.close-album();
+                                                }
+                                                if entry.page == Page.artists && (root.artist-open || root.artist-album-open) {
+                                                    artists-page.show-grid();
+                                                }
+                                                if entry.page == Page.playlists && root.playlist-open {
+                                                    playlists-page.close-playlist();
+                                                }
+                                            }
+                                            shown-focused(top, height) => {
+                                                root.show-in-sidebar(top, height);
+                                            }
                                         }
                                     }
                                 }

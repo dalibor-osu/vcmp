@@ -6,6 +6,7 @@ import { CoverSearch } from "cover-picker.slint";
 import { Playlists } from "playlist-state.slint";
 import { TagEditorState } from "tag-editor.slint";
 import { SelectionChange } from "selection.slint";
+import { ColumnEdge, ColumnWidths } from "columns.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -24,6 +25,8 @@ export struct AlbumDetail {
     failed: bool,
     // The album left the library while its page was open.
     missing: bool,
+    // Some track has an artist of its own, so the track list shows an artist column.
+    track-artists: bool,
 }
 
 export struct TrackRow {
@@ -131,17 +134,22 @@ export component BackButton {
     }
 }
 
-// One track of the list. Clicking it plays the album from here; the playing track
-// is marked in the accent.
+// One track of the list. A click selects it; a double-click, or the play button that
+// takes the number's place under the pointer, plays the album from here. The playing
+// track is marked in the accent.
 export component TrackLine {
     in property <TrackRow> track;
     in property <bool> show-disc;
     in property <bool> playing;
+    // The column beside the title (artist, album or both) is shown.
+    in property <bool> detail-column;
     // The keyboard's current track in a focused list.
     in property <bool> focused;
     // A click, and whether it toggles the row's selection (Ctrl, or Cmd on macOS) or
     // selects a range (Shift).
     callback clicked(bool, bool);
+    // Plays from this track: a double-click, the play button, or assistive technology.
+    callback play-requested();
     // Window position of a right click.
     callback menu-requested(length, length);
     // Where the row is, so the list can scroll it into view.
@@ -161,6 +169,8 @@ export component TrackLine {
     // Secondary text turns full strength on a selected row, so it stays readable on
     // the selection's fill.
     private property <color> secondary: root.track.selected ? Theme.colors.text : Theme.colors.text-muted;
+    // The pointer is on the play button, in the number's place.
+    private property <bool> on-play-button: touch.has-hover && touch.mouse-x < number.x + number.width + Theme.space-l / 2;
 
     changed focused => {
         if self.focused {
@@ -188,7 +198,7 @@ export component TrackLine {
             accessible-item-selectable: true;
             accessible-item-selected: root.track.selected || root.focused;
             accessible-action-default => {
-                root.clicked(false, false);
+                root.play-requested();
             }
 
             // A selected row is marked at its edge, as well as filled, so it reads
@@ -206,11 +216,12 @@ export component TrackLine {
                 spacing: Theme.space-l;
                 padding-right: Theme.space-s;
 
-                // The number, or a play mark on the track now playing.
-                Rectangle {
+                // The number; under the pointer a play button takes its place, and the
+                // track now playing has a play mark in the accent.
+                number := Rectangle {
                     width: 32px;
 
-                    if !root.playing: Text {
+                    if !root.playing && !touch.has-hover: Text {
                         width: parent.width;
                         text: root.track.number;
                         color: root.secondary;
@@ -219,20 +230,21 @@ export component TrackLine {
                         vertical-alignment: center;
                         accessible-role: none;
                     }
-                    if root.playing: Icon {
+                    if root.playing || touch.has-hover: Icon {
                         x: parent.width - self.width;
                         width: 14px;
                         height: 14px;
                         glyph: Glyph.play;
-                        tint: Theme.colors.accent;
+                        tint: root.playing ? Theme.colors.accent : Theme.colors.text;
                     }
                 }
 
                 // Zero preferred widths make the columns share space by stretch alone,
-                // so every row's artist column starts at the same x.
+                // so every row's columns start where the list's headings do.
                 Text {
-                    horizontal-stretch: 2;
+                    horizontal-stretch: ColumnWidths.track-title;
                     preferred-width: 0;
+                    min-width: 0;
                     text: root.track.title;
                     color: root.playing ? Theme.colors.accent : root.track.unavailable ? root.secondary : Theme.colors.text;
                     font-size: Theme.font-body;
@@ -243,9 +255,10 @@ export component TrackLine {
                 }
 
                 // A missing file says so in words, not only by its dimmed title.
-                if root.track.artist != "" || root.track.unavailable: Text {
-                    horizontal-stretch: 1;
+                if root.detail-column: Text {
+                    horizontal-stretch: ColumnWidths.track-detail;
                     preferred-width: 0;
+                    min-width: 0;
                     text: root.track.unavailable ? @tr("File not found") : root.track.artist;
                     color: root.secondary;
                     font-size: Theme.font-body;
@@ -266,13 +279,22 @@ export component TrackLine {
             }
 
             touch := TouchArea {
-                mouse-cursor: root.dragging ? MouseCursor.grabbing : MouseCursor.default;
+                mouse-cursor: root.dragging ? MouseCursor.grabbing : root.on-play-button ? MouseCursor.pointer : MouseCursor.default;
                 clicked => {
                     if root.dragged {
                         root.dragged = false;
                     } else {
                         Theme.keyboard-navigation = false;
-                        root.clicked(root.toggle-click, root.range-click);
+                        if root.on-play-button && !root.toggle-click && !root.range-click {
+                            root.play-requested();
+                        } else {
+                            root.clicked(root.toggle-click, root.range-click);
+                        }
+                    }
+                }
+                double-clicked => {
+                    if !root.on-play-button && !root.dragging {
+                        root.play-requested();
                     }
                 }
                 moved => {
@@ -309,16 +331,21 @@ export component TrackLine {
 
 // Tracks as a list that is one tab stop: Up/Down and Home/End move, Enter plays,
 // and the Menu key (or a right click) opens a track's menu: Play now, Play next,
-// Add to queue, Add to playlist, Edit tags. Several tracks can be selected for the
-// menu: Ctrl+click (Cmd on macOS) or Ctrl+Space toggles one, Shift+click or
-// Shift+arrows select a range, Ctrl+A selects all, Escape clears; a plain click
-// plays and clears. A playlist's own list (`editable`) also moves and removes
+// Add to queue, Add to playlist, Edit tags. A click selects a track; a double-click
+// or the play button in the number's place plays from it. Several tracks can be
+// selected for the menu: Ctrl+click (Cmd on macOS) or Ctrl+Space toggles one,
+// Shift+click or Shift+arrows select a range, Ctrl+A selects all, Escape clears.
+// A playlist's own list (`editable`) also moves and removes
 // tracks: from the menu, with Alt+Up/Down, with Delete, and by dragging. The owner
 // scrolls the row reported by `shown-focused` into view, and scrolls while a drag
 // holds the pointer near the view's edge (`dragging`, `drag-y`).
 export component TrackList {
     in property <[TrackRow]> tracks;
     in property <string> label;
+    // The headings of the title column and of the column beside it (artist, album or
+    // both). Without a `detail-heading` the titles have the whole row.
+    in property <string> title-heading: @tr("Title");
+    in property <string> detail-heading;
     // Disc headings above the first track of each disc.
     in property <bool> show-disc;
     // Path of the track now playing, to mark it.
@@ -385,173 +412,244 @@ export component TrackList {
         root.selected-count = 0;
     }
 
-    menu := ContextMenuArea {
-        Menu {
-            // With several tracks, the menu says how many it acts on.
-            if root.selected-count > 1: MenuItem {
-                title: @tr("{n} track selected" | "{n} tracks selected" % root.selected-count);
-                enabled: false;
-            }
-            if root.selected-count > 1: MenuSeparator { }
-            if root.selected-count < 2: MenuItem {
-                title: @tr("Play now");
-                activated => {
-                    root.play(root.current);
-                }
-            }
-            MenuItem {
-                title: @tr("Play next");
-                activated => {
-                    root.queue(root.current, true);
-                }
-            }
-            MenuItem {
-                title: @tr("Add to queue");
-                activated => {
-                    root.queue(root.current, false);
-                }
-            }
-            Menu {
-                title: @tr("Add to playlist");
+    VerticalLayout {
+        // Headings over the columns; the edge between the title and the column beside
+        // it resizes them, for every track list at once.
+        if root.tracks.length > 0: Rectangle {
+            height: Theme.target-height;
 
-                MenuItem {
-                    title: @tr("New playlist");
-                    activated => {
-                        TrackSelection.add-to-playlist(root.tracks, root.current, -1);
-                    }
+            HorizontalLayout {
+                spacing: Theme.space-l;
+                padding-right: Theme.space-s;
+
+                Text {
+                    width: 32px;
+                    text: @tr("#");
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
                 }
-                if Playlists.names.length > 0: MenuSeparator { }
-                for name[index] in Playlists.names: MenuItem {
-                    title: name;
-                    activated => {
-                        TrackSelection.add-to-playlist(root.tracks, root.current, index);
-                    }
+                title-heading := Text {
+                    horizontal-stretch: ColumnWidths.track-title;
+                    preferred-width: 0;
+                    min-width: 0;
+                    text: root.title-heading;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if root.detail-heading != "": Text {
+                    horizontal-stretch: ColumnWidths.track-detail;
+                    preferred-width: 0;
+                    min-width: 0;
+                    text: root.detail-heading;
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Text {
+                    width: 64px;
+                    text: @tr("Time");
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
                 }
             }
-            MenuItem {
-                title: @tr("Edit tags…");
-                activated => {
-                    TrackSelection.edit-tags(root.tracks, root.current);
+
+            if root.detail-heading != "": ColumnEdge {
+                x: title-heading.x + title-heading.width;
+                height: parent.height;
+                label: @tr("Width of the {} column", root.title-heading);
+                first <=> ColumnWidths.track-title;
+                second <=> ColumnWidths.track-detail;
+                first-width: title-heading.width;
+                resized => {
+                    ColumnWidths.save();
                 }
             }
-            if root.editable: MenuSeparator { }
-            if root.editable && root.selected-count < 2 && root.current > 0: MenuItem {
-                title: @tr("Move up");
-                activated => {
-                    root.move-current(-1);
-                }
-            }
-            if root.editable && root.selected-count < 2 && root.current < root.tracks.length - 1: MenuItem {
-                title: @tr("Move down");
-                activated => {
-                    root.move-current(1);
-                }
-            }
-            if root.editable: MenuItem {
-                title: @tr("Remove from playlist");
-                activated => {
-                    root.remove(root.current);
-                }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.colors.surface;
             }
         }
 
-        list := FocusScope {
-            focus-on-click: false;
-            focus-on-tab-navigation: root.tracks.length > 0;
-            focus-gained(reason) => {
-                if reason == FocusReason.tab-navigation {
-                    Theme.keyboard-navigation = true;
+        menu := ContextMenuArea {
+            Menu {
+                // With several tracks, the menu says how many it acts on.
+                if root.selected-count > 1: MenuItem {
+                    title: @tr("{n} track selected" | "{n} tracks selected" % root.selected-count);
+                    enabled: false;
                 }
-            }
-            key-pressed(event) => {
-                if root.editable && event.modifiers.alt && event.text == Key.UpArrow {
-                    root.move-current(-1);
-                } else if root.editable && event.modifiers.alt && event.text == Key.DownArrow {
-                    root.move-current(1);
-                } else if root.editable && event.text == Key.Delete {
-                    root.remove(root.current);
-                } else if event.text == Key.DownArrow {
-                    root.go-to(root.current + 1, event.modifiers.shift);
-                } else if event.text == Key.UpArrow {
-                    root.go-to(root.current - 1, event.modifiers.shift);
-                } else if event.text == Key.Home {
-                    root.go-to(0, event.modifiers.shift);
-                } else if event.text == Key.End {
-                    root.go-to(root.tracks.length - 1, event.modifiers.shift);
-                } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A") {
-                    root.select(0, SelectionChange.all);
-                } else if event.modifiers.control && event.text == Key.Space {
-                    root.anchor = root.current;
-                    root.select(root.current, SelectionChange.toggle);
-                } else if event.text == Key.Escape && root.selected-count > 0 {
-                    root.select(0, SelectionChange.none);
-                } else if event.text == Key.Return || event.text == Key.Space {
-                    root.play(root.current);
-                } else {
-                    return reject;
+                if root.selected-count > 1: MenuSeparator { }
+                if root.selected-count < 2: MenuItem {
+                    title: @tr("Play now");
+                    activated => {
+                        root.play(root.current);
+                    }
                 }
-                accept
-            }
+                MenuItem {
+                    title: @tr("Play next");
+                    activated => {
+                        root.queue(root.current, true);
+                    }
+                }
+                MenuItem {
+                    title: @tr("Add to queue");
+                    activated => {
+                        root.queue(root.current, false);
+                    }
+                }
+                Menu {
+                    title: @tr("Add to playlist");
 
-            VerticalLayout {
-                accessible-role: AccessibleRole.list;
-                accessible-label: root.label;
-
-                for track[index] in root.tracks: TrackLine {
-                    track: track;
-                    show-disc: root.show-disc;
-                    playing: track.path == root.playing-path;
-                    focused: list.has-focus && index == root.current;
-                    draggable: root.editable;
-                    drag-moved(y, height) => {
-                        root.drag-row-height = height;
-                        root.drag-y = y;
-                        if root.drag-from < 0 {
-                            root.drag-from = index;
-                            root.current = index;
+                    MenuItem {
+                        title: @tr("New playlist");
+                        activated => {
+                            TrackSelection.add-to-playlist(root.tracks, root.current, -1);
                         }
                     }
-                    drag-ended => {
-                        let to = root.drag-to;
-                        if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
-                            root.reorder(root.drag-from, to);
-                            root.current = to;
+                    if Playlists.names.length > 0: MenuSeparator { }
+                    for name[index] in Playlists.names: MenuItem {
+                        title: name;
+                        activated => {
+                            TrackSelection.add-to-playlist(root.tracks, root.current, index);
                         }
-                        root.drag-from = -1;
                     }
-                    clicked(toggle, range) => {
-                        root.current = index;
-                        if range {
-                            root.select(index, SelectionChange.range);
-                        } else if toggle {
-                            root.anchor = index;
-                            root.select(index, SelectionChange.toggle);
-                        } else {
-                            if root.selected-count > 0 {
-                                root.select(index, SelectionChange.none);
+                }
+                MenuItem {
+                    title: @tr("Edit tags…");
+                    activated => {
+                        TrackSelection.edit-tags(root.tracks, root.current);
+                    }
+                }
+                if root.editable: MenuSeparator { }
+                if root.editable && root.selected-count < 2 && root.current > 0: MenuItem {
+                    title: @tr("Move up");
+                    activated => {
+                        root.move-current(-1);
+                    }
+                }
+                if root.editable && root.selected-count < 2 && root.current < root.tracks.length - 1: MenuItem {
+                    title: @tr("Move down");
+                    activated => {
+                        root.move-current(1);
+                    }
+                }
+                if root.editable: MenuItem {
+                    title: @tr("Remove from playlist");
+                    activated => {
+                        root.remove(root.current);
+                    }
+                }
+            }
+
+            list := FocusScope {
+                focus-on-click: false;
+                focus-on-tab-navigation: root.tracks.length > 0;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        Theme.keyboard-navigation = true;
+                    }
+                }
+                key-pressed(event) => {
+                    if root.editable && event.modifiers.alt && event.text == Key.UpArrow {
+                        root.move-current(-1);
+                    } else if root.editable && event.modifiers.alt && event.text == Key.DownArrow {
+                        root.move-current(1);
+                    } else if root.editable && event.text == Key.Delete {
+                        root.remove(root.current);
+                    } else if event.text == Key.DownArrow {
+                        root.go-to(root.current + 1, event.modifiers.shift);
+                    } else if event.text == Key.UpArrow {
+                        root.go-to(root.current - 1, event.modifiers.shift);
+                    } else if event.text == Key.Home {
+                        root.go-to(0, event.modifiers.shift);
+                    } else if event.text == Key.End {
+                        root.go-to(root.tracks.length - 1, event.modifiers.shift);
+                    } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A") {
+                        root.select(0, SelectionChange.all);
+                    } else if event.modifiers.control && event.text == Key.Space {
+                        root.anchor = root.current;
+                        root.select(root.current, SelectionChange.toggle);
+                    } else if event.text == Key.Escape && root.selected-count > 0 {
+                        root.select(0, SelectionChange.none);
+                    } else if event.text == Key.Return || event.text == Key.Space {
+                        root.play(root.current);
+                    } else {
+                        return reject;
+                    }
+                    accept
+                }
+
+                VerticalLayout {
+                    accessible-role: AccessibleRole.list;
+                    accessible-label: root.label;
+
+                    for track[index] in root.tracks: TrackLine {
+                        track: track;
+                        show-disc: root.show-disc;
+                        detail-column: root.detail-heading != "";
+                        playing: track.path == root.playing-path;
+                        focused: list.has-focus && index == root.current;
+                        draggable: root.editable;
+                        drag-moved(y, height) => {
+                            root.drag-row-height = height;
+                            root.drag-y = y;
+                            if root.drag-from < 0 {
+                                root.drag-from = index;
+                                root.current = index;
                             }
-                            root.anchor = index;
+                        }
+                        drag-ended => {
+                            let to = root.drag-to;
+                            if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
+                                root.reorder(root.drag-from, to);
+                                root.current = to;
+                            }
+                            root.drag-from = -1;
+                        }
+                        clicked(toggle, range) => {
+                            root.current = index;
+                            if range {
+                                root.select(index, SelectionChange.range);
+                            } else if toggle {
+                                root.anchor = index;
+                                root.select(index, SelectionChange.toggle);
+                            } else {
+                                // This track alone: a range from it to itself.
+                                root.anchor = index;
+                                root.select(index, SelectionChange.range);
+                            }
+                        }
+                        play-requested => {
+                            root.current = index;
                             root.play(index);
                         }
-                    }
-                    menu-requested(x, y) => {
-                        root.show-menu(index, x, y);
-                    }
-                    shown-focused(top, height) => {
-                        root.shown-focused(top, height);
+                        menu-requested(x, y) => {
+                            root.show-menu(index, x, y);
+                        }
+                        shown-focused(top, height) => {
+                            root.shown-focused(top, height);
+                        }
                     }
                 }
-            }
 
-            // Where a dragged row would land: a line above the row it would take the
-            // place of, or below it when moving down.
-            if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
-                x: 0;
-                y: (root.drag-to > root.drag-from ? root.drag-to + 1 : root.drag-to) * root.drag-row-height - 1px;
-                width: parent.width;
-                height: 2px;
-                border-radius: 1px;
-                background: Theme.colors.accent;
+                // Where a dragged row would land: a line above the row it would take the
+                // place of, or below it when moving down.
+                if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
+                    x: 0;
+                    y: (root.drag-to > root.drag-from ? root.drag-to + 1 : root.drag-to) * root.drag-row-height - 1px;
+                    width: parent.width;
+                    height: 2px;
+                    border-radius: 1px;
+                    background: Theme.colors.accent;
+                }
             }
         }
     }
@@ -844,8 +942,8 @@ export component AlbumView {
                 }
 
                 TrackList {
-                    max-width: Theme.content-max-width;
                     label: @tr("Tracks");
+                    detail-heading: root.album.track-artists ? @tr("Artist") : "";
                     tracks: root.tracks;
                     show-disc: root.multi-disc;
                     playing-path: root.playing-path;

@@ -1,6 +1,7 @@
 //! Appearance preferences kept in the library database's settings table: the theme,
-//! reduced motion, whether the queue panel is open, and which artists the Artists
-//! page lists. Also hands the operating system's reduce-motion setting to the theme.
+//! reduced motion, whether the queue panel is open, which artists the Artists page
+//! lists, and the column widths of the track lists and the songs table. Also hands
+//! the operating system's reduce-motion setting to the theme.
 
 use std::rc::Rc;
 
@@ -8,13 +9,17 @@ use slint::ComponentHandle;
 use vcmp_integrations::reduce_motion;
 use vcmp_library::Library;
 
-use crate::{AppWindow, ReduceMotion, Theme, ThemeMode};
+use crate::{AppWindow, ColumnWidths, ReduceMotion, Theme, ThemeMode};
 
 pub const THEME: &str = "ui.theme";
 /// "system", "on" or "off"; see `parse_motion` for the older "true" and "false".
 pub const REDUCED_MOTION: &str = "ui.reduced_motion";
 pub const QUEUE_OPEN: &str = "ui.queue_open";
 pub const ARTISTS_ALL: &str = "ui.artists_all";
+/// The track lists' column shares: title, then the column beside it.
+pub const TRACK_COLUMNS: &str = "ui.track_columns";
+/// The songs table's column shares: title, artist, album.
+pub const SONG_COLUMNS: &str = "ui.song_columns";
 
 /// Applies the saved preferences, then saves them whenever the user changes them.
 pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<()> {
@@ -36,6 +41,40 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
         window.set_artists_show_all(true);
         window.invoke_artists_filter_changed();
     }
+    let columns = window.global::<ColumnWidths>();
+    if let Some([title, detail]) = library.setting(TRACK_COLUMNS)?.as_deref().and_then(shares) {
+        columns.set_track_title(title);
+        columns.set_track_detail(detail);
+    }
+    if let Some([title, artist, album]) = library.setting(SONG_COLUMNS)?.as_deref().and_then(shares)
+    {
+        columns.set_song_title(title);
+        columns.set_song_artist(artist);
+        columns.set_song_album(album);
+    }
+    let weak = window.as_weak();
+    let saving = library.clone();
+    columns.on_save(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let columns = window.global::<ColumnWidths>();
+        let tracks = format!(
+            "{} {}",
+            columns.get_track_title(),
+            columns.get_track_detail()
+        );
+        let songs = format!(
+            "{} {} {}",
+            columns.get_song_title(),
+            columns.get_song_artist(),
+            columns.get_song_album()
+        );
+        let saved = saving
+            .set_setting(TRACK_COLUMNS, &tracks)
+            .and_then(|()| saving.set_setting(SONG_COLUMNS, &songs));
+        if let Err(error) = saved {
+            log::warn!("could not save the column widths: {error}");
+        }
+    });
 
     let weak = window.as_weak();
     theme.on_preferences_changed(move || {
@@ -66,6 +105,21 @@ pub fn follow_system_motion(window: &AppWindow) {
             window.global::<Theme>().set_system_reduces_motion(reduce);
         });
     });
+}
+
+/// Column shares saved as numbers separated by spaces; `None` when there aren't `N`
+/// of them or one isn't a positive number.
+fn shares<const N: usize>(saved: &str) -> Option<[f32; N]> {
+    let values: Vec<f32> = saved
+        .split_whitespace()
+        .map(|value| {
+            value
+                .parse()
+                .ok()
+                .filter(|v: &f32| v.is_finite() && *v > 0.0)
+        })
+        .collect::<Option<_>>()?;
+    values.try_into().ok()
 }
 
 fn mode_name(mode: ThemeMode) -> &'static str {
@@ -108,6 +162,17 @@ fn parse_motion(name: &str) -> Option<ReduceMotion> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn column_shares_are_read_back_or_ignored() {
+        assert_eq!(shares::<2>("0.7 0.3"), Some([0.7, 0.3]));
+        assert_eq!(shares::<3>("0.5 0.25 0.25"), Some([0.5, 0.25, 0.25]));
+        assert_eq!(shares::<2>("0.7"), None, "too few");
+        assert_eq!(shares::<2>("0.5 0.25 0.25"), None, "too many");
+        assert_eq!(shares::<2>("0.7 -1"), None);
+        assert_eq!(shares::<2>("0.7 NaN"), None);
+        assert_eq!(shares::<2>("wide narrow"), None);
+    }
 
     #[test]
     fn motion_choices_survive_saving() {

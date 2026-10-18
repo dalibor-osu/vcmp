@@ -145,12 +145,19 @@ impl App {
     }
 
     fn click(&self, title: &str) {
+        self.click_at(title, |x, width| x + width / 3.0);
+    }
+
+    /// Clicks the row's number, where the play button shows under the pointer.
+    fn click_number(&self, title: &str) {
+        self.click_at(title, |x, _| x + 16.0);
+    }
+
+    fn click_at(&self, title: &str, x: impl Fn(f32, f32) -> f32) {
         let row = self.row(title);
         let (position, size) = (row.absolute_position(), row.size());
-        let position = LogicalPosition::new(
-            position.x + size.width / 3.0,
-            position.y + size.height / 2.0,
-        );
+        let position =
+            LogicalPosition::new(x(position.x, size.width), position.y + size.height / 2.0);
         let window = self.window.window();
         let button = PointerEventButton::Left;
         window.dispatch_event(WindowEvent::PointerMoved { position });
@@ -175,7 +182,7 @@ impl App {
 }
 
 #[test]
-fn ctrl_and_shift_clicks_select_and_a_plain_click_plays() {
+fn clicks_select_and_the_play_button_or_a_double_click_plays() {
     let app = start();
     holding(&app.window, Key::Control, || app.click("Two"));
     holding(&app.window, Key::Control, || app.click("Four"));
@@ -201,11 +208,23 @@ fn ctrl_and_shift_clicks_select_and_a_plain_click_plays() {
     assert_eq!(app.queued(), [1]);
 
     app.click("One");
-    assert!(app.selected().is_empty(), "a plain click clears");
+    assert_eq!(app.selected(), ["One"], "a plain click selects one alone");
+    assert!(app.sent.take().is_empty(), "and plays nothing");
+
+    // The play button in the number's place plays, and so does a double-click.
+    app.click_number("Three");
     assert!(matches!(
         app.sent.take().as_slice(),
-        [Command::PlayContext { .. }]
+        [Command::PlayContext { start: Some(2), .. }]
     ));
+    assert_eq!(app.selected(), ["One"], "the play button selects nothing");
+    app.click("Two");
+    app.click("Two");
+    assert!(matches!(
+        app.sent.take().as_slice(),
+        [Command::PlayContext { start: Some(1), .. }]
+    ));
+    assert_eq!(app.selected(), ["Two"]);
 }
 
 #[test]

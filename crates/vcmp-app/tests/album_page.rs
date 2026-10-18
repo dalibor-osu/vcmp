@@ -234,3 +234,110 @@ fn the_filter_narrows_the_albums() {
     window.invoke_albums_filter_edited("various mix".into());
     assert_eq!(window.get_albums().row_count(), 1, "by artist and title");
 }
+
+#[test]
+fn an_open_album_follows_its_tracks_to_a_new_title() {
+    let (dir, window, browser) = open();
+    card(&window, "Zed Alone, Zed").invoke_accessible_default_action();
+    let music = dir.path().join("music");
+    let mut library = Library::open(
+        &dir.path().join("library.sqlite3"),
+        &dir.path().join("cache"),
+    )
+    .unwrap();
+
+    // The tag editor, or another program, renames the album.
+    add(
+        &music,
+        "d.flac",
+        Song {
+            title: "Solo",
+            artist: "Zed",
+            album: "Zed Together",
+            album_artist: None,
+            track: 1,
+            disc: 1,
+        },
+    );
+    library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+    browser.reload();
+    let detail = window.get_album_detail();
+    assert_eq!(
+        detail.title, "Zed Together",
+        "the page shows the renamed album"
+    );
+    assert!(!detail.missing);
+    assert_eq!(rows(&window).len(), 1);
+    assert!(window.get_album_open());
+
+    // Tracks that are gone leave the page marked as such.
+    std::fs::remove_file(music.join("d.flac")).unwrap();
+    library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+    browser.reload();
+    assert!(window.get_album_detail().missing);
+}
+
+#[test]
+fn a_section_opens_on_its_grid_not_its_last_detail() {
+    let (_dir, window, _browser) = open();
+    let tab = |label: &str| {
+        ElementHandle::find_by_accessible_label(&window, label)
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+            .unwrap_or_else(|| panic!("no tab {label:?}"))
+            .invoke_accessible_default_action();
+    };
+    card(&window, "Zed Alone, Zed").invoke_accessible_default_action();
+    tab("Songs");
+    tab("Albums");
+    assert_eq!(window.get_current_page(), Page::Albums);
+    assert!(!window.get_album_open(), "Albums shows the grid");
+
+    tab("Artists");
+    window.invoke_artist_activated(0);
+    assert!(window.get_artist_open());
+    tab("Search");
+    tab("Artists");
+    assert!(!window.get_artist_open(), "Artists shows the grid");
+}
+
+#[test]
+fn the_page_marker_sits_on_its_section_in_every_group() {
+    let (_dir, window, _browser) = open();
+    for label in ["Search", "Albums", "Folders", "Settings", "About"] {
+        let section = ElementHandle::find_by_accessible_label(&window, label)
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+            .unwrap_or_else(|| panic!("no tab {label:?}"));
+        section.invoke_accessible_default_action();
+        // The marker slides there.
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+        let marker = ElementHandle::find_by_element_id(&window, "AppWindow::marker")
+            .next()
+            .expect("the page marker");
+        let centre = marker.absolute_position().y + marker.size().height / 2.0;
+        let top = section.absolute_position().y;
+        let bottom = top + section.size().height;
+        assert!(
+            (top..bottom).contains(&centre),
+            "{label}: marker at {centre}, section {top}..{bottom}"
+        );
+    }
+}
+
+#[test]
+fn the_track_list_spans_the_page() {
+    let (_dir, window, _browser) = open();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1600.0, 900.0));
+    card(&window, "Summer Mix, Various Artists").invoke_accessible_default_action();
+    let row = ElementHandle::find_by_accessible_label(&window, "Opening, Singer")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+        .expect("a track row");
+    // The sidebar takes 220 px and the page's padding 40 px on each side.
+    let page = 1600.0 - 220.0 - 2.0 * 40.0;
+    assert!(
+        (row.size().width - page).abs() < 2.0,
+        "the row is {} wide, the page {page}",
+        row.size().width
+    );
+}

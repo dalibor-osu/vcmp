@@ -1,0 +1,133 @@
+import { Theme } from "theme.slint";
+import { FocusRing } from "components.slint";
+
+// The widths of the columns the user can resize, as shares of the room those columns
+// have together, so they fit any window. src/preferences.rs loads and saves them.
+export global ColumnWidths {
+    // Track lists (album, artist, playlist, search and folder pages): the title and
+    // the column beside it (artist, album or both).
+    in-out property <float> track-title: 0.6;
+    in-out property <float> track-detail: 0.4;
+    // The songs table: title, artist and album.
+    in-out property <float> song-title: 0.42;
+    in-out property <float> song-artist: 0.29;
+    in-out property <float> song-album: 0.29;
+    // A resize ended, so the widths are saved.
+    callback save();
+}
+
+// The edge between two resizable columns, laid over the gap between their headings.
+// Dragging it, or Left and Right while it has the focus, moves room from one column
+// to the other; a double-click shares the room evenly. `first` and `second` are the
+// two columns' shares, and `first-width` is the first column's width now.
+export component ColumnEdge {
+    in property <string> label;
+    in-out property <float> first;
+    in-out property <float> second;
+    in property <length> first-width;
+    callback resized();
+
+    // A column keeps at least this much room.
+    private property <length> least-width: 64px;
+    // The shares, the first column's width and the pointer's window x when the drag
+    // started. The edge moves with the drag, so the pointer is measured in the window.
+    private property <float> start-first;
+    private property <float> start-second;
+    private property <length> start-width;
+    private property <length> start-x;
+
+    // Gives the first column `share` of the room the two have (`room` long), leaving
+    // each column at least `least-width`.
+    function set-first(share: float, room: length) {
+        let total = root.first + root.second;
+        let least = room > 0 ? min(total / 2, root.least-width / room * total) : total / 2;
+        let first = clamp(share, least, total - least);
+        root.second = total - first;
+        root.first = first;
+    }
+
+    // Moves the edge by `by` fiftieths of the two columns' room.
+    function step(by: float) {
+        let total = root.first + root.second;
+        root.set-first(root.first + by * total / 50, root.first-width * total / root.first);
+        root.resized();
+    }
+
+    width: Theme.space-l;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: round(root.first / (root.first + root.second) * 100);
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-value-step: 2;
+    accessible-action-increment => {
+        root.step(1);
+    }
+    accessible-action-decrement => {
+        root.step(-1);
+    }
+
+    // A faint line marks the edge; it turns strong while pointed at, dragged or
+    // focused.
+    Rectangle {
+        width: touch.has-hover || touch.pressed || focus.has-focus ? 2px : 1px;
+        height: parent.height - 2 * Theme.space-s;
+        border-radius: 1px;
+        background: touch.has-hover || touch.pressed || focus.has-focus ? Theme.colors.text-muted : Theme.colors.surface;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.col-resize;
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                Theme.keyboard-navigation = false;
+                root.start-first = root.first;
+                root.start-second = root.second;
+                root.start-width = root.first-width;
+                root.start-x = self.absolute-position.x + self.mouse-x;
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                root.resized();
+            }
+        }
+        moved => {
+            if self.pressed && root.start-width > 0 && root.start-first > 0 {
+                let total = root.start-first + root.start-second;
+                let room = root.start-width * total / root.start-first;
+                let moved = self.absolute-position.x + self.mouse-x - root.start-x;
+                root.set-first(root.start-first + moved / room * total, room);
+            }
+        }
+        double-clicked => {
+            let total = root.first + root.second;
+            root.set-first(total / 2, root.first-width * total / root.first);
+            root.resized();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                root.step(-1);
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                root.step(1);
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-s;
+    }
+}

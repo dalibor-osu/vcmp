@@ -317,8 +317,9 @@ export component FolderBrowser {
                     }
 
                     TrackList {
-                        max-width: Theme.content-max-width;
                         label: @tr("Files");
+                        title-heading: @tr("File");
+                        detail-heading: @tr("Title and artist");
                         tracks: root.files;
                         playing-path: PlayerState.track-path;
                         play(index) => {

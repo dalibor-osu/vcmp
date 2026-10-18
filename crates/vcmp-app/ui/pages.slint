@@ -902,8 +902,8 @@ export component SearchPage inherits Rectangle {
                     text: @tr("Tracks");
                 }
                 TrackList {
-                    max-width: Theme.content-max-width;
                     label: @tr("Tracks");
+                    detail-heading: @tr("Artist and album");
                     tracks: root.tracks;
                     playing-path: PlayerState.track-path;
                     play(index) => {

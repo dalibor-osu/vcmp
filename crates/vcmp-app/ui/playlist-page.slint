@@ -365,8 +365,8 @@ export component PlaylistView {
                 }
 
                 track-list := TrackList {
-                    max-width: Theme.content-max-width;
                     label: @tr("Tracks");
+                    detail-heading: @tr("Artist and album");
                     tracks: root.tracks;
                     editable: true;
                     playing-path: root.playing-path;

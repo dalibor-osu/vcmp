@@ -5,6 +5,7 @@ import { PlayerState } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
 import { TagEditorState } from "tag-editor.slint";
 import { SelectionChange } from "selection.slint";
+import { ColumnEdge, ColumnWidths } from "columns.slint";
 
 export enum SongColumn { title, artist, album, year, duration }
 
@@ -114,14 +115,23 @@ component ColumnHeader {
 }
 
 // The column widths, shared by the header and the rows so they line up. Zero
-// preferred widths make the text columns share space by stretch alone.
+// preferred widths make the text columns share space by stretch alone, in the
+// shares the user set (`ColumnWidths`).
 component Columns inherits HorizontalLayout {
     spacing: Theme.space-l;
     padding-left: Theme.space-m;
     padding-right: Theme.space-m;
 }
 
-// One row. A right click asks the table for the track's menu.
+// The width of the cell before the title: the play mark, or the play button under
+// the pointer.
+global SongCells {
+    out property <length> play: 16px;
+}
+
+// One row. A click selects it; a double-click, or the play button at its start
+// under the pointer, plays from it. A right click asks the table for the track's
+// menu.
 component SongLine {
     in property <SongRow> song;
     in property <bool> playing;
@@ -129,6 +139,8 @@ component SongLine {
     // A click, and whether it toggles the row's selection (Ctrl, or Cmd on macOS) or
     // selects a range (Shift).
     callback clicked(bool, bool);
+    // Plays from this song: a double-click, the play button, or assistive technology.
+    callback play-requested();
     callback menu-requested(length, length);
 
     // The keys held when the button went down.
@@ -137,6 +149,8 @@ component SongLine {
     // Secondary text turns full strength on a selected row, so it stays readable on
     // the selection's fill.
     private property <color> secondary: root.song.selected ? Theme.colors.text : Theme.colors.text-muted;
+    // The pointer is on the play button at the row's start.
+    private property <bool> on-play-button: touch.has-hover && touch.mouse-x < play-cell.x + play-cell.width + Theme.space-l / 2;
 
     height: Theme.target-height;
     accessible-role: list-item;
@@ -144,7 +158,7 @@ component SongLine {
     accessible-item-selectable: true;
     accessible-item-selected: root.song.selected || root.focused;
     accessible-action-default => {
-        root.clicked(false, false);
+        root.play-requested();
     }
 
     Rectangle {
@@ -164,9 +178,19 @@ component SongLine {
     }
 
     touch := TouchArea {
+        mouse-cursor: root.on-play-button ? MouseCursor.pointer : MouseCursor.default;
         clicked => {
             Theme.keyboard-navigation = false;
-            root.clicked(root.toggle-click, root.range-click);
+            if root.on-play-button && !root.toggle-click && !root.range-click {
+                root.play-requested();
+            } else {
+                root.clicked(root.toggle-click, root.range-click);
+            }
+        }
+        double-clicked => {
+            if !root.on-play-button {
+                root.play-requested();
+            }
         }
         pointer-event(event) => {
             if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
@@ -180,9 +204,20 @@ component SongLine {
     }
 
     Columns {
+        play-cell := Rectangle {
+            width: SongCells.play;
+
+            if root.playing || touch.has-hover: Icon {
+                width: 14px;
+                height: 14px;
+                glyph: Glyph.play;
+                tint: root.playing ? Theme.colors.accent : Theme.colors.text;
+            }
+        }
         Text {
-            horizontal-stretch: 3;
+            horizontal-stretch: ColumnWidths.song-title;
             preferred-width: 0;
+            min-width: 0;
             text: root.song.title;
             color: root.playing ? Theme.colors.accent : Theme.colors.text;
             font-size: Theme.font-body;
@@ -192,8 +227,9 @@ component SongLine {
             accessible-role: none;
         }
         Text {
-            horizontal-stretch: 2;
+            horizontal-stretch: ColumnWidths.song-artist;
             preferred-width: 0;
+            min-width: 0;
             text: root.song.artist;
             color: root.secondary;
             font-size: Theme.font-body;
@@ -202,8 +238,9 @@ component SongLine {
             accessible-role: none;
         }
         Text {
-            horizontal-stretch: 2;
+            horizontal-stretch: ColumnWidths.song-album;
             preferred-width: 0;
+            min-width: 0;
             text: root.song.album;
             color: root.secondary;
             font-size: Theme.font-body;
@@ -304,55 +341,89 @@ export component SongTable {
     VerticalLayout {
         spacing: Theme.space-xs;
 
-        Columns {
-            ColumnHeader {
-                horizontal-stretch: 3;
-                preferred-width: 0;
-                text: @tr("Title");
-                sorted: root.sort-column == SongColumn.title;
-                descending: root.sort-descending;
-                clicked => {
-                    root.sort(SongColumn.title);
+        // The headings sort; the edges between the text columns resize them.
+        Rectangle {
+            min-height: Theme.target-height;
+
+            Columns {
+                Rectangle {
+                    width: SongCells.play;
+                }
+                title-header := ColumnHeader {
+                    horizontal-stretch: ColumnWidths.song-title;
+                    preferred-width: 0;
+                    min-width: 0;
+                    text: @tr("Title");
+                    sorted: root.sort-column == SongColumn.title;
+                    descending: root.sort-descending;
+                    clicked => {
+                        root.sort(SongColumn.title);
+                    }
+                }
+                artist-header := ColumnHeader {
+                    horizontal-stretch: ColumnWidths.song-artist;
+                    preferred-width: 0;
+                    min-width: 0;
+                    text: @tr("Artist");
+                    sorted: root.sort-column == SongColumn.artist;
+                    descending: root.sort-descending;
+                    clicked => {
+                        root.sort(SongColumn.artist);
+                    }
+                }
+                ColumnHeader {
+                    horizontal-stretch: ColumnWidths.song-album;
+                    preferred-width: 0;
+                    min-width: 0;
+                    text: @tr("Album");
+                    sorted: root.sort-column == SongColumn.album;
+                    descending: root.sort-descending;
+                    clicked => {
+                        root.sort(SongColumn.album);
+                    }
+                }
+                ColumnHeader {
+                    width: 56px;
+                    text: @tr("Year");
+                    right-aligned: true;
+                    sorted: root.sort-column == SongColumn.year;
+                    descending: root.sort-descending;
+                    clicked => {
+                        root.sort(SongColumn.year);
+                    }
+                }
+                ColumnHeader {
+                    width: 64px;
+                    text: @tr("Time");
+                    right-aligned: true;
+                    sorted: root.sort-column == SongColumn.duration;
+                    descending: root.sort-descending;
+                    clicked => {
+                        root.sort(SongColumn.duration);
+                    }
                 }
             }
-            ColumnHeader {
-                horizontal-stretch: 2;
-                preferred-width: 0;
-                text: @tr("Artist");
-                sorted: root.sort-column == SongColumn.artist;
-                descending: root.sort-descending;
-                clicked => {
-                    root.sort(SongColumn.artist);
+
+            ColumnEdge {
+                x: title-header.x + title-header.width;
+                height: parent.height;
+                label: @tr("Width of the {} column", @tr("Title"));
+                first <=> ColumnWidths.song-title;
+                second <=> ColumnWidths.song-artist;
+                first-width: title-header.width;
+                resized => {
+                    ColumnWidths.save();
                 }
             }
-            ColumnHeader {
-                horizontal-stretch: 2;
-                preferred-width: 0;
-                text: @tr("Album");
-                sorted: root.sort-column == SongColumn.album;
-                descending: root.sort-descending;
-                clicked => {
-                    root.sort(SongColumn.album);
-                }
-            }
-            ColumnHeader {
-                width: 56px;
-                text: @tr("Year");
-                right-aligned: true;
-                sorted: root.sort-column == SongColumn.year;
-                descending: root.sort-descending;
-                clicked => {
-                    root.sort(SongColumn.year);
-                }
-            }
-            ColumnHeader {
-                width: 64px;
-                text: @tr("Time");
-                right-aligned: true;
-                sorted: root.sort-column == SongColumn.duration;
-                descending: root.sort-descending;
-                clicked => {
-                    root.sort(SongColumn.duration);
+            ColumnEdge {
+                x: artist-header.x + artist-header.width;
+                height: parent.height;
+                label: @tr("Width of the {} column", @tr("Artist"));
+                first <=> ColumnWidths.song-artist;
+                second <=> ColumnWidths.song-album;
+                first-width: artist-header.width;
+                resized => {
+                    ColumnWidths.save();
                 }
             }
         }
@@ -474,12 +545,14 @@ export component SongTable {
                                 root.anchor = self.index;
                                 root.select(self.index, SelectionChange.toggle);
                             } else {
-                                if root.selected-count > 0 {
-                                    root.select(self.index, SelectionChange.none);
-                                }
+                                // This song alone: a range from it to itself.
                                 root.anchor = self.index;
-                                root.play(self.index);
+                                root.select(self.index, SelectionChange.range);
                             }
+                        }
+                        play-requested => {
+                            root.current = self.index;
+                            root.play(self.index);
                         }
                         menu-requested(x, y) => {
                             root.show-menu(self.index, x, y);

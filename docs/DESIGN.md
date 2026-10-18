@@ -50,3 +50,16 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
 - 2026-10-17, R-01 (neon or pastel palettes): kept. The Catppuccin-style pastel
   palette and the subtle neon accent are deliberate brand identity; R-01 still
   limits the dose (neon on 1-2 focal elements per screen).
+
+## Owner requests
+
+- 2026-10-18, track lists: a click selects a track and doesn't play it; hovering a
+  track replaces its number with a play button that plays it. Detail views spread
+  over the whole page width ("half of the page now is empty and it looks weird").
+  The column widths in these tables can be changed.
+- 2026-10-18, sidebar: the order of the sections stays, grouped as Search, then
+  Albums, Artists, Playlists, Songs and Folders, then Settings and About; the
+  playlist list stays as it is. Choosing a section always goes to its full view,
+  not to the detail it last showed.
+- 2026-10-18, an album renamed while its page is open: the page goes to the renamed
+  album instead of showing it as missing.
