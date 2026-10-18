@@ -10,7 +10,8 @@ Read it before changing anything structural.
 - `main` is production: it only receives merged pull requests, and releases are tags
   on `main` (`vYY.MM.PATCH`, a calendar version such as `v26.10.0`; README
   "Versions"). Pushing such a tag runs `.github/workflows/release.yml`, which drafts
-  a GitHub Release with the installers; README "Releases" has the steps.
+  a GitHub Release with an archive of the build per platform; README "Releases" has
+  the steps.
   Pre-releases have no version suffix: they are releases published with GitHub's
   pre-release box ticked.
 - All work happens on `feature/<topic>` branches that merge into `main` through a PR.
@@ -29,7 +30,7 @@ Read it before changing anything structural.
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
-| Packaging | cargo-packager: MSI and NSIS setup exe, dmg, AppImage and .deb (`[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml`, icons in `packaging/icons/`) |
+| Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`. Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
 | License | MIT OR Apache-2.0 |
 
 Workspace layout:

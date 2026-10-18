@@ -227,8 +227,8 @@ reading the code or with a simulated system, so they are the most likely to fail
       devices, without rate converters, mixers or "Discard all samples". Choosing a
       sound card that PipeWire is using shows that it's busy. PipeWire Sound Server
       and System default play.
-- [ ] AppImage and .deb from a release: install, start from the menu, the icon
-      shows in the menu and in the media widget, uninstall. On a system without
+- [ ] The `linux-x64.tar.gz` from a release unpacks and `vcmp` starts, on another
+      distribution than the one it was built for too. On a system without
       PipeWire or PulseAudio (a plain ALSA install, such as a minimal Debian VM),
       sound plays through ALSA. **(never seen working)**
 
@@ -243,7 +243,8 @@ reading the code or with a simulated system, so they are the most likely to fail
       doesn't release it. **(never seen working)**
 - [ ] Last.fm keeps its key in Credential Manager across restarts.
 - [ ] Output device list shows the WASAPI device names.
-- [ ] MSI and the NSIS setup exe install, start, and uninstall cleanly.
+- [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without
+      a console window, after SmartScreen's More info → Run anyway.
 
 ## macOS (never compiled locally)
 
@@ -252,5 +253,6 @@ reading the code or with a simulated system, so they are the most likely to fail
       it; the cover shows. **(never seen working)**
 - [ ] Cmd+click, Cmd+A and Cmd+F work where Ctrl does elsewhere.
 - [ ] Last.fm keeps its key in the Keychain across restarts.
-- [ ] The dmg opens, the app starts (unsigned: right-click, Open), and the icon
-      shows.
+- [ ] The `macos-arm64.zip` (or `macos-x64.zip`) unpacks to `VCMP.app`, which
+      starts after System Settings → Privacy & Security → Open Anyway, and shows
+      its icon.
