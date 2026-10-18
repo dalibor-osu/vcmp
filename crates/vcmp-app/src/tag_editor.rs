@@ -29,9 +29,10 @@ use vcmp_library::{
 
 use crate::library_service::{Delivery, LibraryPaths};
 use crate::library_view::LibraryView;
+use crate::selection;
 use crate::{
-    AppWindow, TagEditorState, TagEditorStatus, TagFailure, TagFailureReason, TagMixed, TagProblem,
-    TagValues,
+    AppWindow, SongSelection, TagEditorState, TagEditorStatus, TagFailure, TagFailureReason,
+    TagMixed, TagProblem, TagValues, TrackSelection,
 };
 
 /// Longest side of the cover preview, in pixels.
@@ -147,6 +148,22 @@ impl TagEditor {
             }
         });
         let weak = Rc::downgrade(&editor);
+        window
+            .global::<TrackSelection>()
+            .on_edit_tags(move |rows, row| {
+                if let Some(editor) = weak.upgrade() {
+                    editor.edit_paths(&selection::chosen_paths(&rows, row));
+                }
+            });
+        let weak = Rc::downgrade(&editor);
+        window
+            .global::<SongSelection>()
+            .on_edit_tags(move |rows, row| {
+                if let Some(editor) = weak.upgrade() {
+                    editor.edit_paths(&selection::chosen_paths(&rows, row));
+                }
+            });
+        let weak = Rc::downgrade(&editor);
         state.on_edit_album(move || {
             if let Some(editor) = weak.upgrade() {
                 editor.edit_album();
@@ -224,8 +241,30 @@ impl TagEditor {
             .flatten()
             .and_then(|id| self.library.track(id).ok().flatten());
         match track {
-            Some(track) => self.open(vec![track]),
+            Some(track) => self.open(vec![track], false),
             None => log::warn!("not in the library, so not editable: {}", path.display()),
+        }
+    }
+
+    /// Opens the editor for the library's tracks with these files, in this order.
+    pub fn edit_paths(&self, paths: &[String]) {
+        let tracks: Vec<Track> = paths
+            .iter()
+            .filter_map(|path| {
+                let track = self
+                    .library
+                    .track_id_for_path(Path::new(path))
+                    .ok()
+                    .flatten()
+                    .and_then(|id| self.library.track(id).ok().flatten());
+                if track.is_none() {
+                    log::warn!("not in the library, so not editable: {path}");
+                }
+                track
+            })
+            .collect();
+        if !tracks.is_empty() {
+            self.open(tracks, false);
         }
     }
 
@@ -235,7 +274,7 @@ impl TagEditor {
             return;
         };
         match self.library.album_tracks(album.id) {
-            Ok(tracks) if !tracks.is_empty() => self.open(tracks),
+            Ok(tracks) if !tracks.is_empty() => self.open(tracks, true),
             Ok(_) => {}
             Err(error) => log::error!("could not read the tracks of {:?}: {error}", album.title),
         }
@@ -256,7 +295,8 @@ impl TagEditor {
         true
     }
 
-    fn open(&self, tracks: Vec<Track>) {
+    /// Opens the editor for `tracks`: the whole album page's album, or a selection.
+    fn open(&self, tracks: Vec<Track>, whole_album: bool) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -309,14 +349,16 @@ impl TagEditor {
         let cover_mixed = covers.iter().any(|cover| cover != &covers[0]);
 
         state.set_track_count(tracks.len() as i32);
+        // Tracks of several albums have no one album to name.
         state.set_subject(
             if single {
                 first.title.clone()
             } else {
-                first.album.clone().unwrap_or_default()
+                album.clone().flatten().unwrap_or_default()
             }
             .into(),
         );
+        state.set_whole_album(whole_album);
         state.set_subject_artist(
             if single {
                 first.artist.clone()

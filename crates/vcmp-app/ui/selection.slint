@@ -1,0 +1,12 @@
+// How a track list's selection changes. The rows hold whether they are selected;
+// Slint can't loop over them, so src/selection.rs applies the change.
+export enum SelectionChange {
+    // Row n in or out of the selection.
+    toggle,
+    // The rows from the anchor to row n, and no others.
+    range,
+    // Every row.
+    all,
+    // No row.
+    none,
+}

@@ -24,7 +24,9 @@ dials come from DESIGN.md).
 | `ui/songs-page.slint` | `SongTable`: every track with sortable columns, only the rows in view created |
 | `ui/folders-page.slint` | `FolderBrowser`: the path back up, the folders and the files of one folder |
 | `src/folders.rs` | `FolderBrowser`: the folder tree built from the library's tracks |
-| `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares |
+| `ui/album-page.slint` | `AlbumView`: one album's cover, details and tracks by disc; `TrackList`, the track list every page shares, and its `TrackSelection` global |
+| `ui/selection.slint` | `SelectionChange`: how a track list's selection changes |
+| `src/selection.rs` | Applies selection changes to a list's rows, and picks the rows a menu acts on |
 | `ui/cover-picker.slint` | `CoverSearch` global and `CoverPicker`: "Find cover online" and the covers to pick from |
 | `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
 | `ui/photo-picker.slint` | `PhotoSearch` global and `PhotoPicker`: an artist's photo, found online or from a file |
@@ -288,8 +290,10 @@ shown, because the page itself stays alive while hidden.
 ## Tag editor
 
 - **Opening it:** "Edit tags…" in every track menu (album, artist, search, folder and
-  playlist lists, and the songs table) edits that track. "Edit tags…" under the
-  cover on an album page edits every track of the album at once.
+  playlist lists, and the songs table) edits that track, or every selected track
+  (see [Selecting tracks](#selecting-tracks)). "Edit tags…" under the cover on an
+  album page edits every track of the album at once. The heading names the album
+  for tracks of one album, or counts the tracks of several.
 - **The form:** the cover, with Choose image… (JPEG or PNG) and Remove cover, then
   Artist, Album, Album artist, Disc, Year and Genre, plus Title and Track for one
   track. The focus starts in the first field.
@@ -325,6 +329,35 @@ shown, because the page itself stays alive while hidden.
   - On Linux and macOS the replace works on an open file, and the engine reads on
     from the old one, so every edit is written at once. Tests turn the waiting on
     with `TagEditor::set_open_files_locked`.
+
+## Selecting tracks
+
+Every track list (album, artist, search, folder and playlist pages) and the songs
+table can select several tracks for the track menu.
+
+- **Mouse:** Ctrl+click (Cmd+click on macOS) adds or takes away a track; Shift+click
+  selects the tracks from the last one clicked. A plain click still plays, and
+  clears the selection.
+- **Keyboard:** Shift with Up/Down, Home/End (and Page Up/Down in the songs table)
+  selects as the current track moves; Ctrl+Space adds or takes away the current
+  track; Ctrl+A selects all; Escape clears, and only a second Escape goes back. The
+  window's Space shortcut leaves Ctrl+Space to the lists.
+- **The menu** acts on every selected track when it opens on one of them, and says
+  how many ("3 tracks selected"): Play next and Add to queue put them into Up next in
+  list order, Add to playlist adds them all, Edit tags… edits them together, and in a
+  playlist Remove from playlist (or Delete) removes them. Play now and Move up/down
+  are for one track and hide. A right click on a track outside the selection clears
+  it first, so the menu acts on that track alone.
+- **Look:** a selected row has the hover fill and a 3 px accent bar at its edge, so
+  it reads apart from the row under the pointer; its secondary text turns full
+  strength, because muted text on that fill would fall under 4.5:1 in the light
+  theme. Assistive technology hears each row as selectable and selected.
+- **Where it lives:** each row model holds `selected`. Slint can't loop over rows,
+  so `src/selection.rs` applies a toggle, range, all or none and returns the count;
+  a new list (another album, a new sort or filter) starts with nothing selected. The
+  queue and remove handlers take the list's model and the menu's row and act on the
+  selected rows when that row is one of them; Add to playlist and Edit tags go
+  through the `TrackSelection` and `SongSelection` globals by file path.
 
 ## Search
 
@@ -371,7 +404,8 @@ field. Unlike Search, a filter only narrows the page it is on.
   startup, and again after library changes once they were loaded.
 - **Keyboard:** the headers are buttons; the rows are one tab stop with Up/Down,
   Page Up/Down, Home/End and Enter. The Menu key or a right click opens
-  the track menu.
+  the track menu. Rows are selected as in every track list (see
+  [Selecting tracks](#selecting-tracks)).
 - **Playing:** a click or Enter plays every song in the table's order from that one;
   the queue panel says "Next from all songs".
 
@@ -672,8 +706,9 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - The tag editor can't empty a field that differs between an album's tracks in one
   go: an empty "Several values" field keeps the values. Type a value, or edit the
   tracks one by one.
-- Batch editing covers an album; other groups of tracks (a playlist, a selection)
-  are edited one track at a time, as lists have no multiple selection yet.
+- A selection lives in one list: tracks from two pages (an album and a search) can't
+  be selected together, and a selection goes when its list is rebuilt (another
+  album, a new sort or filter, a library change).
 - On Windows, an edit to the track the player has open waits until playback stops
   or moves on, also while it is paused. Pause doesn't let go of the file.
 - The waiting and the release were tested on Linux, with the lock simulated

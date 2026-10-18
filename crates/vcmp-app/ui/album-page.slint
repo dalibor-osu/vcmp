@@ -5,6 +5,7 @@ import { Glyph, Icon } from "icons.slint";
 import { CoverSearch } from "cover-picker.slint";
 import { Playlists } from "playlist-state.slint";
 import { TagEditorState } from "tag-editor.slint";
+import { SelectionChange } from "selection.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -40,6 +41,19 @@ export struct TrackRow {
     // A playlist entry whose file is gone (deleted, or on a drive not plugged in).
     // It stays in the list, dimmed, and playback skips it.
     unavailable: bool,
+    // Picked with Ctrl or Shift, so the track menu acts on it with the others.
+    selected: bool,
+}
+
+// The selection in a track list, kept in its rows (src/selection.rs). The menu's
+// actions take the list and the row the menu is for: they act on the selected rows
+// when that row is one of them, or else on that row alone.
+export global TrackSelection {
+    // Changes which rows are selected (n, then the anchor); returns how many are.
+    callback change([TrackRow], int, int, SelectionChange) -> int;
+    // Adds the tracks to playlist n (-1: to a new one).
+    callback add-to-playlist([TrackRow], int, int);
+    callback edit-tags([TrackRow], int);
 }
 
 // Returns to the page before. The chevron points the way back.
@@ -125,7 +139,9 @@ export component TrackLine {
     in property <bool> playing;
     // The keyboard's current track in a focused list.
     in property <bool> focused;
-    callback clicked();
+    // A click, and whether it toggles the row's selection (Ctrl, or Cmd on macOS) or
+    // selects a range (Shift).
+    callback clicked(bool, bool);
     // Window position of a right click.
     callback menu-requested(length, length);
     // Where the row is, so the list can scroll it into view.
@@ -139,6 +155,12 @@ export component TrackLine {
     // The press became a drag, so letting go plays nothing.
     private property <bool> dragging;
     private property <bool> dragged;
+    // The keys held when the button went down.
+    private property <bool> toggle-click;
+    private property <bool> range-click;
+    // Secondary text turns full strength on a selected row, so it stays readable on
+    // the selection's fill.
+    private property <color> secondary: root.track.selected ? Theme.colors.text : Theme.colors.text-muted;
 
     changed focused => {
         if self.focused {
@@ -159,13 +181,25 @@ export component TrackLine {
         row := Rectangle {
             min-height: Theme.target-height;
             border-radius: Theme.radius-m;
-            background: touch.has-hover ? Theme.colors.surface : transparent;
+            background: root.track.selected || touch.has-hover ? Theme.colors.surface : transparent;
             accessible-role: list-item;
             accessible-label: root.track.unavailable ? @tr("{0}, file not found", root.track.title)
                 : root.track.artist == "" ? root.track.title : @tr("{0}, {1}", root.track.title, root.track.artist);
-            accessible-item-selected: root.focused;
+            accessible-item-selectable: true;
+            accessible-item-selected: root.track.selected || root.focused;
             accessible-action-default => {
-                root.clicked();
+                root.clicked(false, false);
+            }
+
+            // A selected row is marked at its edge, as well as filled, so it reads
+            // apart from the row under the pointer.
+            if root.track.selected: Rectangle {
+                x: 0;
+                y: Theme.space-s;
+                width: 3px;
+                height: parent.height - 2 * Theme.space-s;
+                border-radius: Theme.radius-s;
+                background: Theme.colors.accent;
             }
 
             HorizontalLayout {
@@ -179,7 +213,7 @@ export component TrackLine {
                     if !root.playing: Text {
                         width: parent.width;
                         text: root.track.number;
-                        color: Theme.colors.text-muted;
+                        color: root.secondary;
                         font-size: Theme.font-body;
                         horizontal-alignment: right;
                         vertical-alignment: center;
@@ -200,7 +234,7 @@ export component TrackLine {
                     horizontal-stretch: 2;
                     preferred-width: 0;
                     text: root.track.title;
-                    color: root.playing ? Theme.colors.accent : root.track.unavailable ? Theme.colors.text-muted : Theme.colors.text;
+                    color: root.playing ? Theme.colors.accent : root.track.unavailable ? root.secondary : Theme.colors.text;
                     font-size: Theme.font-body;
                     font-weight: root.playing ? Theme.weight-strong : Theme.weight-regular;
                     vertical-alignment: center;
@@ -213,7 +247,7 @@ export component TrackLine {
                     horizontal-stretch: 1;
                     preferred-width: 0;
                     text: root.track.unavailable ? @tr("File not found") : root.track.artist;
-                    color: Theme.colors.text-muted;
+                    color: root.secondary;
                     font-size: Theme.font-body;
                     vertical-alignment: center;
                     overflow: elide;
@@ -223,7 +257,7 @@ export component TrackLine {
                 Text {
                     width: 64px;
                     text: root.track.duration;
-                    color: Theme.colors.text-muted;
+                    color: root.secondary;
                     font-size: Theme.font-body;
                     horizontal-alignment: right;
                     vertical-alignment: center;
@@ -238,7 +272,7 @@ export component TrackLine {
                         root.dragged = false;
                     } else {
                         Theme.keyboard-navigation = false;
-                        root.clicked();
+                        root.clicked(root.toggle-click, root.range-click);
                     }
                 }
                 moved => {
@@ -253,6 +287,8 @@ export component TrackLine {
                     }
                     if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
                         root.dragged = false;
+                        root.toggle-click = event.modifiers.control || event.modifiers.meta;
+                        root.range-click = event.modifiers.shift;
                     }
                     if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && root.dragging {
                         root.dragging = false;
@@ -273,9 +309,12 @@ export component TrackLine {
 
 // Tracks as a list that is one tab stop: Up/Down and Home/End move, Enter plays,
 // and the Menu key (or a right click) opens a track's menu: Play now, Play next,
-// Add to queue, Add to playlist. A playlist's own list (`editable`) also moves and
-// removes tracks: from the menu, with Alt+Up/Down, and with Delete. The owner
-// scrolls the row reported by `shown-focused` into view.
+// Add to queue, Add to playlist, Edit tags. Several tracks can be selected for the
+// menu: Ctrl+click (Cmd on macOS) or Ctrl+Space toggles one, Shift+click or
+// Shift+arrows select a range, Ctrl+A selects all, Escape clears; a plain click
+// plays and clears. A playlist's own list (`editable`) also moves and removes
+// tracks: from the menu, with Alt+Up/Down, and with Delete. The owner scrolls the
+// row reported by `shown-focused` into view.
 export component TrackList {
     in property <[TrackRow]> tracks;
     in property <string> label;
@@ -302,23 +341,53 @@ export component TrackList {
 
     // The keyboard's current track.
     private property <int> current: 0;
+    // Where a Shift range starts, and how many rows are selected.
+    private property <int> anchor: 0;
+    private property <int> selected-count: 0;
+
+    function select(index: int, change: SelectionChange) {
+        root.selected-count = TrackSelection.change(root.tracks, index, root.anchor, change);
+    }
+
+    // Moves the keyboard's current track; with Shift, the selection follows it.
+    function go-to(index: int, extend: bool) {
+        root.current = max(0, min(root.tracks.length - 1, index));
+        if extend {
+            root.select(root.current, SelectionChange.range);
+        } else {
+            root.anchor = root.current;
+        }
+    }
     // A row being dragged in an editable list, and the place it would go.
     private property <int> drag-from: -1;
     private property <int> drag-to: -1;
     private property <length> drag-row-height;
 
+    // A row outside the selection gets the menu to itself.
     function show-menu(index: int, x: length, y: length) {
+        if root.selected-count > 0 && !root.tracks[index].selected {
+            root.select(index, SelectionChange.none);
+        }
         root.current = index;
         menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
     }
 
     changed tracks => {
         root.current = max(0, min(root.current, root.tracks.length - 1));
+        // Another list: nothing in it is selected.
+        root.anchor = root.current;
+        root.selected-count = 0;
     }
 
     menu := ContextMenuArea {
         Menu {
-            MenuItem {
+            // With several tracks, the menu says how many it acts on.
+            if root.selected-count > 1: MenuItem {
+                title: @tr("{n} track selected" | "{n} tracks selected" % root.selected-count);
+                enabled: false;
+            }
+            if root.selected-count > 1: MenuSeparator { }
+            if root.selected-count < 2: MenuItem {
                 title: @tr("Play now");
                 activated => {
                     root.play(root.current);
@@ -342,31 +411,31 @@ export component TrackList {
                 MenuItem {
                     title: @tr("New playlist");
                     activated => {
-                        Playlists.add-track(-1, root.tracks[root.current].path);
+                        TrackSelection.add-to-playlist(root.tracks, root.current, -1);
                     }
                 }
                 if Playlists.names.length > 0: MenuSeparator { }
                 for name[index] in Playlists.names: MenuItem {
                     title: name;
                     activated => {
-                        Playlists.add-track(index, root.tracks[root.current].path);
+                        TrackSelection.add-to-playlist(root.tracks, root.current, index);
                     }
                 }
             }
             MenuItem {
                 title: @tr("Edit tags…");
                 activated => {
-                    TagEditorState.edit-track(root.tracks[root.current].path);
+                    TrackSelection.edit-tags(root.tracks, root.current);
                 }
             }
             if root.editable: MenuSeparator { }
-            if root.editable && root.current > 0: MenuItem {
+            if root.editable && root.selected-count < 2 && root.current > 0: MenuItem {
                 title: @tr("Move up");
                 activated => {
                     root.move-current(-1);
                 }
             }
-            if root.editable && root.current < root.tracks.length - 1: MenuItem {
+            if root.editable && root.selected-count < 2 && root.current < root.tracks.length - 1: MenuItem {
                 title: @tr("Move down");
                 activated => {
                     root.move-current(1);
@@ -396,13 +465,20 @@ export component TrackList {
                 } else if root.editable && event.text == Key.Delete {
                     root.remove(root.current);
                 } else if event.text == Key.DownArrow {
-                    root.current = min(root.tracks.length - 1, root.current + 1);
+                    root.go-to(root.current + 1, event.modifiers.shift);
                 } else if event.text == Key.UpArrow {
-                    root.current = max(0, root.current - 1);
+                    root.go-to(root.current - 1, event.modifiers.shift);
                 } else if event.text == Key.Home {
-                    root.current = 0;
+                    root.go-to(0, event.modifiers.shift);
                 } else if event.text == Key.End {
-                    root.current = root.tracks.length - 1;
+                    root.go-to(root.tracks.length - 1, event.modifiers.shift);
+                } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A") {
+                    root.select(0, SelectionChange.all);
+                } else if event.modifiers.control && event.text == Key.Space {
+                    root.anchor = root.current;
+                    root.select(root.current, SelectionChange.toggle);
+                } else if event.text == Key.Escape && root.selected-count > 0 {
+                    root.select(0, SelectionChange.none);
                 } else if event.text == Key.Return || event.text == Key.Space {
                     root.play(root.current);
                 } else {
@@ -437,9 +513,20 @@ export component TrackList {
                         root.drag-from = -1;
                         root.drag-to = -1;
                     }
-                    clicked => {
+                    clicked(toggle, range) => {
                         root.current = index;
-                        root.play(index);
+                        if range {
+                            root.select(index, SelectionChange.range);
+                        } else if toggle {
+                            root.anchor = index;
+                            root.select(index, SelectionChange.toggle);
+                        } else {
+                            if root.selected-count > 0 {
+                                root.select(index, SelectionChange.none);
+                            }
+                            root.anchor = index;
+                            root.play(index);
+                        }
                     }
                     menu-requested(x, y) => {
                         root.show-menu(index, x, y);
