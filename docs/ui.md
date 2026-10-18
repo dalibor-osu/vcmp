@@ -883,8 +883,10 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   are built and tested in CI but not yet seen working.
 - Windows takes media widget covers only from the web, so there the widget shows
   the Cover Art Archive cover when one is known and none otherwise.
-- The Windows media flyout may name VCMP "Unknown app" until the installer registers
-  an AppUserModelID; on Linux the widget's icon needs the installed `vcmp.desktop`.
+- The Windows media flyout may name VCMP "Unknown app": releases are archives, and
+  only an installer (left for later) would register an AppUserModelID. On Linux the
+  widget's icon needs a `vcmp.desktop`, which only the .deb and AppImage installers
+  install.
 - Raising the window from the media widget only un-minimises it: Wayland compositors
   don't let an app take focus without an activation token.
 - The update check asks GitHub without signing in, so it finds nothing while the

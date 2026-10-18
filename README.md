@@ -3,6 +3,10 @@
 A cross-platform music player for locally stored music, for Windows 10+, Linux and
 macOS. Written in Rust with a [Slint](https://slint.dev) UI.
 
+> **Platform support:** VCMP is developed and tested mainly on Linux. It builds for
+> Windows and macOS, but they get little testing so far, so it is not guaranteed to
+> work fully correctly there yet. Reports from those systems are welcome.
+
 ## Status
 
 Early development. In place so far:
@@ -34,8 +38,8 @@ Early development. In place so far:
   mute, shuffle, repeat), Play, Shuffle and play-from-track on album pages, a queue
   panel with Up next, the queue restored after a restart, and a choice of output
   device;
-- installers for Windows, macOS and Linux, built and attached to a draft GitHub
-  Release when a version tag is pushed (see [Releases](#releases));
+- release builds for Windows, macOS and Linux, archived and attached to a draft
+  GitHub Release when a version tag is pushed (see [Releases](#releases));
 - Discord Rich Presence: "Listening to VCMP" with the track, its progress and the
   album cover, looked up on MusicBrainz when the files carry no MusicBrainz ID;
 - OS media controls: media keys and the system's media widget (MPRIS on Linux, the
@@ -78,27 +82,51 @@ cargo test --workspace
 
 ## Releases
 
-Installers are built by [cargo-packager](https://github.com/crabnebula-dev/cargo-packager)
-in the [Release workflow](.github/workflows/release.yml):
+Each release on [GitHub Releases](https://github.com/dalibor-osu/vcmp/releases) has
+an archive per platform, built by the [Release workflow](.github/workflows/release.yml),
+with a `SHA256SUMS.txt` to check them against. There are no installers yet: unpack
+the archive and run VCMP from where it is.
 
-| Platform | Installers |
-|---|---|
-| Windows 10+ (x64) | `.msi` (all users, needs admin rights) and `-setup.exe` (current user, no admin rights) |
-| macOS (Apple silicon and Intel) | `.dmg` per architecture |
-| Linux (x64, glibc 2.35+) | `.AppImage` and `.deb` |
+| Platform | Archive | How to run |
+|---|---|---|
+| Windows 10+ (x64) | `vcmp-<version>-windows-x64.zip` | Unpack it and run `vcmp.exe`. |
+| macOS, Apple silicon | `vcmp-<version>-macos-arm64.zip` | Unpack it, move `VCMP.app` to Applications and open it. |
+| macOS, Intel | `vcmp-<version>-macos-x64.zip` | The same. |
+| Linux (x64, glibc 2.35+) | `vcmp-<version>-linux-x64.tar.gz` | Unpack it and run `vcmp`. |
 
-cargo-packager makes all of these from one configuration
-(`[package.metadata.packager]` in [crates/vcmp-app/Cargo.toml](crates/vcmp-app/Cargo.toml)).
-cargo-bundle has no AppImage and only an experimental MSI, and cargo-dist makes no
-dmg, AppImage or .deb.
+Each archive has the licence texts next to the program (in `VCMP.app`'s Resources
+on macOS); the Sora font and the UI icons are compiled into the program. The app
+icon is a placeholder ([packaging/icons/](packaging/icons/)) until VCMP has a logo.
+On Linux, VCMP needs ALSA, fontconfig, xkbcommon and EGL or GL, which desktop
+systems have (`libasound2`, `libfontconfig1`, `libxkbcommon0`,
+`libxkbcommon-x11-0`, `libegl1` on Debian and Ubuntu).
 
-The Sora font and the UI icons are compiled into the binary, so the installers only
-add the licence texts next to it. The app icon is a placeholder
-([packaging/icons/](packaging/icons/)) until VCMP has a logo.
+As the note at the top says, Windows and macOS get little testing so far: VCMP is
+developed and tested mainly on Linux, and it is not guaranteed to work fully
+correctly on the other two yet.
 
-Builds are unsigned for now (signing is an open question in the spec), so Windows
-SmartScreen and macOS Gatekeeper warn on first start. On macOS, right-click the app
-and choose Open, or run `xattr -dr com.apple.quarantine /Applications/VCMP.app`.
+### Unsigned builds
+
+VCMP isn't code-signed: that takes a paid Apple developer account and, on Windows, a
+certificate from a signing service, which the project doesn't have for now. The
+programs are the ones the Release workflow built from this repository (compare
+`SHA256SUMS.txt`), but Windows and macOS can't tell who made them, so they warn the
+first time:
+
+- **Windows:** SmartScreen says "Windows protected your PC". Choose **More info**,
+  then **Run anyway**. Windows remembers the choice for that copy.
+- **macOS:** opening `VCMP.app` the first time is refused ("Apple could not verify
+  …"). Choose **Done**, then open System Settings → Privacy & Security, scroll to
+  Security, choose **Open Anyway** next to the message about VCMP, and confirm.
+  From macOS 15 on, right-clicking the app and choosing Open no longer skips this.
+  Or, from a terminal, clear the download flag before the first start:
+  `xattr -dr com.apple.quarantine /Applications/VCMP.app`.
+- **Linux:** no warning.
+
+Each new version asks again. Signing, and installers (the cargo-packager
+configuration under `[package.metadata.packager]` in
+[crates/vcmp-app/Cargo.toml](crates/vcmp-app/Cargo.toml) is kept for them), can come
+later.
 
 ### Versions
 
@@ -115,8 +143,8 @@ month stay under until 2255.
 **Pre-releases** carry no suffix: a version to try is published with GitHub's
 "Set as a pre-release" box ticked, and promoted to a full release (the box
 unticked) once it holds up. The update check skips pre-releases, so only people
-who download one get it. A suffix would break installers: the MSI takes only a
-numeric one, which Debian then sorts after the release itself. A pre-release that
+who download one get it. A suffix would also break the installers planned for later:
+the MSI takes only a numeric one, which Debian then sorts after the release itself. A pre-release that
 needs fixing makes way for the next patch number (`26.11.1`).
 
 ### Cutting a release
@@ -131,34 +159,29 @@ needs fixing makes way for the next patch number (`26.11.1`).
    git switch main && git pull && git tag v26.10.0 && git push origin v26.10.0
    ```
 
-3. The workflow checks that the tag is on `main` and matches the version, builds the
-   installers on Windows, macOS and Linux, and creates a **draft** GitHub Release with
-   them, a `SHA256SUMS.txt` and generated notes. Review the notes and publish it,
+3. The workflow checks that the tag is on `main` and matches the version, builds
+   VCMP on Windows, macOS and Linux, and creates a **draft** GitHub Release with the
+   archives, a `SHA256SUMS.txt` and generated notes. Review the notes and publish it,
    ticking "Set as a pre-release" for a version to try first.
 
 Once a release is published, copies of VCMP with the update check on link to it at
 their next start. The check takes the highest `vYY.MM.PATCH` tag among the
-published releases and skips drafts and pre-releases. It asks GitHub without signing in, so it
-finds nothing while the repository is private.
+published releases and skips drafts and pre-releases. It asks GitHub without
+signing in, so it finds nothing while the repository is private.
 
-To try the packaging without a release, run the workflow by hand (Actions → Release
-→ Run workflow, or `gh workflow run release.yml --ref <branch>`). The installers are
-then attached to the run as artifacts. GitHub only offers manual runs for workflows
+To try the release builds without a release, run the workflow by hand (Actions →
+Release → Run workflow, or `gh workflow run release.yml --ref <branch>`). The
+archives are then attached to the run as artifacts. GitHub only offers manual runs for workflows
 that are on `main`; before that, a branch can try it by adding itself under
 `on: push: branches:` for a commit or two.
 
-To package locally, install cargo-packager (`cargo install cargo-packager --locked`),
-then:
-
-```bash
-cargo build --release -p vcmp-app
-cargo packager --release -p vcmp-app
-```
-
-The installers land in `target/packages/`. Each platform makes only its own
-installers; the AppImage, WiX and NSIS tools are downloaded on first use. On Linux
-distributions newer than the Ubuntu 22.04 the workflow uses, the AppImage step fails
-in `strip`; set `NO_STRIP=1` for the `cargo packager` command.
+A release build is `cargo build --release -p vcmp-app`; the program lands in
+`target/release/`. For the installers left for later, install cargo-packager
+(`cargo install cargo-packager --locked`) and run
+`cargo packager --release -p vcmp-app`: they land in `target/packages/`, each
+platform making only its own (on macOS `--formats app` makes just `VCMP.app`, as the
+workflow does). On Linux distributions newer than the Ubuntu 22.04 the workflow
+uses, the AppImage step fails in `strip`; set `NO_STRIP=1` for it.
 
 ### Integration keys
 
@@ -167,10 +190,10 @@ release builds from the repository secrets `VCMP_LASTFM_API_KEY`,
 `VCMP_LASTFM_SHARED_SECRET` and `VCMP_FANARTTV_API_KEY` (Settings → Secrets and
 variables → Actions), which reach the build as environment variables of the same
 names. The CI workflow passes the two Last.fm secrets as well, so it builds what the
-installers ship. A secret that is not set is left out, and the feature that needs it
+releases ship. A secret that is not set is left out, and the feature that needs it
 stays off: without both Last.fm values, Settings has no Last.fm row and nothing is
-sent; without the fanart.tv key, artist pages offer no "Find photo online". The Discord application ID is built in (`VCMP_DISCORD_APPLICATION_ID`
-overrides it).
+sent; without the fanart.tv key, artist pages offer no "Find photo online". The
+Discord application ID is built in (`VCMP_DISCORD_APPLICATION_ID` overrides it).
 
 Local builds read the same variables from the environment. To try Last.fm, create an
 API account at <https://www.last.fm/api/account/create> and build with its key and
