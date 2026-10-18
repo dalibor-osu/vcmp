@@ -566,7 +566,9 @@ The Albums page tells apart why it is empty:
   Down change the choice directly; a click or Enter opens the list. The
   choice is saved by name (`playback.output_device`) and used when the engine
   starts. A chosen device that is unplugged stays in the list, and the description
-  names the device playing instead.
+  names the device playing instead. On Linux with a sound server, the engine goes
+  back to the chosen device when it returns; elsewhere it waits for another choice
+  (see [docs/playback.md](playback.md#linux-pulseaudio-then-alsa)).
 - **Settings → Playback** chooses how shuffle picks: "Fewer repeats" (the engine's
   less-repeats mode) or "Fully random". Volume, shuffle, repeat and the output
   device are saved in the library's settings.

@@ -8,7 +8,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-cpal = "0.18.2"
+cpal = { version = "0.18.2", features = ["pulseaudio"] }
 fastrand = "2.4.0"
 rtrb = "0.3.2"
 rubato = "5.0.1"
