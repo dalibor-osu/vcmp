@@ -16,13 +16,14 @@ use tempfile::TempDir;
 use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::{AppWindow, ArtworkState, PhotoSearch, PhotoSearchStatus};
-use vcmp_integrations::fanart::{ArtistQuery, Photo, PhotoEvent};
+use vcmp_integrations::fanart::{ArtistQuery, Photo, PhotoEvent, SearchError};
 use vcmp_library::Library;
 
 /// What was asked of the photo source.
 #[derive(Clone, Debug, PartialEq)]
 enum Asked {
-    Search(u64, ArtistQuery),
+    /// With the personal key that went along.
+    Search(u64, ArtistQuery, Option<String>),
     Download(u64, String),
     Cancel,
 }
@@ -31,8 +32,10 @@ enum Asked {
 struct FakeSource(Rc<RefCell<Vec<Asked>>>);
 
 impl PhotoSource for FakeSource {
-    fn search(&self, search: u64, artist: ArtistQuery) {
-        self.0.borrow_mut().push(Asked::Search(search, artist));
+    fn search(&self, search: u64, artist: ArtistQuery, personal_key: Option<String>) {
+        self.0
+            .borrow_mut()
+            .push(Asked::Search(search, artist, personal_key));
     }
 
     fn download(&self, search: u64, url: String) {
@@ -147,6 +150,9 @@ impl App {
     }
 }
 
+const A: &str = "https://assets.fanart.tv/fanart/music/x/artistthumb/a.jpg";
+const B: &str = "https://assets.fanart.tv/fanart/music/x/artistthumb/b.jpg";
+
 #[test]
 fn a_photo_found_online_shows_on_the_page_and_the_card() {
     let app = open(true);
@@ -158,7 +164,7 @@ fn a_photo_found_online_shows_on_the_page_and_the_card() {
     assert_eq!(app.state().get_status(), PhotoSearchStatus::Searching);
     app.frame();
     let search = match app.source.take().as_slice() {
-        [Asked::Search(id, query)] => {
+        [Asked::Search(id, query, None)] => {
             assert_eq!(
                 query,
                 &ArtistQuery {
@@ -171,10 +177,8 @@ fn a_photo_found_online_shows_on_the_page_and_the_card() {
         other => panic!("{other:?}"),
     };
 
-    app.photos
-        .handle(search, App::photo("Band", "https://x/a.jpg"));
-    app.photos
-        .handle(search, App::photo("Band", "https://x/b.jpg"));
+    app.photos.handle(search, App::photo("Band", A));
+    app.photos.handle(search, App::photo("Band", B));
     app.photos.handle(search, PhotoEvent::Searched(Ok(())));
     assert_eq!(app.state().get_status(), PhotoSearchStatus::Found);
     let tiles = app.state().get_photos();
@@ -190,14 +194,15 @@ fn a_photo_found_online_shows_on_the_page_and_the_card() {
     app.frame();
     key(&app.window, Key::Return);
     assert_eq!(app.state().get_status(), PhotoSearchStatus::Downloading);
-    assert_eq!(
-        app.source.take(),
-        [Asked::Download(search, "https://x/a.jpg".into())]
-    );
+    assert_eq!(app.source.take(), [Asked::Download(search, A.into())]);
     app.photos
         .handle(search, PhotoEvent::Downloaded(Ok(png(900, [200, 0, 0]))));
     assert!(!app.state().get_open(), "the picker closes");
     assert!(app.window.get_artist_detail().has_photo);
+    assert!(app.window.get_artist_detail().photo_from_fanart);
+    app.frame();
+    app.button("Photo from fanart.tv, opens the website")
+        .expect("the photo is credited to fanart.tv");
     let photo = app.library.artist_photo(app.band()).unwrap().unwrap();
     assert!(photo.starts_with(app._dir.path()));
 
@@ -216,18 +221,20 @@ fn nothing_found_failures_and_cancel_are_said() {
     let app = open(true);
     app.view.refresh_artist_pictures();
     app.state().invoke_find();
-    let Asked::Search(search, _) = app.source.take()[0].clone() else {
+    let Asked::Search(search, ..) = app.source.take()[0].clone() else {
         panic!()
     };
     app.photos.handle(search, PhotoEvent::Searched(Ok(())));
     assert_eq!(app.state().get_status(), PhotoSearchStatus::NothingFound);
 
     app.state().invoke_find();
-    let Asked::Search(search, _) = app.source.take()[0].clone() else {
+    let Asked::Search(search, ..) = app.source.take()[0].clone() else {
         panic!()
     };
-    app.photos
-        .handle(search, PhotoEvent::Searched(Err("offline".into())));
+    app.photos.handle(
+        search,
+        PhotoEvent::Searched(Err(SearchError::Failed("offline".into()))),
+    );
     assert_eq!(app.state().get_status(), PhotoSearchStatus::Failed);
     app.button("Search again").expect("a retry is offered");
 
@@ -250,6 +257,10 @@ fn a_photo_from_a_file_can_be_removed_again() {
     app.photos.use_file(&png(64, [0, 0, 200]));
     assert!(!app.state().get_file_failed());
     assert!(app.window.get_artist_detail().has_photo);
+    assert!(
+        !app.window.get_artist_detail().photo_from_fanart,
+        "a file of the owner's isn't credited"
+    );
     assert!(app.window.get_artist_detail().has_picture);
 
     app.button("Remove the photo of Band")
@@ -258,4 +269,84 @@ fn a_photo_from_a_file_can_be_removed_again() {
     assert!(!app.window.get_artist_detail().has_photo);
     assert_eq!(app.library.artist_photo(app.band()).unwrap(), None);
     assert!(app.button("Remove the photo of Band").is_none());
+}
+
+#[test]
+fn a_personal_key_is_kept_and_goes_with_each_search() {
+    let app = open(true);
+    assert_eq!(app.state().get_personal_key(), "");
+    app.state().invoke_set_personal_key("  my key  ".into());
+    assert_eq!(app.state().get_personal_key(), "my key", "trimmed");
+    assert_eq!(
+        app.library
+            .setting(vcmp_app::artist_photos::SETTING_FANART_KEY)
+            .unwrap()
+            .as_deref(),
+        Some("my key")
+    );
+    app.state().invoke_find();
+    assert!(matches!(
+        app.source.take().as_slice(),
+        [Asked::Search(_, _, Some(key))] if key == "my key"
+    ));
+
+    // Read back when VCMP starts again.
+    let restarted = vcmp_app::create_window().unwrap();
+    let _photos = ArtistPhotos::connect(
+        &restarted,
+        app.library.clone(),
+        app.view.clone(),
+        Some(Box::new(FakeSource::default())),
+    );
+    assert_eq!(
+        restarted.global::<PhotoSearch>().get_personal_key(),
+        "my key"
+    );
+
+    // A refused key is said apart from an unreachable service.
+    let Asked::Search(search, ..) = ({
+        app.state().invoke_find();
+        app.source.take()[0].clone()
+    }) else {
+        panic!()
+    };
+    app.photos
+        .handle(search, PhotoEvent::Searched(Err(SearchError::Refused(401))));
+    assert_eq!(app.state().get_status(), PhotoSearchStatus::Refused);
+    key(&app.window, Key::Escape);
+    assert_eq!(app.source.take(), [Asked::Cancel]);
+
+    // Removing it searches with VCMP's key alone.
+    app.state().invoke_set_personal_key("".into());
+    app.state().invoke_find();
+    assert!(matches!(
+        app.source.take().as_slice(),
+        [Asked::Search(_, _, None)]
+    ));
+}
+
+/// Whether Settings shows the personal key field.
+fn key_field_shown(app: &App) -> bool {
+    app.window.set_selected_index(6);
+    app.frame();
+    ElementHandle::find_by_accessible_label(&app.window, "fanart.tv personal API key")
+        .next()
+        .is_some()
+}
+
+#[test]
+fn settings_and_about_tell_where_photos_come_from() {
+    let app = open(true);
+    assert!(key_field_shown(&app), "Settings offers the personal key");
+    app.window.set_selected_index(7);
+    app.frame();
+    assert!(app.button("fanart.tv, opens the website").is_some());
+    assert!(app.button("Cover Art Archive, opens the website").is_some());
+    assert!(app.button("MusicBrainz, opens the website").is_some());
+}
+
+#[test]
+fn a_build_that_cant_search_asks_for_no_personal_key() {
+    let app = open(false);
+    assert!(!key_field_shown(&app));
 }

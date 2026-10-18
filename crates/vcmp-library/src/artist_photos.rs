@@ -34,6 +34,21 @@ impl Library {
             .filter(|path| path.is_file()))
     }
 
+    /// Where the artist's photo came from: the web address it was downloaded from,
+    /// `None` for one picked from a file (or no photo).
+    pub fn artist_photo_source(&self, artist: ArtistId) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT p.source FROM artists ar JOIN artist_photos p ON p.name = ar.name
+                 WHERE ar.id = ?1",
+                [artist.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
     /// Every artist with a chosen photo whose file is there.
     pub fn artist_photos(&self) -> Result<HashMap<ArtistId, PathBuf>> {
         let mut statement = self.conn.prepare(

@@ -1,6 +1,6 @@
 import { AboutSlint, Palette, ScrollView } from "std-widgets.slint";
 import { ReduceMotion, Theme, ThemeMode } from "theme.slint";
-import { Button, Dropdown, FocusRing, SearchField, SectionHeading, SegmentedChoice, SettingRow, Toggle } from "components.slint";
+import { Button, Dropdown, FocusRing, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
 import { LibraryState } from "library-state.slint";
 import { AddFolderButton, LibrarySection } from "library-settings.slint";
 import { LastfmRow } from "lastfm-settings.slint";
@@ -13,6 +13,7 @@ import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 import { FolderBrowser, FolderRow } from "folders-page.slint";
 import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
 import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
+import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
 
 // Shared page frame: title plus content, fading in when the page is opened.
 component Page inherits VerticalLayout {
@@ -127,6 +128,18 @@ export component SettingsPage inherits Page {
         if LastfmState.available: LastfmRow { }
     }
 
+    // Only in builds that can search fanart.tv at all.
+    if PhotoSearch.available: VerticalLayout {
+        spacing: Theme.space-xs;
+        max-width: Theme.content-max-width;
+
+        SectionHeading {
+            text: @tr("Artist photos");
+        }
+
+        PhotoKeyRow { }
+    }
+
     VerticalLayout {
         spacing: Theme.space-xs;
         max-width: Theme.content-max-width;
@@ -217,6 +230,43 @@ export component AboutPage inherits Page {
             font-size: Theme.font-body;
             wrap: word-wrap;
             min-height: self.preferred-height;
+        }
+
+        // Where what VCMP finds online comes from; fanart.tv's terms ask apps to
+        // tell their users.
+        Text {
+            text: @tr("Found online: artist photos come from fanart.tv, album covers from the Cover Art Archive, and artist and album details from MusicBrainz.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-l;
+            alignment: start;
+
+            TextLink {
+                text: @tr("fanart.tv");
+                label: @tr("fanart.tv, opens the website");
+                clicked => {
+                    Platform.open-url("https://fanart.tv");
+                }
+            }
+            TextLink {
+                text: @tr("Cover Art Archive");
+                label: @tr("Cover Art Archive, opens the website");
+                clicked => {
+                    Platform.open-url("https://coverartarchive.org");
+                }
+            }
+            TextLink {
+                text: @tr("MusicBrainz");
+                label: @tr("MusicBrainz, opens the website");
+                clicked => {
+                    Platform.open-url("https://musicbrainz.org");
+                }
+            }
         }
     }
 

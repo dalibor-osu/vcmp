@@ -1271,6 +1271,11 @@ fn an_artist_photo_is_kept_by_name_and_replaced_or_removed() {
         setup.library.artist_photos().unwrap().get(&band),
         Some(&first)
     );
+    assert_eq!(
+        setup.library.artist_photo_source(band).unwrap().as_deref(),
+        Some("https://example.org/a.jpg"),
+        "where it came from, for the credit under it"
+    );
 
     // A rescan keeps it, and so does deleting the cache.
     let _ = fs::remove_dir_all(setup.cache());
@@ -1286,6 +1291,11 @@ fn an_artist_photo_is_kept_by_name_and_replaced_or_removed() {
         .unwrap();
     assert_ne!(first, second);
     assert!(!first.exists(), "the replaced file goes");
+    assert_eq!(
+        setup.library.artist_photo_source(band).unwrap(),
+        None,
+        "a file of the owner's has no source"
+    );
 
     setup.library.clear_artist_photo(band).unwrap();
     assert_eq!(setup.library.artist_photo(band).unwrap(), None);

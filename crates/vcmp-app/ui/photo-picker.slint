@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button } from "components.slint";
+import { Button, TextField, TextLink } from "components.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
 
 // Where a photo search stands; the picker words it.
@@ -11,8 +11,10 @@ export enum PhotoSearchStatus {
     found,
     // Done, and nothing was found.
     nothing-found,
-    // The services could not be reached, or fanart.tv refused, and nothing was found.
+    // The services could not be reached, and nothing was found.
     failed,
+    // fanart.tv refused a key: VCMP's, or the personal key from Settings.
+    refused,
     // The picked photo is being downloaded.
     downloading,
     // The picked photo could not be downloaded or saved.
@@ -35,6 +37,10 @@ export global PhotoSearch {
     in property <[AlbumTile]> photos;
     // The last file chosen could not be read as a picture.
     in property <bool> file-failed;
+    // The user's own fanart.tv personal API key, sent with VCMP's key; empty for none.
+    in property <string> personal-key;
+    // Keeps a personal key for the searches to come; empty forgets it.
+    callback set-personal-key(string);
     // Searches photos of the artist on the artist page, and opens the picker.
     callback find();
     // Downloads photo `n` and makes it the artist's.
@@ -126,6 +132,9 @@ export component PhotoPicker inherits Rectangle {
                             : PhotoSearch.status == PhotoSearchStatus.found ? @tr("Pick the photo to use for this artist. The photos come from fanart.tv; the name under each is the artist MusicBrainz matched.")
                             : PhotoSearch.status == PhotoSearchStatus.nothing-found ? @tr("No photos turned up for this artist. fanart.tv may not have any yet, or MusicBrainz knows the artist under another name.")
                             : PhotoSearch.status == PhotoSearchStatus.failed ? @tr("MusicBrainz or fanart.tv could not be reached. Check the internet connection and search again.")
+                            : PhotoSearch.status == PhotoSearchStatus.refused ? (PhotoSearch.personal-key != ""
+                                ? @tr("fanart.tv didn't accept the personal API key from Settings. Check it there, or remove it to search with VCMP's key alone.")
+                                : @tr("fanart.tv didn't accept VCMP's key, so no photos can be found. A newer version of VCMP may fix this."))
                             : PhotoSearch.status == PhotoSearchStatus.downloading ? @tr("Downloading the photo…")
                             : @tr("That photo could not be downloaded. Pick it again, or another one.");
                         color: Theme.colors.text-muted;
@@ -165,6 +174,85 @@ export component PhotoPicker inherits Rectangle {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// The fanart.tv personal API key in Settings: optional, and sent along with VCMP's own
+// key, as fanart.tv asks apps to allow. Laid out like SettingRow, with the field
+// under the text. Enter or Save keeps what is typed; Escape puts the kept key back.
+export component PhotoKeyRow inherits VerticalLayout {
+    private property <string> typed: PhotoSearch.personal-key;
+
+    function keep(key: string) {
+        PhotoSearch.set-personal-key(key);
+        // As kept: trimmed.
+        root.typed = PhotoSearch.personal-key;
+    }
+
+    spacing: Theme.space-s;
+    padding-top: Theme.space-m;
+    padding-bottom: Theme.space-m;
+
+    Text {
+        text: @tr("fanart.tv personal API key");
+        color: Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: Theme.weight-strong;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+
+    Text {
+        text: @tr("Optional. Find photo online, on an artist's page, gets its photos from fanart.tv. With the personal key from your fanart.tv account, fanart.tv shows you new photos sooner. VCMP sends it along with its own key.");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+
+    HorizontalLayout {
+        alignment: start;
+
+        TextLink {
+            text: @tr("Get your personal key on fanart.tv");
+            label: @tr("Get your personal key on fanart.tv, opens the website");
+            font-size: Theme.font-small;
+            clicked => {
+                Platform.open-url("https://fanart.tv/get-an-api-key/");
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Theme.space-m;
+
+        TextField {
+            horizontal-stretch: 1;
+            label: @tr("fanart.tv personal API key");
+            placeholder: @tr("Paste your personal key");
+            text <=> root.typed;
+            accepted(text) => {
+                root.keep(text);
+            }
+            cancelled => {
+                root.typed = PhotoSearch.personal-key;
+            }
+        }
+        Button {
+            text: @tr("Save");
+            label: @tr("Save the personal key");
+            enabled: root.typed != PhotoSearch.personal-key;
+            clicked => {
+                root.keep(root.typed);
+            }
+        }
+        if PhotoSearch.personal-key != "": Button {
+            text: @tr("Remove");
+            label: @tr("Remove the personal key");
+            clicked => {
+                root.keep("");
             }
         }
     }

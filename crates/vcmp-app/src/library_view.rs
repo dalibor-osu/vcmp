@@ -807,7 +807,15 @@ impl LibraryView {
                 );
                 None
             });
-        show_artist_details(window, open, photo);
+        // A photo found on fanart.tv is credited under it.
+        let from_fanart = photo.is_some()
+            && self
+                .library
+                .artist_photo_source(open.artist.id)
+                .ok()
+                .flatten()
+                .is_some_and(|source| source.contains("fanart.tv"));
+        show_artist_details(window, open, photo, from_fanart);
     }
 
     /// The artist the artist page shows, while it is open.
@@ -834,7 +842,12 @@ impl LibraryView {
     }
 }
 
-fn show_artist_details(window: &AppWindow, open: &OpenArtist, photo: Option<PathBuf>) {
+fn show_artist_details(
+    window: &AppWindow,
+    open: &OpenArtist,
+    photo: Option<PathBuf>,
+    photo_from_fanart: bool,
+) {
     // The same picture as on the artist's card: their photo, or their newest album's
     // cover.
     let has_photo = photo.is_some();
@@ -866,6 +879,7 @@ fn show_artist_details(window: &AppWindow, open: &OpenArtist, photo: Option<Path
         has_picture: picture.is_some(),
         picture: picture.unwrap_or_default(),
         has_photo,
+        photo_from_fanart,
         missing: false,
     });
     window.set_artist_appearances(ModelRc::new(VecModel::from(appearances)));
