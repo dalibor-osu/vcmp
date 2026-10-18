@@ -46,6 +46,17 @@ export component AlbumCard {
         root.clicked();
     }
 
+    // Under the pointer the card sits on a fill, as rows do, reaching into the gap
+    // around it.
+    Rectangle {
+        x: -Theme.space-s;
+        y: -Theme.space-s;
+        width: root.width + 2 * Theme.space-s;
+        height: root.height + 2 * Theme.space-s;
+        border-radius: Theme.radius-l;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+    }
+
     VerticalLayout {
         spacing: Theme.space-s;
         alignment: start;
@@ -87,9 +98,11 @@ export component AlbumCard {
                 accessible-role: none;
             }
 
+            // Full strength on the hover fill, where muted text would fall under
+            // 4.5:1 in the light theme.
             Text {
                 text: root.subtitle;
-                color: Theme.colors.text-muted;
+                color: touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
                 font-size: Theme.font-small;
                 overflow: elide;
                 accessible-role: none;

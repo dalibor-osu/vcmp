@@ -167,23 +167,8 @@ component SectionLabel inherits Text {
 // being played. The tracks are one tab stop: Up and Down move, Enter or Space plays,
 // Delete removes from Up next, Alt+Up and Alt+Down reorder it, and the Menu key (or
 // a right click) opens a track's menu, with what applies to that track.
+// The window slides it in and out from its edge.
 export component QueuePanel inherits Rectangle {
-    // How far the panel still is from its place: it slides in from the window's
-    // edge when it opens (at once with reduced motion). The window adds it to `x`.
-    out property <length> slide: 320px;
-    init => {
-        self.slide = 0;
-    }
-    animate slide { duration: Theme.duration-medium; easing: ease-out; }
-    // The panel is in its place.
-    callback settled();
-
-    changed slide => {
-        if self.slide == 0 {
-            root.settled();
-        }
-    }
-
     private property <int> up-next-count: PlayerState.up-next.length;
     private property <int> count: self.up-next-count + PlayerState.upcoming.length;
     // The keyboard's current track, counted over Up next then the context tracks.

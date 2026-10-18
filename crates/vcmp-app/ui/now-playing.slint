@@ -206,13 +206,11 @@ export component NowPlayingView inherits Rectangle {
     background: Theme.colors.base;
     accessible-role: groupbox;
     accessible-label: @tr("Now playing");
-    opacity: 0;
+    // The window fades it in and out (its opacity).
     init => {
-        self.opacity = 1;
         // Escape works at once; the focus ring shows only for keyboard users.
         close-button.focus();
     }
-    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
 
     // Escape closes, wherever the focus is in the view.
     FocusScope {

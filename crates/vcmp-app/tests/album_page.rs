@@ -381,3 +381,70 @@ fn tracks_without_an_album_show_in_unknown_albums() {
     press(&window, Key::Escape);
     card(&window, "Unknown, Unknown artist");
 }
+
+#[test]
+fn back_and_forward_go_through_the_places_shown() {
+    use std::time::Duration;
+    use vcmp_app::navigation::History;
+
+    let (_dir, window, browser) = open();
+    let history = History::connect(&window, browser.clone());
+    // The window reports a move from a change handler, which the event loop runs.
+    let settle = || i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+    let tab = |label: &str| {
+        ElementHandle::find_by_accessible_label(&window, label)
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+            .unwrap()
+            .invoke_accessible_default_action();
+        settle();
+    };
+    // The section, and the album open in it.
+    let shown = || {
+        let page = window.get_current_page();
+        let album = (page == Page::Albums && window.get_album_open())
+            .then(|| window.get_album_detail().title.to_string());
+        (page, album)
+    };
+
+    card(&window, "Zed Alone, Zed").invoke_accessible_default_action();
+    settle();
+    tab("Songs");
+    assert_eq!(shown(), (Page::Songs, None));
+
+    history.back();
+    settle();
+    assert_eq!(
+        shown(),
+        (Page::Albums, Some("Zed Alone".into())),
+        "the album again"
+    );
+    history.back();
+    settle();
+    assert_eq!(shown(), (Page::Albums, None), "then the grid");
+    history.back();
+    settle();
+    assert_eq!(shown(), (Page::Albums, None), "nothing further back");
+
+    history.forward();
+    settle();
+    assert_eq!(shown(), (Page::Albums, Some("Zed Alone".into())));
+    // Alt+Right from the keyboard, as the mouse's forward button.
+    let alt: SharedString = Key::Alt.into();
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: alt.clone() });
+    press(&window, Key::RightArrow);
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: alt });
+    settle();
+    assert_eq!(shown(), (Page::Songs, None));
+
+    // A new move drops what was ahead.
+    history.back();
+    settle();
+    tab("Folders");
+    history.forward();
+    settle();
+    assert_eq!(shown(), (Page::Folders, None));
+}

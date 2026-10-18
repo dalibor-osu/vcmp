@@ -507,3 +507,142 @@ fn the_sidebar_shows_scan_progress_under_its_label() {
         "the bar sits right under its label, not {gap} px below it"
     );
 }
+
+#[test]
+fn a_fast_wheel_scrolls_once_a_frame_and_all_the_way() {
+    use slint::{LogicalPosition, ModelRc, VecModel};
+    use std::time::Duration;
+    use vcmp_app::SongRow;
+    use vcmp_app::wheel::{LINE, WheelScroller};
+
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(1100.0, 800.0));
+    let songs: Vec<SongRow> = (0..300)
+        .map(|n| SongRow {
+            title: format!("Song {n}").into(),
+            ..SongRow::default()
+        })
+        .collect();
+    window.set_songs(ModelRc::new(VecModel::from(songs)));
+    open_page(&window, "Songs");
+    let shown = |title: &str| {
+        ElementHandle::find_by_accessible_label(&window, title)
+            .any(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+    };
+    assert!(shown("Song 0"));
+    let row = ElementHandle::find_by_accessible_label(&window, "Song 0")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+        .unwrap();
+    let over = LogicalPosition::new(
+        row.absolute_position().x + 100.0,
+        row.absolute_position().y + 100.0,
+    );
+
+    // Twenty notches at once, as a free-spinning wheel sends them: 1200 px, 30 rows.
+    let scroller = WheelScroller::new(&window);
+    for _ in 0..20 {
+        scroller.add(over, 0.0, -LINE);
+    }
+    assert!(shown("Song 0"), "nothing moves until the next frame");
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
+    assert!(!shown("Song 0"), "the first frame scrolls a third");
+    for _ in 0..30 {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
+    }
+    assert!(
+        shown("Song 30") && !shown("Song 29"),
+        "all the way, and no further"
+    );
+
+    // With reduced motion the whole distance goes at once.
+    window.global::<Theme>().set_motion_choice(ReduceMotion::On);
+    scroller.add(over, 0.0, LINE * 10.0);
+    assert!(shown("Song 15") && !shown("Song 14"));
+}
+
+#[test]
+fn a_hovered_song_stays_highlighted_while_the_pointer_rests() {
+    use slint::{LogicalPosition, ModelRc, VecModel};
+    use std::time::Duration;
+    use vcmp_app::SongRow;
+
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(1100.0, 800.0));
+    let songs: Vec<SongRow> = (0..20)
+        .map(|n| SongRow {
+            title: format!("Song {n}").into(),
+            // A path apart from the playing track's (none), so no row is playing.
+            path: format!("/music/{n}.flac").into(),
+            ..SongRow::default()
+        })
+        .collect();
+    window.set_songs(ModelRc::new(VecModel::from(songs)));
+    open_page(&window, "Songs");
+    let row = ElementHandle::find_by_accessible_label(&window, "Song 3")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::ListItem))
+        .unwrap();
+    // The hover shows the play button in the row.
+    let icons = || ElementHandle::find_by_element_type_name(&window, "Icon").count();
+    let before = icons();
+    let (position, size) = (row.absolute_position(), row.size());
+    for x in [200.0, 260.0, 320.0] {
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: LogicalPosition::new(position.x + x, position.y + size.height / 2.0),
+        });
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
+    }
+    assert_eq!(icons(), before + 1, "the hovered row shows its play button");
+    for _ in 0..20 {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+        assert_eq!(icons(), before + 1, "and keeps it while the pointer rests");
+    }
+}
+
+#[test]
+fn the_queue_and_now_playing_animate_out_too() {
+    use std::time::Duration;
+    use vcmp_app::PlayerState;
+
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(1100.0, 800.0));
+    let count = |name: &str| ElementHandle::find_by_element_type_name(&window, name).count();
+    let panel_x = || {
+        ElementHandle::find_by_element_type_name(&window, "QueuePanel")
+            .next()
+            .map(|panel| panel.absolute_position().x)
+    };
+    let wait = |ms: u64| i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+
+    window.set_queue_open(true);
+    panel_x();
+    wait(1000);
+    assert_eq!(panel_x(), Some(1100.0 - 320.0));
+    window.set_queue_open(false);
+    panel_x();
+    wait(100);
+    let leaving = panel_x().expect("still there while it slides out");
+    assert!(leaving > 780.0 && leaving < 1100.0, "on its way: {leaving}");
+    wait(1000);
+    assert_eq!(count("QueuePanel"), 0, "gone once it is out");
+
+    let player = window.global::<PlayerState>();
+    player.set_now_playing_open(true);
+    count("NowPlayingView");
+    wait(1000);
+    player.set_now_playing_open(false);
+    count("NowPlayingView");
+    wait(100);
+    assert_eq!(count("NowPlayingView"), 1, "still there while it fades out");
+    wait(1000);
+    assert_eq!(count("NowPlayingView"), 0);
+
+    // With reduced motion both leave at once.
+    window.global::<Theme>().set_motion_choice(ReduceMotion::On);
+    window.set_queue_open(true);
+    player.set_now_playing_open(true);
+    count("QueuePanel");
+    window.set_queue_open(false);
+    player.set_now_playing_open(false);
+    wait(0);
+    assert_eq!((count("QueuePanel"), count("NowPlayingView")), (0, 0));
+}

@@ -9,6 +9,7 @@ use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
+use vcmp_app::navigation::History;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
@@ -102,7 +103,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             let service = PlayerService::connect(
                                 &window,
                                 library.clone(),
-                                view,
+                                view.clone(),
                                 Box::new(player),
                                 Some(presence),
                             );
@@ -148,7 +149,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         cover_fetch,
                         lastfm,
                         tag_editor,
-                        artist_photos,
+                        (artist_photos, History::connect(&window, view.clone())),
                     ));
                 }
                 Err(error) => {

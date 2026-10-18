@@ -18,7 +18,10 @@ Early development. In place so far:
   Art Archive, picked from what MusicBrainz finds;
 - the Artists page: album artists (or everyone credited) with their albums and the
   tracks they appear on elsewhere;
-- search over artists, albums, playlists and tracks, by any part of a name (Ctrl+F);
+- search over artists, albums, playlists and tracks, by any part of a name; Ctrl+F
+  filters the page shown (Albums, Artists, Songs) or opens Search;
+- back and forward through the places shown, with the mouse's side buttons or
+  Alt+Left and Alt+Right;
 - the Songs page: every track in a sortable table;
 - the Folders page: the music folders as a file tree;
 - playlists: made from any track's menu or the Playlists page, renamed, reordered

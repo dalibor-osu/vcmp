@@ -148,6 +148,9 @@ and reuses them while scrolling. It reports the range in view through
 - Covers more than three screens away are released, so memory stays flat however
   long the library is.
 
+A card under the pointer sits on a `surface` fill reaching into the gap around it,
+as hovered rows do, and its muted second line turns to `text` on it.
+
 Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
 on every frame, which doubled the grid's render time.
 
@@ -232,7 +235,10 @@ its scroll position and current card survive.
     to the album page's back button.
 
 The Albums page fades in through a `FadeCurtain`, created each time the page is
-shown, because the page itself stays alive while hidden.
+shown, because the page itself stays alive while hidden. The Albums, Artists and
+Playlists pages hold one more curtain per view they switch between (the grid, an
+album, an artist, a playlist), so opening a page or going back to the grid fades
+the new view in too.
 
 ## Artists page
 
@@ -448,9 +454,11 @@ table can select several tracks for the track menu.
 
 ## Search
 
-- **The Search page** is first in the sidebar; Ctrl+F (Cmd+F on macOS) opens it
-  from anywhere with the field focused. The window's shortcut scope holds the focus
-  at start, so the shortcut works before anything was clicked.
+- **The Search page** is first in the sidebar. Ctrl+F (Cmd+F on macOS) puts the
+  focus in the filter of the page shown when it has one (the Albums and Artists
+  grids, the Songs table), and opens Search with its field focused from anywhere
+  else. The window's shortcut scope holds the focus at start, so the shortcut works
+  before anything was clicked.
 - **The field** (`SearchField`) searches 150 ms after typing pauses
   (`SEARCH_DELAY`): a one-letter search takes about 50 ms on a few thousand tracks.
   Escape or the clear button empties it.
@@ -473,6 +481,38 @@ table can select several tracks for the track menu.
   Album under "Appears on", Artist and album elsewhere, Title and artist for files)
   and Time, with a small gap between the line under them and the first row. See
   [Table columns](#table-columns).
+
+## Back and forward
+
+`src/navigation.rs` keeps a history like a browser's: the mouse's back and forward
+buttons (caught in the winit hook, `src/shortcuts.rs`) and Alt+Left and Alt+Right
+(the window's shortcut scope, not while typing) move through it.
+
+- **A place** is a section on its grid, or the album, artist (or an artist's
+  album) or playlist page open in it.
+- **Remembering:** the window calls `navigated` whenever the section or the page
+  open in it changes, however that came about: the sidebar, a card, a back button,
+  Escape, a link in the player bar. Moving somewhere new drops what was ahead, as a
+  browser does; up to 100 places are kept behind.
+- **Going back or forward** shows the place through the same openers a click uses
+  (`show-section`, `open_album_by_id`, ...). The `navigated` calls that follow find
+  the window where the history already is. A page that is gone meanwhile (an album
+  removed) leaves the window where it ended up.
+
+## Mouse wheel
+
+A free-spinning or high-resolution wheel (Logitech's, for one) sends hundreds of
+wheel events a second; Linux reports eight per notch for them. Slint handles each
+one on its own, finding what is under the pointer and starting a scroll animation,
+so a fast spin queued more work than a second held, above all in debug builds: the
+window froze, then scrolled the whole way at once.
+
+The winit hook hands mouse-wheel events (line deltas) to `WheelScroller`
+(`src/wheel.rs`) instead. It adds them up, and a 16 ms timer scrolls a third of what
+is left at the pointer, at least 2 px, so a flick glides to a stop in about a
+quarter of a second; one scroll event a frame, however fast the wheel spins. With
+reduced motion the whole distance goes at once. A touchpad's pixel deltas, with
+their gesture phases, still go to Slint as they come, for its kinetic flicks.
 
 ## Page filters
 
@@ -522,7 +562,8 @@ field. Unlike Search, a filter only narrows the page it is on.
 
 - **Opening:** the now playing button in the player bar, next to the queue
   button, opens and closes it. The view (`NowPlayingView`) lies over the sidebar
-  and pages and fades in; the player bar stays below it with the controls, and
+  and pages and fades in and out (the window animates its opacity, and keeps the
+  view until it has faded); the player bar stays below it with the controls, and
   the queue panel can be open beside it. Escape, the close button (top left) or a
   click on the background returns; the focus starts on the close button so Escape
   works at once.
@@ -607,8 +648,9 @@ The Albums page tells apart why it is empty:
   rings go away and Space works again after clicking anywhere. A click on a text
   field gives it the focus straight back, as fields take the focus when pressed;
   the app's other controls never take focus on a click.
-- **The queue panel** slides in from the window's edge (at once with reduced
-  motion). It opens from the queue button in the player bar, and stays open
+- **The queue panel** slides in from the window's edge and back out when it closes
+  (at once with reduced motion): the window animates how far out it is
+  (`queue-out`) and keeps the panel until it is out. It opens from the queue button in the player bar, and stays open
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
   the page narrows to make room for it. In a narrower one the panel covers the
   pages (and the now playing view) from the sidebar to the window's edge, so it
@@ -708,6 +750,12 @@ The Albums page tells apart why it is empty:
   Linux, System Media Transport Controls on Windows, Now Playing on macOS.
   - Media keys and the system's media widget play, pause, stop, skip, seek, set
     shuffle, repeat and volume, raise the window (un-minimise it) and quit VCMP.
+    A desktop that turns media keys into MPRIS calls (GNOME, KDE, a window manager
+    bound to `playerctl`) reaches VCMP whatever has the focus. One that binds
+    nothing, such as a bare awesome or i3 setup, hands the keys to the focused
+    window: there the winit hook (`src/shortcuts.rs`) plays and pauses, skips and
+    stops itself. `playerctl` without `--player` picks the first player it lists,
+    not the one playing; `playerctld` follows the one used last.
     `PlayerService::media_control` turns each request into what the player bar's
     own control does, so the bar and the saved settings follow.
   - The widget shows the title, artist, album, cover, length, position, volume,
@@ -819,10 +867,9 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - A play that started before its tags were edited is scrobbled to Last.fm with the
   tags it started with.
 
-- Going back is one step: an album opened from an artist found by search returns
-  to the artist, and the artist to Search, but there is no general history.
-- The queue panel slides in when it opens but closes at once: the panel is made when
-  it opens and dropped when it closes, so there is nothing left to slide out.
+- The history (back and forward) remembers sections and the album, artist and
+  playlist pages, not a folder opened on the Folders page or the search typed, and
+  an album reached from search comes back as an Albums page.
 - An artist's photo is keyed by their name: two different artists with the same
   name in one library share it.
 - Photos found online were tried only against scripted answers; a real search needs

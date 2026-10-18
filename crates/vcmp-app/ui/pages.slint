@@ -317,6 +317,9 @@ export component AboutPage inherits Page {
 
 // Fades a page in that stays alive while hidden: created each time the page is
 // shown, it starts in the page background colour and turns transparent.
+// The base colour over a page that has just been shown, fading away: the page fades
+// in (at once with reduced motion). Pages add one per view they switch between, so
+// opening an album or going back to the grid fades too.
 component FadeCurtain inherits Rectangle {
     background: Theme.colors.base;
     opacity: 1;
@@ -327,6 +330,11 @@ component FadeCurtain inherits Rectangle {
 }
 
 export component AlbumsPage inherits Rectangle {
+    // Ctrl+F puts the focus in the page's filter.
+    public function focus-filter() {
+        filter-field.focus-text();
+    }
+
     in property <[AlbumTile]> albums;
     in property <AlbumDetail> album;
     in property <[TrackRow]> tracks;
@@ -386,7 +394,7 @@ export component AlbumsPage inherits Rectangle {
                 horizontal-stretch: 1;
             }
 
-            SearchField {
+            filter-field := SearchField {
                 compact: true;
                 horizontal-stretch: 0;
                 preferred-width: 280px;
@@ -461,12 +469,20 @@ export component AlbumsPage inherits Rectangle {
     }
 
     if root.shown: FadeCurtain { }
+    // Opening an album, or going back to the grid, fades the new view in.
+    if root.shown && root.album-open: FadeCurtain { }
+    if root.shown && !root.album-open: FadeCurtain { }
 }
 
 // The artists: a grid of album artists, or of everyone credited on a track. Choosing
 // one shows the artist; an album chosen there opens in this page too, so going back
 // returns to the artist.
 export component ArtistsPage inherits Rectangle {
+    // Ctrl+F puts the focus in the page's filter.
+    public function focus-filter() {
+        filter-field.focus-text();
+    }
+
     in property <[AlbumTile]> artists;
     // Everyone credited on a track, rather than album artists only.
     in-out property <bool> show-all;
@@ -553,7 +569,7 @@ export component ArtistsPage inherits Rectangle {
                 horizontal-stretch: 1;
             }
 
-            SearchField {
+            filter-field := SearchField {
                 compact: true;
                 horizontal-stretch: 0;
                 preferred-width: 240px;
@@ -671,6 +687,10 @@ export component ArtistsPage inherits Rectangle {
     }
 
     if root.shown: FadeCurtain { }
+    // Opening an artist or an album of theirs, or going back, fades the new view in.
+    if root.shown && root.artist-open && !root.album-open: FadeCurtain { }
+    if root.shown && root.album-open: FadeCurtain { }
+    if root.shown && !root.artist-open: FadeCurtain { }
 }
 
 // The playlists as a grid, and one playlist instead of it while open.
@@ -816,6 +836,9 @@ export component PlaylistsPage inherits Rectangle {
     }
 
     if root.shown: FadeCurtain { }
+    // Opening a playlist, or going back to the grid, fades the new view in.
+    if root.shown && root.playlist-open: FadeCurtain { }
+    if root.shown && !root.playlist-open: FadeCurtain { }
 }
 
 // Search over the whole library: artists, albums and tracks whose names contain the
@@ -969,6 +992,11 @@ export component SearchPage inherits Rectangle {
 // Every track in a sortable table. The tracks are loaded the first time the page
 // is shown, so a large library does not slow the start.
 export component SongsPage inherits Rectangle {
+    // Ctrl+F puts the focus in the page's filter.
+    public function focus-filter() {
+        filter-field.focus-text();
+    }
+
     in property <bool> shown;
     in property <[SongRow]> songs;
     in property <SongColumn> sort-column;
@@ -1021,7 +1049,7 @@ export component SongsPage inherits Rectangle {
                 horizontal-stretch: 1;
             }
 
-            SearchField {
+            filter-field := SearchField {
                 compact: true;
                 horizontal-stretch: 0;
                 preferred-width: 280px;
