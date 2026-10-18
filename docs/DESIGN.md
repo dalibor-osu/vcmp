@@ -63,3 +63,6 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   not to the detail it last showed.
 - 2026-10-18, an album renamed while its page is open: the page goes to the renamed
   album instead of showing it as missing.
+- 2026-10-18, selection: in a run of selected tracks, only the first and last
+  tracks' outer corners are rounded; the corners inside the run looked wrong. A
+  small gap separates the first track from the line under the column headings.

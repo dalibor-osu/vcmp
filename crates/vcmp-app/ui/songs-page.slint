@@ -142,6 +142,10 @@ component SongLine {
     // Plays from this song: a double-click, the play button, or assistive technology.
     callback play-requested();
     callback menu-requested(length, length);
+    // The rows just above and below are selected too: a run of selected rows reads
+    // as one block, rounded only at its ends.
+    in property <bool> selected-above;
+    in property <bool> selected-below;
 
     // The keys held when the button went down.
     private property <bool> toggle-click;
@@ -149,6 +153,8 @@ component SongLine {
     // Secondary text turns full strength on a selected row, so it stays readable on
     // the selection's fill.
     private property <color> secondary: root.song.selected ? Theme.colors.text : Theme.colors.text-muted;
+    private property <bool> joined-above: root.song.selected && root.selected-above;
+    private property <bool> joined-below: root.song.selected && root.selected-below;
     // The pointer is on the play button at the row's start.
     private property <bool> on-play-button: touch.has-hover && touch.mouse-x < play-cell.x + play-cell.width + Theme.space-l / 2;
 
@@ -162,18 +168,24 @@ component SongLine {
     }
 
     Rectangle {
-        border-radius: Theme.radius-m;
+        border-top-left-radius: root.joined-above ? 0 : Theme.radius-m;
+        border-top-right-radius: root.joined-above ? 0 : Theme.radius-m;
+        border-bottom-left-radius: root.joined-below ? 0 : Theme.radius-m;
+        border-bottom-right-radius: root.joined-below ? 0 : Theme.radius-m;
         background: root.song.selected || touch.has-hover ? Theme.colors.surface : transparent;
     }
 
     // A selected row is marked at its edge, as well as filled, so it reads apart from
-    // the row under the pointer.
+    // the row under the pointer. The mark runs on through a block of selected rows.
     if root.song.selected: Rectangle {
         x: 0;
-        y: Theme.space-s;
+        y: root.joined-above ? 0 : Theme.space-s;
         width: 3px;
-        height: root.height - 2 * Theme.space-s;
-        border-radius: Theme.radius-s;
+        height: root.height - (root.joined-above ? 0 : Theme.space-s) - (root.joined-below ? 0 : Theme.space-s);
+        border-top-left-radius: root.joined-above ? 0 : Theme.radius-s;
+        border-top-right-radius: root.joined-above ? 0 : Theme.radius-s;
+        border-bottom-left-radius: root.joined-below ? 0 : Theme.radius-s;
+        border-bottom-right-radius: root.joined-below ? 0 : Theme.radius-s;
         background: Theme.colors.accent;
     }
 
@@ -535,6 +547,8 @@ export component SongTable {
                         y: self.index * root.row-height;
                         width: parent.width;
                         song: root.songs[self.index];
+                        selected-above: self.index > 0 && root.songs[self.index - 1].selected;
+                        selected-below: self.index + 1 < root.songs.length && root.songs[self.index + 1].selected;
                         playing: self.song.path == PlayerState.track-path;
                         focused: list.has-focus && self.index == root.current;
                         clicked(toggle, range) => {
