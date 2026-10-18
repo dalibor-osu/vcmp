@@ -41,6 +41,17 @@ export struct TagFailure {
     reason: TagFailureReason,
 }
 
+export enum TagField { title, artist, album, album-artist, track, disc, year, genre, cover }
+
+// One changed field, as the list before a write to several files shows it.
+export struct TagChange {
+    field: TagField,
+    // The new value; empty for a cover, which the list shows from `TagEditorState.cover`.
+    value: string,
+    // The tag is taken away instead.
+    removed: bool,
+}
+
 // The tag editor: one track's tags, or an album's at once. src/tag_editor.rs fills it
 // in and implements the callbacks.
 export global TagEditorState {
@@ -66,14 +77,23 @@ export global TagEditorState {
     in property <[TagFailure]> failures;
     // The file of an edited track whose new tags wait for the player to let go of it.
     in property <string> waiting-file;
+    // Saving would write to more than one file, so the editor lists the changes and
+    // waits for `confirm` or `back`.
+    in property <bool> confirming;
+    // How many files `confirm` writes.
+    in property <int> confirm-files;
+    in property <[TagChange]> changes;
     // Opens the editor for the track with this file path, or for the album page's album.
     callback edit-track(string);
     callback edit-album();
     // Chooses an image file as the cover, or takes the cover away.
     callback choose-cover();
     callback remove-cover();
-    // Writes the values that changed to every file.
+    // Writes the values that changed to every file; for several files, once confirmed.
     callback save(TagValues);
+    callback confirm();
+    // Leaves the list of changes for the form, writing nothing.
+    callback back();
     callback cancel();
 }
 
@@ -81,11 +101,15 @@ component TagInput inherits VerticalLayout {
     in property <string> label;
     in property <bool> mixed;
     in property <bool> wrong;
+    // The field takes the focus as it is made.
+    in property <bool> takes-focus;
     in-out property <string> text;
     callback accepted();
 
-    public function focus-text() {
-        field.focus-text();
+    init => {
+        if root.takes-focus {
+            field.focus-text();
+        }
     }
 
     spacing: Theme.space-xs;
@@ -112,11 +136,19 @@ component TagInput inherits VerticalLayout {
 }
 
 // Over the sidebar and pages, like the cover picker. Enter in a field saves; Escape
-// or Cancel closes without writing.
+// or Cancel closes without writing. A save to several files first lists the changes
+// in place of the form, with the focus on Back; Escape goes back too.
 export component TagEditorView inherits Rectangle {
     private property <bool> single: TagEditorState.track-count == 1;
     private property <bool> writing: TagEditorState.status == TagEditorStatus.writing;
     private property <bool> waiting: TagEditorState.status == TagEditorStatus.waiting;
+    private property <bool> confirming: TagEditorState.confirming;
+    // What has the focus when the form is made: at first the first field, and after
+    // Back from the list of changes what saved (0 to 7 the fields in form order, 8 the
+    // Save button).
+    private property <int> focus-index: root.single ? 0 : 1;
+    // Where the form was scrolled to before the list of changes took its place.
+    private property <length> form-scroll;
     private property <TagMixed> mixed: TagEditorState.mixed;
     private property <TagProblem> problem: TagEditorState.problem;
     private property <string> title-text: TagEditorState.values.title;
@@ -128,8 +160,9 @@ export component TagEditorView inherits Rectangle {
     private property <string> year-text: TagEditorState.values.year;
     private property <string> genre-text: TagEditorState.values.genre;
 
-    function save() {
-        if !root.writing && !root.waiting {
+    function save(from: int) {
+        if !root.writing && !root.waiting && !root.confirming {
+            root.focus-index = from;
             TagEditorState.save({
                 title: root.title-text,
                 artist: root.artist-text,
@@ -143,6 +176,16 @@ export component TagEditorView inherits Rectangle {
         }
     }
 
+    // The list of changes starts at the top; Back returns to the form where it was.
+    changed confirming => {
+        if root.confirming {
+            root.form-scroll = scroll.content-y;
+            scroll.content-y = 0;
+        } else {
+            scroll.content-y = root.form-scroll;
+        }
+    }
+
     background: Theme.colors.base;
     accessible-role: groupbox;
     accessible-label: @tr("Edit tags");
@@ -152,19 +195,23 @@ export component TagEditorView inherits Rectangle {
     }
     animate opacity { duration: Theme.duration-medium; easing: ease-out; }
 
-    // Escape closes, wherever the focus is in the editor.
+    // Escape leaves the list of changes, or else closes, wherever the focus is in the editor.
     FocusScope {
         focus-on-click: false;
         focus-on-tab-navigation: false;
         key-pressed(event) => {
             if event.text == Key.Escape {
-                TagEditorState.cancel();
+                if root.confirming {
+                    TagEditorState.back();
+                } else {
+                    TagEditorState.cancel();
+                }
                 return accept;
             }
             reject
         }
 
-        ScrollView {
+        scroll := ScrollView {
             width: parent.width;
             height: parent.height;
 
@@ -195,7 +242,8 @@ export component TagEditorView inherits Rectangle {
                         min-height: self.preferred-height;
                     }
                     Text {
-                        text: root.single ? @tr("The tags are written into the file, then read back to check them. An empty field removes its tag.")
+                        text: root.confirming ? @tr("The tags below will be written into {n} file. Tags not listed stay as each file has them." | "The tags below will be written into {n} files. Tags not listed stay as each file has them." % TagEditorState.confirm-files)
+                            : root.single ? @tr("The tags are written into the file, then read back to check them. An empty field removes its tag.")
                             : @tr("What you change is written into every track. A field showing “Several values” keeps each track's own unless you type one.");
                         color: Theme.colors.text-muted;
                         font-size: Theme.font-body;
@@ -204,7 +252,7 @@ export component TagEditorView inherits Rectangle {
                     }
                 }
 
-                HorizontalLayout {
+                if !root.confirming: HorizontalLayout {
                     spacing: Theme.space-xl;
                     alignment: start;
 
@@ -261,44 +309,39 @@ export component TagEditorView inherits Rectangle {
                         horizontal-stretch: 1;
                         max-width: 480px;
 
-                        // The focus starts in the first field.
                         if root.single: TagInput {
-                            init => {
-                                self.focus-text();
-                            }
+                            takes-focus: root.focus-index == 0;
                             label: @tr("Title");
                             text <=> root.title-text;
                             accepted => {
-                                root.save();
+                                root.save(0);
                             }
                         }
                         TagInput {
-                            init => {
-                                if !root.single {
-                                    self.focus-text();
-                                }
-                            }
+                            takes-focus: root.focus-index == 1;
                             label: @tr("Artist");
                             mixed: root.mixed.artist;
                             text <=> root.artist-text;
                             accepted => {
-                                root.save();
+                                root.save(1);
                             }
                         }
                         TagInput {
+                            takes-focus: root.focus-index == 2;
                             label: @tr("Album");
                             mixed: root.mixed.album;
                             text <=> root.album-text;
                             accepted => {
-                                root.save();
+                                root.save(2);
                             }
                         }
                         TagInput {
+                            takes-focus: root.focus-index == 3;
                             label: @tr("Album artist");
                             mixed: root.mixed.album-artist;
                             text <=> root.album-artist-text;
                             accepted => {
-                                root.save();
+                                root.save(3);
                             }
                         }
 
@@ -309,46 +352,100 @@ export component TagEditorView inherits Rectangle {
                                 // Equal widths, whatever they hold.
                                 horizontal-stretch: 1;
                                 preferred-width: 0;
+                                takes-focus: root.focus-index == 4;
                                 label: @tr("Track");
                                 wrong: root.problem == TagProblem.track;
                                 text <=> root.track-text;
                                 accepted => {
-                                    root.save();
+                                    root.save(4);
                                 }
                             }
                             TagInput {
                                 // Equal widths, whatever they hold.
                                 horizontal-stretch: 1;
                                 preferred-width: 0;
+                                takes-focus: root.focus-index == 5;
                                 label: @tr("Disc");
                                 mixed: root.mixed.disc;
                                 wrong: root.problem == TagProblem.disc;
                                 text <=> root.disc-text;
                                 accepted => {
-                                    root.save();
+                                    root.save(5);
                                 }
                             }
                             TagInput {
                                 // Equal widths, whatever they hold.
                                 horizontal-stretch: 1;
                                 preferred-width: 0;
+                                takes-focus: root.focus-index == 6;
                                 label: @tr("Year");
                                 mixed: root.mixed.year;
                                 wrong: root.problem == TagProblem.year;
                                 text <=> root.year-text;
                                 accepted => {
-                                    root.save();
+                                    root.save(6);
                                 }
                             }
                         }
 
                         TagInput {
+                            takes-focus: root.focus-index == 7;
                             label: @tr("Genre");
                             mixed: root.mixed.genre;
                             text <=> root.genre-text;
                             accepted => {
-                                root.save();
+                                root.save(7);
                             }
+                        }
+                    }
+                }
+
+                // In place of the form while a save to several files waits to be
+                // confirmed: each changed field, labelled as in the form, in form order.
+                if root.confirming: VerticalLayout {
+                    spacing: Theme.space-m;
+                    max-width: Theme.content-max-width;
+
+                    for change in TagEditorState.changes: VerticalLayout {
+                        spacing: Theme.space-xs;
+
+                        Text {
+                            text: change.field == TagField.title ? @tr("Title")
+                                : change.field == TagField.artist ? @tr("Artist")
+                                : change.field == TagField.album ? @tr("Album")
+                                : change.field == TagField.album-artist ? @tr("Album artist")
+                                : change.field == TagField.track ? @tr("Track")
+                                : change.field == TagField.disc ? @tr("Disc")
+                                : change.field == TagField.year ? @tr("Year")
+                                : change.field == TagField.genre ? @tr("Genre")
+                                : @tr("Cover");
+                            color: Theme.colors.text-muted;
+                            font-size: Theme.font-small;
+                        }
+                        // The cover that will be written, as the form showed it.
+                        if change.field == TagField.cover && !change.removed: Rectangle {
+                            width: 64px;
+                            height: 64px;
+                            border-radius: Theme.radius-m;
+                            clip: true;
+                            background: Theme.colors.surface;
+
+                            Image {
+                                width: parent.width;
+                                height: parent.height;
+                                source: TagEditorState.cover;
+                                image-fit: ImageFit.cover;
+                                accessible-role: image;
+                                accessible-label: @tr("The new cover");
+                            }
+                        }
+                        // Muted and worded, so a removal doesn't read as a value.
+                        if change.field != TagField.cover || change.removed: Text {
+                            text: change.removed ? @tr("Removed") : change.value;
+                            color: change.removed ? Theme.colors.text-muted : Theme.colors.text;
+                            font-size: Theme.font-body;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
                         }
                     }
                 }
@@ -383,7 +480,7 @@ export component TagEditorView inherits Rectangle {
                 }
 
                 // The files that kept their old tags, each with the reason.
-                if TagEditorState.status == TagEditorStatus.failed: VerticalLayout {
+                if TagEditorState.status == TagEditorStatus.failed && !root.confirming: VerticalLayout {
                     spacing: Theme.space-s;
                     max-width: Theme.content-max-width;
 
@@ -439,7 +536,7 @@ export component TagEditorView inherits Rectangle {
                         }
                     }
 
-                    HorizontalLayout {
+                    if !root.confirming: HorizontalLayout {
                         spacing: Theme.space-m;
                         alignment: start;
 
@@ -449,8 +546,13 @@ export component TagEditorView inherits Rectangle {
                             label: TagEditorState.status == TagEditorStatus.failed ? @tr("Write the tags again") : @tr("Save the tags");
                             primary: true;
                             enabled: !root.writing;
+                            init => {
+                                if root.focus-index == 8 {
+                                    self.focus();
+                                }
+                            }
                             clicked => {
-                                root.save();
+                                root.save(8);
                             }
                         }
                         Button {
@@ -459,6 +561,32 @@ export component TagEditorView inherits Rectangle {
                             enabled: !root.writing;
                             clicked => {
                                 TagEditorState.cancel();
+                            }
+                        }
+                    }
+
+                    // The focus starts on Back, as on any question before a change that
+                    // is hard to undo: an Enter pressed twice by accident goes back to
+                    // the form instead of writing.
+                    if root.confirming: HorizontalLayout {
+                        spacing: Theme.space-m;
+                        alignment: start;
+
+                        Button {
+                            text: @tr("Write {n} file" | "Write {n} files" % TagEditorState.confirm-files);
+                            primary: true;
+                            clicked => {
+                                TagEditorState.confirm();
+                            }
+                        }
+                        Button {
+                            text: @tr("Back");
+                            label: @tr("Back to editing");
+                            init => {
+                                self.focus();
+                            }
+                            clicked => {
+                                TagEditorState.back();
                             }
                         }
                     }

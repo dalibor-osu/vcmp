@@ -2,7 +2,8 @@
 //! track of the album page's album. It shows the values the files have (empty where
 //! an album's tracks differ), and writes only the fields the user changed, through
 //! `Library::write_tags` on a connection of its own in the background. Afterwards
-//! the library views and the player show the new tags.
+//! the library views and the player show the new tags. A save to more than one file
+//! first lists the changed fields, and writes only once the user confirms.
 //!
 //! On Windows the file playback has open can't be replaced, so its edit waits until
 //! the engine lets go of the file (`Event::Decoding`) while the rest of the batch is
@@ -31,8 +32,8 @@ use crate::library_service::{Delivery, LibraryPaths};
 use crate::library_view::LibraryView;
 use crate::selection;
 use crate::{
-    AppWindow, SongSelection, TagEditorState, TagEditorStatus, TagFailure, TagFailureReason,
-    TagMixed, TagProblem, TagValues, TrackSelection,
+    AppWindow, SongSelection, TagChange, TagEditorState, TagEditorStatus, TagFailure,
+    TagFailureReason, TagField, TagMixed, TagProblem, TagValues, TrackSelection,
 };
 
 /// Longest side of the cover preview, in pixels.
@@ -73,6 +74,8 @@ pub struct TagEditor {
     // The tracks the editor writes to, and the cover it writes.
     tracks: RefCell<Vec<Track>>,
     cover: RefCell<FieldEdit<Vec<u8>>>,
+    // A save to several files, until the user confirms it or goes back.
+    pending: RefCell<Vec<TrackEdit>>,
     sender: Sender<Message>,
     receiver: Receiver<Message>,
     notify: Arc<dyn Fn() + Send + Sync>,
@@ -125,6 +128,7 @@ impl TagEditor {
             view,
             tracks: RefCell::default(),
             cover: RefCell::default(),
+            pending: RefCell::default(),
             sender,
             receiver,
             notify,
@@ -185,6 +189,18 @@ impl TagEditor {
         state.on_save(move |values| {
             if let Some(editor) = weak.upgrade() {
                 editor.save(&values);
+            }
+        });
+        let weak = Rc::downgrade(&editor);
+        state.on_confirm(move || {
+            if let Some(editor) = weak.upgrade() {
+                editor.confirm();
+            }
+        });
+        let weak = Rc::downgrade(&editor);
+        state.on_back(move || {
+            if let Some(editor) = weak.upgrade() {
+                editor.back();
             }
         });
         let weak = Rc::downgrade(&editor);
@@ -411,6 +427,9 @@ impl TagEditor {
         state.set_problem(TagProblem::None);
         state.set_failures(ModelRc::default());
         state.set_done(0);
+        state.set_confirming(false);
+        state.set_changes(ModelRc::default());
+        self.pending.borrow_mut().clear();
         *self.tracks.borrow_mut() = tracks;
         *self.carried.borrow_mut() = carried;
         self.shown_waiting.set(None);
@@ -429,8 +448,11 @@ impl TagEditor {
             state.set_cover(Image::default());
             state.set_failures(ModelRc::default());
             state.set_waiting_file(SharedString::default());
+            state.set_confirming(false);
+            state.set_changes(ModelRc::default());
         }
         self.tracks.borrow_mut().clear();
+        self.pending.borrow_mut().clear();
         self.carried.borrow_mut().clear();
         self.shown_waiting.set(None);
         *self.cover.borrow_mut() = FieldEdit::Keep;
@@ -476,6 +498,10 @@ impl TagEditor {
             return;
         };
         let state = window.global::<TagEditorState>();
+        // A cover chosen while the changes are listed makes the list wrong.
+        if state.get_confirming() {
+            self.back();
+        }
         let shown = match &cover {
             FieldEdit::Set(data) => preview(data),
             _ => None,
@@ -496,7 +522,10 @@ impl TagEditor {
             return;
         };
         let state = window.global::<TagEditorState>();
-        if self.writing.get() || state.get_status() == TagEditorStatus::Waiting {
+        if self.writing.get()
+            || state.get_confirming()
+            || state.get_status() == TagEditorStatus::Waiting
+        {
             return;
         }
         let edit = match edit(&state.get_values(), values, self.cover.borrow().clone()) {
@@ -527,6 +556,53 @@ impl TagEditor {
             self.close();
             return;
         }
+        // Several files are written only once the user has seen what changes in them.
+        if edits.len() > 1 && !edit.is_empty() {
+            state.set_changes(ModelRc::new(VecModel::from(changes(&edit))));
+            state.set_confirm_files(edits.len() as i32);
+            state.set_confirming(true);
+            *self.pending.borrow_mut() = edits;
+            return;
+        }
+        self.write(&state, edits);
+    }
+
+    /// Writes the save to several files the user confirmed.
+    fn confirm(&self) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<TagEditorState>();
+        if self.writing.get() || !state.get_confirming() {
+            return;
+        }
+        state.set_confirming(false);
+        // A track whose waiting edit playback let go of meanwhile has left the editor.
+        let edits: Vec<TrackEdit> = {
+            let tracks = self.tracks.borrow();
+            std::mem::take(&mut *self.pending.borrow_mut())
+                .into_iter()
+                .filter(|change| tracks.iter().any(|track| track.id == change.track.id))
+                .collect()
+        };
+        if edits.is_empty() {
+            self.close();
+            return;
+        }
+        self.write(&state, edits);
+    }
+
+    /// Leaves the list of changes for the form, writing nothing.
+    fn back(&self) {
+        self.pending.borrow_mut().clear();
+        if let Some(window) = self.window.upgrade() {
+            window.global::<TagEditorState>().set_confirming(false);
+        }
+    }
+
+    /// Writes `edits` in the background, except the one to the file playback holds
+    /// open, which waits.
+    fn write(&self, state: &TagEditorState, edits: Vec<TrackEdit>) {
         // The file playback holds open waits until it is let go; the rest is written now.
         let held = self.held_file();
         let (hold, now): (Vec<_>, Vec<_>) = edits
@@ -542,7 +618,7 @@ impl TagEditor {
             }
         }
         if now.is_empty() {
-            self.show_report(&state, TagWriteReport::default());
+            self.show_report(state, TagWriteReport::default());
             return;
         }
         state.set_status(TagEditorStatus::Writing);
@@ -862,6 +938,54 @@ fn merged(first: &TagEdit, then: &TagEdit) -> TagEdit {
     }
 }
 
+/// The fields `edit` changes, in form order, as the list before a write to several
+/// files shows them.
+fn changes(edit: &TagEdit) -> Vec<TagChange> {
+    fn change<T: ToString>(field: TagField, edit: &FieldEdit<T>) -> Option<TagChange> {
+        match edit {
+            FieldEdit::Keep => None,
+            FieldEdit::Set(value) => Some(TagChange {
+                field,
+                value: value.to_string().into(),
+                removed: false,
+            }),
+            FieldEdit::Clear => Some(TagChange {
+                field,
+                value: SharedString::default(),
+                removed: true,
+            }),
+        }
+    }
+    // The list shows the cover itself, from the preview.
+    let cover = match &edit.cover {
+        FieldEdit::Keep => None,
+        FieldEdit::Set(_) => Some(TagChange {
+            field: TagField::Cover,
+            value: SharedString::default(),
+            removed: false,
+        }),
+        FieldEdit::Clear => Some(TagChange {
+            field: TagField::Cover,
+            value: SharedString::default(),
+            removed: true,
+        }),
+    };
+    [
+        change(TagField::Title, &edit.title),
+        change(TagField::Artist, &edit.artist),
+        change(TagField::Album, &edit.album),
+        change(TagField::AlbumArtist, &edit.album_artist),
+        change(TagField::Track, &edit.track_number),
+        change(TagField::Disc, &edit.disc_number),
+        change(TagField::Year, &edit.year),
+        change(TagField::Genre, &edit.genre),
+        cover,
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 /// The edit that turns `before` (the values the editor opened with) into `after`:
 /// a field left as it was is kept, an emptied one cleared, a changed one set.
 fn edit(
@@ -1008,6 +1132,30 @@ mod tests {
         assert_eq!(shown.artist, None);
         assert_eq!(shown.year, Some(2001));
         assert_eq!(shown.album.as_deref(), Some("Album"), "the rest is kept");
+    }
+
+    #[test]
+    fn the_list_of_changes_follows_the_form() {
+        let listed: Vec<(TagField, String, bool)> = changes(&TagEdit {
+            genre: FieldEdit::Set("Rock".into()),
+            year: FieldEdit::Set(1999),
+            album_artist: FieldEdit::Clear,
+            cover: FieldEdit::Set(vec![1, 2, 3]),
+            ..TagEdit::default()
+        })
+        .into_iter()
+        .map(|change| (change.field, change.value.to_string(), change.removed))
+        .collect();
+        assert_eq!(
+            listed,
+            [
+                (TagField::AlbumArtist, String::new(), true),
+                (TagField::Year, "1999".to_string(), false),
+                (TagField::Genre, "Rock".to_string(), false),
+                (TagField::Cover, String::new(), false),
+            ]
+        );
+        assert!(changes(&TagEdit::default()).is_empty());
     }
 
     #[test]

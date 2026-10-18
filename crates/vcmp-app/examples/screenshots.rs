@@ -29,7 +29,8 @@ use vcmp_app::updates;
 use vcmp_app::{
     AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
     LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, SelectionChange,
-    TagEditorState, TagEditorStatus, Theme, ThemeMode, TrackSelection, UpdateState,
+    TagChange, TagEditorState, TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection,
+    UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -61,6 +62,8 @@ struct Shot {
     tags: bool,
     // The editor saved, except for the first track, which the player has open.
     tags_waiting: bool,
+    // The editor lists the changes of a save to every track of the album.
+    tags_confirm: bool,
     // The artist photo picker is open, with stand-in photos.
     photo_picker: bool,
     // Two of the album's tracks are selected.
@@ -86,6 +89,7 @@ const fn shot(
         cover_picker: false,
         tags: false,
         tags_waiting: false,
+        tags_confirm: false,
         photo_picker: false,
         selection: false,
     }
@@ -115,6 +119,13 @@ const fn tags(name: &'static str, mode: ThemeMode) -> Shot {
 const fn tags_waiting(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         tags_waiting: true,
+        ..tags(name, mode)
+    }
+}
+
+const fn tags_confirm(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        tags_confirm: true,
         ..tags(name, mode)
     }
 }
@@ -182,6 +193,8 @@ const SHOTS: &[Shot] = &[
     tags("tags-dark", ThemeMode::Dark),
     tags_waiting("tags-waiting-light", ThemeMode::Light),
     tags_waiting("tags-waiting-dark", ThemeMode::Dark),
+    tags_confirm("tags-confirm-light", ThemeMode::Light),
+    tags_confirm("tags-confirm-dark", ThemeMode::Dark),
     shot("settings-light", ThemeMode::Light, 6, None, 0),
     shot("settings-dark", ThemeMode::Dark, 6, None, 0),
     lastfm("lastfm-light", ThemeMode::Light, LastfmStatus::Connected),
@@ -328,6 +341,25 @@ fn prepare(window: &AppWindow, shot: &Shot) {
                 .unwrap_or_default();
             editor.set_status(TagEditorStatus::Waiting);
             editor.set_waiting_file(name.into());
+        }
+        if shot.tags_confirm {
+            // Set directly rather than saved, so the shots never write to the files.
+            let change = |field, value: &str, removed| TagChange {
+                field,
+                value: value.into(),
+                removed,
+            };
+            let mut changes = vec![
+                change(TagField::AlbumArtist, "", true),
+                change(TagField::Year, "1999", false),
+                change(TagField::Genre, "Ambient", false),
+            ];
+            if editor.get_has_cover() {
+                changes.push(change(TagField::Cover, "", false));
+            }
+            editor.set_confirm_files(editor.get_track_count());
+            editor.set_changes(ModelRc::new(VecModel::from(changes)));
+            editor.set_confirming(true);
         }
     } else {
         editor.invoke_cancel();

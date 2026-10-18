@@ -31,8 +31,8 @@ dials come from DESIGN.md).
 | `src/cover_fetch.rs` | `CoverFetch`: runs the cover search, stores the picked cover and shows it everywhere |
 | `ui/photo-picker.slint` | `PhotoSearch` global and `PhotoPicker`: an artist's photo, found online or from a file |
 | `src/artist_photos.rs` | `ArtistPhotos`: runs the photo search, keeps the chosen photo and shows it on the page and the cards |
-| `ui/tag-editor.slint` | `TagEditorState` global and `TagEditorView`: one track's or an album's tags and cover |
-| `src/tag_editor.rs` | `TagEditor`: fills the editor, works out what changed, writes it in the background and refreshes the views |
+| `ui/tag-editor.slint` | `TagEditorState` global and `TagEditorView`: one track's or an album's tags and cover, and the list of changes before writing several files |
+| `src/tag_editor.rs` | `TagEditor`: fills the editor, works out what changed, lists it before writing several files, writes it in the background and refreshes the views |
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist and playlist grids, an artist's albums and search |
 | `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages; owns the folder and playlist browsers |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
@@ -122,6 +122,7 @@ subtext1 and overlay2 instead.
 | Artist photo actions sit under the picture, and their picker is the cover picker's twin | The same place and pattern as an album's "Find cover online", so one way of working covers both |
 | The tag editor is the same kind of overlay, not a separate window | One overlay pattern again. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
 | An album's differing values show as empty fields saying "Several values" | Writing only the fields the user changed is the safe default for a batch: a field left alone can't flatten twelve track numbers into one |
+| A save to several files first lists its changes in the form's place, with the focus on Back | The spec asks for no bulk tag writes without a preview. The list shows exactly what goes into every file, and starts at the top even in a scrolled editor. Back has the focus, as Cancel does before deleting a playlist, so an Enter pressed twice goes back instead of rewriting an album |
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 | Last.fm connects in the browser while the row waits, with Cancel | Last.fm's desktop sign-in happens on last.fm; asking every few seconds spares an "I've allowed it" button |
 | One Last.fm button whose text follows the state (Connect…, Cancel, Disconnect) | The focus stays on it while the state changes under it |
@@ -310,7 +311,22 @@ shown, because the page itself stays alive while hidden.
   something is typed in it. The cover works the same way ("Several covers").
 - **Saving:** Save or Enter in a field. A wrong value (a track number that isn't a
   whole number, a year outside 1 to 9999, a line break) writes nothing and says
-  which field is wrong. Escape or Cancel closes without writing.
+  which field is wrong. Escape or Cancel closes without writing. Saving with
+  nothing changed closes, writing nothing.
+- **Several files ask first:** when a save would write more than one file, the
+  editor lists the changes in place of the form before anything is written (the
+  `confirming` state, filled by `TagEditor::save`).
+  - It says how many files, then each changed field under its form label, in form
+    order, with the new value: "Removed" (muted) for an emptied field, and the new
+    cover as a thumbnail. Fields not listed keep each file's own value.
+  - "Write N files" writes. Back or Escape returns to the form with the typed values,
+    the focus where the save came from (the field Enter was pressed in, or Save) and
+    the scroll position it had. The focus starts on Back, so a second Enter goes back
+    rather than writing.
+  - One track still writes at once, and so does "Try again" for a single file. The
+    list holds what this save changes, not an edit that waits for playback from an
+    earlier save. A cover chosen while the list shows (the file chooser was still
+    open) brings the form back.
 - **Writing** runs on its own library connection in the background, through the
   library's verified copy-and-replace (see `docs/library.md`), with a progress bar.
   When every file was written the editor closes, and the library pages, the queue
@@ -714,6 +730,8 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - The tag editor can't empty a field that differs between an album's tracks in one
   go: an empty "Several values" field keeps the values. Type a value, or edit the
   tracks one by one.
+- The list of changes before writing several files shows the new values only, not
+  the values they replace.
 - A selection lives in one list: tracks from two pages (an album and a search) can't
   be selected together, and a selection goes when its list is rebuilt (another
   album, a new sort or filter, a library change).
