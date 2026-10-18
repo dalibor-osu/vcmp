@@ -186,6 +186,35 @@ CREATE TABLE artist_photos (
     chosen_ms INTEGER NOT NULL
 ) STRICT;
 "#,
+    r#"
+-- Every track belongs to an album. One without an album tag goes into an "Unknown"
+-- album of its album artist, else its artist; one naming neither into the single
+-- Unknown album with no artist. unknown = 1 marks these; their title is empty (the
+-- UI names them) and their group key is "unknown:" with the artist's id.
+ALTER TABLE albums ADD COLUMN unknown INTEGER NOT NULL DEFAULT 0;
+
+-- An album artist only ever named as such has no artist row yet.
+INSERT OR IGNORE INTO artists (name)
+    SELECT album_artist FROM tracks WHERE album IS NULL AND album_artist IS NOT NULL;
+
+INSERT OR IGNORE INTO albums (group_key, title, artist_id, unknown)
+    SELECT 'unknown:' || IFNULL(ar.id, ''), '', ar.id, 1
+    FROM tracks t
+    LEFT JOIN artists ar ON ar.name = COALESCE(t.album_artist, t.artist)
+    WHERE t.album IS NULL;
+
+UPDATE tracks SET album_id = (
+    SELECT a.id FROM albums a
+    WHERE a.group_key = 'unknown:' || IFNULL(
+        (SELECT ar.id FROM artists ar
+         WHERE ar.name = COALESCE(tracks.album_artist, tracks.artist)), ''))
+WHERE album IS NULL;
+
+DELETE FROM album_search;
+INSERT INTO album_search (rowid, title, artist)
+    SELECT albums.id, albums.title, IFNULL(artists.name, '')
+    FROM albums LEFT JOIN artists ON artists.id = albums.artist_id;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

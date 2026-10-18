@@ -53,6 +53,10 @@ pub struct Album {
     pub fetched_cover: bool,
     /// MusicBrainz release ID, when the files are tagged with one.
     pub musicbrainz_id: Option<String>,
+    /// The "Unknown" album holding the artist's tracks without an album tag (or,
+    /// without an artist, every track that names neither). Its title is empty, and
+    /// it has no artwork.
+    pub unknown: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,8 +119,8 @@ pub(crate) fn tracks(conn: &Connection, filter: TrackFilter) -> Result<Vec<Track
          LEFT JOIN albums a ON a.id = t.album_id
          LEFT JOIN artists aa ON aa.id = a.artist_id
          WHERE t.available = 1 {condition}
-         ORDER BY aa.name IS NULL, aa.name COLLATE NOCASE, a.year, a.title COLLATE NOCASE,
-                  t.disc_number, t.track_number, t.title COLLATE NOCASE"
+         ORDER BY aa.name IS NULL, aa.name COLLATE NOCASE, a.unknown, a.year,
+                  a.title COLLATE NOCASE, t.disc_number, t.track_number, t.title COLLATE NOCASE"
     );
     let mut statement = conn.prepare(&sql)?;
     let rows = match album {
@@ -136,7 +140,7 @@ pub(crate) fn track(conn: &Connection, TrackId(id): TrackId) -> Result<Option<Tr
 }
 
 const ALBUM_QUERY: &str = "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id),
-        a.artwork_hash, a.mbid, fc.artwork_hash
+        a.artwork_hash, a.mbid, fc.artwork_hash, a.unknown
     FROM albums a
     JOIN tracks t ON t.album_id = a.id AND t.available = 1
     LEFT JOIN artists ar ON ar.id = a.artist_id
@@ -156,6 +160,7 @@ fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
         artwork: own.clone().or(fetched.clone()),
         fetched_cover: own.is_none() && fetched.is_some(),
         musicbrainz_id: row.get(7)?,
+        unknown: row.get(9)?,
     })
 }
 
@@ -183,7 +188,8 @@ pub(crate) fn albums(
     };
     let sql = format!(
         "{ALBUM_QUERY} {condition} GROUP BY a.id
-         ORDER BY ar.name IS NULL, ar.name COLLATE NOCASE, a.year, a.title COLLATE NOCASE"
+         ORDER BY ar.name IS NULL, ar.name COLLATE NOCASE, a.unknown, a.year,
+                  a.title COLLATE NOCASE"
     );
     let mut statement = conn.prepare(&sql)?;
     let map = |row: &Row| album_from(row, store);

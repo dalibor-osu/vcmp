@@ -307,6 +307,16 @@ fn show_cover(
 }
 
 /// One card per album, with its cover thumbnail.
+/// What an album without a cover shows in its place: the title's first letter, or a
+/// question mark for an Unknown album.
+pub(crate) fn album_initial(album: &Album) -> String {
+    if album.unknown {
+        "?".into()
+    } else {
+        initial(&album.title)
+    }
+}
+
 pub fn cards(albums: &[Album]) -> Vec<Card> {
     albums
         .iter()
@@ -315,7 +325,8 @@ pub fn cards(albums: &[Album]) -> Vec<Card> {
                 id: album.id.0 as i32,
                 title: album.title.as_str().into(),
                 artist: album.artist.clone().unwrap_or_default().into(),
-                initial: initial(&album.title).into(),
+                initial: album_initial(album).into(),
+                unknown: album.unknown,
                 ..AlbumTile::default()
             };
             (

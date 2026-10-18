@@ -27,6 +27,9 @@ export struct AlbumDetail {
     missing: bool,
     // Some track has an artist of its own, so the track list shows an artist column.
     track-artists: bool,
+    // The "Unknown" album of the artist's tracks without an album tag (or of the
+    // tracks naming neither): shown by that name, with a question mark for a cover.
+    unknown: bool,
 }
 
 export struct TrackRow {
@@ -678,6 +681,9 @@ export component TrackList {
 // without a cover offers to find one online.
 export component AlbumView {
     in property <AlbumDetail> album;
+    // The names shown: an Unknown album's are words of the UI, not tags.
+    private property <string> shown-title: root.album.unknown ? @tr("Unknown") : root.album.title;
+    private property <string> shown-artist: root.album.unknown && root.album.artist == "" ? @tr("Unknown artist") : root.album.artist;
     // Names the page the back button returns to.
     in property <string> back-label: @tr("Albums");
     in property <[TrackRow]> tracks;
@@ -796,9 +802,9 @@ export component AlbumView {
                         }
 
                         // Under the missing cover, so the action sits where it is needed.
-                        if !root.album.has-cover && !root.album.missing: Button {
+                        if !root.album.has-cover && !root.album.missing && !root.album.unknown: Button {
                             text: @tr("Find cover online");
-                            label: @tr("Find a cover for {} online", root.album.title);
+                            label: @tr("Find a cover for {} online", root.shown-title);
                             clicked => {
                                 root.asked-for-cover = true;
                                 CoverSearch.find();
@@ -829,7 +835,7 @@ export component AlbumView {
                             Button {
                                 width: parent.width;
                                 text: @tr("Change cover…");
-                                label: @tr("Change the cover of {}", root.album.title);
+                                label: @tr("Change the cover of {}", root.shown-title);
                                 clicked => {
                                     change-cover.show({ x: 0, y: self.height });
                                 }
@@ -859,7 +865,7 @@ export component AlbumView {
                             Button {
                                 width: parent.width;
                                 text: @tr("Add to playlist…");
-                                label: @tr("Add {} to a playlist", root.album.title);
+                                label: @tr("Add {} to a playlist", root.shown-title);
                                 clicked => {
                                     add-album.show({ x: 0, y: self.height });
                                 }
@@ -868,7 +874,7 @@ export component AlbumView {
                         // Under the cover too: the album's tags, its cover among them.
                         if root.tracks.length > 0 && !root.album.missing: Button {
                             text: @tr("Edit tags…");
-                            label: @tr("Edit the tags of {}", root.album.title);
+                            label: @tr("Edit the tags of {}", root.shown-title);
                             clicked => {
                                 root.asked-for-tags = true;
                                 TagEditorState.edit-album();
@@ -882,7 +888,7 @@ export component AlbumView {
                         max-width: Theme.content-max-width;
 
                         Text {
-                            text: root.album.title;
+                            text: root.shown-title;
                             color: Theme.colors.text;
                             font-size: Theme.font-title;
                             font-weight: Theme.weight-strong;
@@ -890,8 +896,8 @@ export component AlbumView {
                             min-height: self.preferred-height;
                         }
 
-                        if root.album.artist != "": Text {
-                            text: root.album.artist;
+                        if root.shown-artist != "": Text {
+                            text: root.shown-artist;
                             color: Theme.colors.text;
                             font-size: Theme.font-heading;
                             wrap: word-wrap;
@@ -926,7 +932,7 @@ export component AlbumView {
 
                             Button {
                                 text: @tr("Play");
-                                label: @tr("Play {}", root.album.title);
+                                label: @tr("Play {}", root.shown-title);
                                 primary: true;
                                 clicked => {
                                     root.play(-1, false);
@@ -935,7 +941,7 @@ export component AlbumView {
 
                             Button {
                                 text: @tr("Shuffle");
-                                label: @tr("Shuffle {}", root.album.title);
+                                label: @tr("Shuffle {}", root.shown-title);
                                 clicked => {
                                     root.play(-1, true);
                                 }

@@ -16,6 +16,8 @@ export struct AlbumTile {
     initial: string,
     artwork: ArtworkState,
     cover: image,
+    // An "Unknown" album: shown by that name (and "Unknown artist" without one).
+    unknown: bool,
 }
 
 export component AlbumCard {
@@ -27,9 +29,10 @@ export component AlbumCard {
     in property <bool> playlist;
     // A photo to pick: below the name, what tells the artist apart, as given.
     in property <bool> photo;
+    private property <string> title: root.album.unknown ? @tr("Unknown") : root.album.title;
     private property <string> subtitle: root.photo ? root.album.artist
         : root.playlist ? @tr("{n} track" | "{n} tracks" % root.album.track-count)
-        : !root.round ? root.album.artist
+        : !root.round ? (root.album.unknown && root.album.artist == "" ? @tr("Unknown artist") : root.album.artist)
         : root.album.album-count > 0 ? @tr("{n} album" | "{n} albums" % root.album.album-count)
         : @tr("{n} track" | "{n} tracks" % root.album.track-count);
     // Drawn with a focus ring: the grid has keyboard focus and this is its current card.
@@ -38,7 +41,7 @@ export component AlbumCard {
 
     accessible-role: button;
     accessible-item-selected: root.focused;
-    accessible-label: root.subtitle == "" ? root.album.title : @tr("{0}, {1}", root.album.title, root.subtitle);
+    accessible-label: root.subtitle == "" ? root.title : @tr("{0}, {1}", root.title, root.subtitle);
     accessible-action-default => {
         root.clicked();
     }
@@ -76,7 +79,7 @@ export component AlbumCard {
             spacing: 2px;
 
             Text {
-                text: root.album.title;
+                text: root.title;
                 color: Theme.colors.text;
                 font-size: Theme.font-body;
                 font-weight: Theme.weight-strong;
