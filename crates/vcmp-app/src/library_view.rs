@@ -407,6 +407,15 @@ impl LibraryView {
         }
     }
 
+    /// Opens an album on the Artists page, over the artist's page, by its id.
+    pub fn open_artist_album_by_id(&self, id: AlbumId) {
+        match self.library.album(id) {
+            Ok(Some(album)) => self.open_album(album, true),
+            Ok(None) => {}
+            Err(error) => log::error!("could not read album {}: {error}", id.0),
+        }
+    }
+
     /// Opens an artist on the Artists page by their id, as the player bar does.
     pub fn open_artist_by_id(&self, id: ArtistId) {
         match self.library.artist(id) {

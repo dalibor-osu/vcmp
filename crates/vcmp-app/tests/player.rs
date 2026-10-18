@@ -1362,3 +1362,33 @@ fn queue_rows_get_their_album_cover() {
     assert!(app.state().get_up_next().row_data(0).unwrap().has_cover);
     assert!(app.state().get_upcoming().row_data(0).unwrap().has_cover);
 }
+
+#[test]
+fn media_keys_control_the_player() {
+    use slint::winit_030::winit::keyboard::{Key as WinitKey, NamedKey};
+    use vcmp_app::shortcuts::play_media_key;
+
+    let app = start(|_| {});
+    let press = |key: NamedKey| play_media_key(&app.window, &WinitKey::Named(key));
+    app.sent.take();
+    press(NamedKey::MediaPlayPause);
+    assert_eq!(app.sent.take(), [], "nothing to play yet");
+
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.sent.take();
+    press(NamedKey::MediaPlayPause);
+    press(NamedKey::MediaTrackNext);
+    press(NamedKey::MediaTrackPrevious);
+    assert_eq!(
+        app.sent.take(),
+        [Command::TogglePlayPause, Command::Next, Command::Previous]
+    );
+    // Play while it plays, as Pause while it doesn't, changes nothing.
+    app.window
+        .global::<PlayerState>()
+        .set_state(PlayState::Playing);
+    press(NamedKey::MediaPlay);
+    assert_eq!(app.sent.take(), []);
+    press(NamedKey::MediaPause);
+    assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
+}

@@ -10,6 +10,7 @@ pub mod lastfm_service;
 pub mod library_service;
 pub mod library_view;
 pub mod media_keys;
+pub mod navigation;
 pub mod player_service;
 pub mod playlists;
 pub mod preferences;
@@ -19,6 +20,7 @@ pub mod shortcuts;
 pub mod tag_editor;
 pub mod theme;
 pub mod updates;
+pub mod wheel;
 
 slint::include_modules!();
 

@@ -189,31 +189,6 @@ component SongLine {
         background: Theme.colors.accent;
     }
 
-    touch := TouchArea {
-        mouse-cursor: root.on-play-button ? MouseCursor.pointer : MouseCursor.default;
-        clicked => {
-            Theme.keyboard-navigation = false;
-            if root.on-play-button && !root.toggle-click && !root.range-click {
-                root.play-requested();
-            } else {
-                root.clicked(root.toggle-click, root.range-click);
-            }
-        }
-        double-clicked => {
-            if !root.on-play-button {
-                root.play-requested();
-            }
-        }
-        pointer-event(event) => {
-            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                root.menu-requested(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
-            }
-            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                root.toggle-click = event.modifiers.control || event.modifiers.meta;
-                root.range-click = event.modifiers.shift;
-            }
-        }
-    }
 
     Columns {
         play-cell := Rectangle {
@@ -277,6 +252,34 @@ component SongLine {
             horizontal-alignment: right;
             vertical-alignment: center;
             accessible-role: none;
+        }
+    }
+
+    // Over the columns, so what shows in them under the pointer (the play button)
+    // doesn't take the hover from the row.
+    touch := TouchArea {
+        mouse-cursor: root.on-play-button ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            Theme.keyboard-navigation = false;
+            if root.on-play-button && !root.toggle-click && !root.range-click {
+                root.play-requested();
+            } else {
+                root.clicked(root.toggle-click, root.range-click);
+            }
+        }
+        double-clicked => {
+            if !root.on-play-button {
+                root.play-requested();
+            }
+        }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                root.menu-requested(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                root.toggle-click = event.modifiers.control || event.modifiers.meta;
+                root.range-click = event.modifiers.shift;
+            }
         }
     }
 

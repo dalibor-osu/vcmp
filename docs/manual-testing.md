@@ -42,7 +42,10 @@ reading the code or with a simulated system, so they are the most likely to fail
       a question mark for a cover, after the artist's other albums. Tracks with no
       artist either are in an "Unknown" album by "Unknown artist", last in the
       grid. Give such a track an album in the tag editor: it moves there.
-- [ ] Ctrl+F (Cmd+F on macOS) searches artists, albums, playlists and tracks.
+- [ ] Ctrl+F (Cmd+F on macOS) on Albums, Artists or Songs puts the focus in the
+      page's filter; on any other page it opens Search.
+- [ ] The mouse's back and forward buttons (and Alt+Left/Right) move through the
+      sections and album, artist and playlist pages you opened, like a browser.
 - [ ] With "Update automatically" on, copy an album into the folder, then delete
       it: it appears and disappears without a rescan.
 - [ ] Move an album to another subfolder: a playlist that holds its tracks still
@@ -56,6 +59,9 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 - [ ] An album plays through without a gap between tracks (a live or concept album
       makes a gap easy to hear). MP3, FLAC, WAV and Ogg Vorbis all play.
+- [ ] Spin the mouse wheel fast (a free-spinning wheel, if you have one) on Albums,
+      Songs and a long album: the page scrolls at once and glides to a stop, with
+      no freeze. A touchpad still flicks.
 - [ ] Seek with the slider and with the keyboard; pause, resume, previous and next;
       volume and mute; repeat off, all and one.
 - [ ] Shuffle, "Fewer repeats" and "Fully random": no track comes back before the
@@ -65,7 +71,7 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Queue panel in a window narrower than 1000 px: it covers the whole page area
       but not the sidebar, Tab doesn't reach the page under it, and Escape closes
       it. Wider than that, it sits beside the page.
-- [ ] Queue panel: it slides in (at once with Reduce motion on); Play next and Add
+- [ ] Queue panel: it slides in and out (at once with Reduce motion on); Play next and Add
       to queue land in the right places; drag an Up next track to another place,
       also past the visible rows (the list scrolls while you hold it at the edge);
       Clear; Delete and Alt+Up/Down on the focused row.
@@ -173,7 +179,13 @@ reading the code or with a simulated system, so they are the most likely to fail
       entry stays in view.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the
       tag editor's error messages, the empty library message in a narrow window.
-- [ ] Now playing view: the large cover (up to 880 px on a full screen, with a
+- [ ] Hovering an album, artist or playlist card puts a fill behind it. Opening an
+      album, artist or playlist page, and going back, fades the new view in.
+- [ ] The queue button's icon sits centered in its round hover fill, and the
+      speaker icon is level with the icons beside it.
+- [ ] In the Songs table, a hovered row stays highlighted, without blinking,
+      while the pointer moves and when it rests.
+- [ ] Now playing view (fades in and out): the large cover (up to 880 px on a full screen, with a
       larger title in a very wide window), the "…" menu (Add to playlist), closing
       with Escape.
 
@@ -194,6 +206,8 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 ## Linux
 
+- [ ] With the VCMP window focused, the keyboard's play/pause, next and previous
+      keys control it on any desktop, a bare window manager too.
 - [ ] Media keys and the desktop's media widget (GNOME's, KDE's) show the track
       and cover and control play, pause, next, previous, seek, volume, shuffle and
       repeat; Raise brings the window back; Quit closes VCMP.

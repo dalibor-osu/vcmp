@@ -119,23 +119,36 @@ impl App {
 }
 
 #[test]
-fn ctrl_f_opens_search_and_typing_searches_after_a_pause() {
+fn ctrl_f_filters_the_page_or_opens_search_and_typing_searches_after_a_pause() {
     let app = start();
     assert_eq!(
         app.window.get_current_page(),
         Page::Albums,
         "the app opens on Albums"
     );
-
-    app.window.window().dispatch_event(WindowEvent::KeyPressed {
-        text: Key::Control.into(),
-    });
-    key(&app.window, "f");
-    app.window
-        .window()
-        .dispatch_event(WindowEvent::KeyReleased {
+    let ctrl_f = || {
+        app.window.window().dispatch_event(WindowEvent::KeyPressed {
             text: Key::Control.into(),
         });
+        key(&app.window, "f");
+        app.window
+            .window()
+            .dispatch_event(WindowEvent::KeyReleased {
+                text: Key::Control.into(),
+            });
+    };
+
+    // A page with a filter gets the focus in it.
+    ctrl_f();
+    assert_eq!(app.window.get_current_page(), Page::Albums);
+    key(&app.window, "z");
+    assert_eq!(app.window.get_albums_filter(), "z");
+    key(&app.window, Key::Escape);
+    app.window.invoke_release_focus();
+
+    // Elsewhere, Search opens.
+    app.window.set_selected_index(6);
+    ctrl_f();
     assert_eq!(app.window.get_current_page(), Page::Search);
 
     for c in "ライブ".chars() {

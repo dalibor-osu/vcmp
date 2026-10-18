@@ -160,6 +160,53 @@ export component AppWindow inherits Window {
         { page: Page.settings, label: @tr("Settings"), group: 2 },
         { page: Page.about, label: @tr("About"), group: 2 },
     ];
+    // Back and forward through the places shown, like a browser (src/navigation.rs):
+    // the mouse's back and forward buttons, and Alt+Left and Alt+Right. The window
+    // reports every change of section or of the page open in it.
+    callback navigated();
+    callback go-back();
+    callback go-forward();
+    changed selected-index => {
+        root.navigated();
+    }
+    changed album-open => {
+        root.navigated();
+    }
+    changed artist-open => {
+        root.navigated();
+    }
+    changed artist-album-open => {
+        root.navigated();
+    }
+    changed playlist-open => {
+        root.navigated();
+    }
+    changed album-detail => {
+        root.navigated();
+    }
+    changed artist-detail => {
+        root.navigated();
+    }
+    changed open-playlist-index => {
+        root.navigated();
+    }
+
+    // Shows a section on its grid, not on the album, artist or playlist it last
+    // showed, as its sidebar entry does.
+    public function show-section(index: int) {
+        root.selected-index = index;
+        let page = root.nav[index].page;
+        if page == Page.albums && root.album-open {
+            albums-page.close-album();
+        }
+        if page == Page.artists && (root.artist-open || root.artist-album-open) {
+            artists-page.show-grid();
+        }
+        if page == Page.playlists && root.playlist-open {
+            playlists-page.close-playlist();
+        }
+    }
+
     // Opens the playing track's album, or its artist, on their page, from the
     // player bar or the now playing view (which closes).
     function show-playing-album() {
@@ -210,14 +257,18 @@ export component AppWindow inherits Window {
     // once it has slid in the pages are hidden, so the keyboard can't reach controls
     // under it. Escape closes it.
     private property <bool> queue-covers: root.queue-open && !root.queue-beside;
-    private property <bool> queue-settled;
+    // How far out of its place the queue panel is, from 0 (open) to 1 (gone): it
+    // slides in and out, and stays made until it is out.
+    private property <float> queue-out: root.queue-open ? 0 : 1;
+    animate queue-out { duration: Theme.duration-medium; easing: ease-out; }
+    private property <bool> queue-settled: root.queue-open && root.queue-out == 0;
+    // How much of the now playing view shows: it fades in and out. The conditions
+    // that make the view and the queue panel read these first, so the animations
+    // follow every change, drawn or not.
+    private property <float> now-playing-shown: PlayerState.now-playing-open ? 1 : 0;
+    animate now-playing-shown { duration: Theme.duration-medium; easing: ease-out; }
     private property <length> page-width: pages.width - (root.queue-open && root.queue-beside ? root.queue-width : 0px);
 
-    changed queue-open => {
-        if !self.queue-open {
-            self.queue-settled = false;
-        }
-    }
     private property <length> marker-height: 20px;
     // The marker's place below the first section; it slides when the page changes.
     // The room between two groups of sections, with a line across its middle.
@@ -256,13 +307,30 @@ export component AppWindow inherits Window {
         focus-on-tab-navigation: false;
         capture-key-pressed(event) => {
             Theme.keyboard-navigation = true;
+            if event.modifiers.alt && !root.typing && event.text == Key.LeftArrow {
+                root.go-back();
+                return accept;
+            }
+            if event.modifiers.alt && !root.typing && event.text == Key.RightArrow {
+                root.go-forward();
+                return accept;
+            }
             if event.text == Key.Escape && root.queue-covers {
                 root.queue-open = false;
                 return accept;
             }
-            // Ctrl+F (Cmd+F on macOS) searches from anywhere.
+            // Ctrl+F (Cmd+F on macOS) filters the page shown, where it has a
+            // filter, and searches from anywhere else.
             if (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") {
-                root.show-search();
+                if root.current-page == Page.albums && !root.album-open {
+                    albums-page.focus-filter();
+                } else if root.current-page == Page.artists && !root.artist-open && !root.artist-album-open {
+                    artists-page.focus-filter();
+                } else if root.current-page == Page.songs {
+                    songs-page.focus-filter();
+                } else {
+                    root.show-search();
+                }
                 return accept;
             }
             // Space plays and pauses unless a text field is being typed in: caught
@@ -341,18 +409,7 @@ export component AppWindow inherits Window {
                                             label: entry.label;
                                             selected: index == root.selected-index;
                                             activated => {
-                                                // A section opens on its grid, not on the album, artist or
-                                                // playlist it last showed.
-                                                root.selected-index = index;
-                                                if entry.page == Page.albums && root.album-open {
-                                                    albums-page.close-album();
-                                                }
-                                                if entry.page == Page.artists && (root.artist-open || root.artist-album-open) {
-                                                    artists-page.show-grid();
-                                                }
-                                                if entry.page == Page.playlists && root.playlist-open {
-                                                    playlists-page.close-playlist();
-                                                }
+                                                root.show-section(index);
                                             }
                                             shown-focused(top, height) => {
                                                 root.show-in-sidebar(top, height);
@@ -614,7 +671,7 @@ export component AppWindow inherits Window {
                                 root.delete-playlist();
                             }
                         }
-                        SongsPage {
+                        songs-page := SongsPage {
                             x: 0;
                             width: root.page-width;
                             shown: root.current-page == Page.songs;
@@ -684,7 +741,8 @@ export component AppWindow inherits Window {
                 }
 
                 // Leaves the queue panel its room when the window is wide enough.
-                if PlayerState.now-playing-open: NowPlayingView {
+                if root.now-playing-shown > 0 || PlayerState.now-playing-open: NowPlayingView {
+                    opacity: root.now-playing-shown;
                     visible: !(root.queue-covers && root.queue-settled);
                     width: parent.width - (root.queue-open && root.queue-beside ? root.queue-width : 0px);
                     height: parent.height;
@@ -701,13 +759,10 @@ export component AppWindow inherits Window {
 
                 // Over the pages and the now playing view alike: at the right edge, or
                 // over all of them in a narrower window.
-                if root.queue-open: QueuePanel {
-                    x: parent.width - self.width + self.slide;
+                if root.queue-out < 1 || root.queue-open: QueuePanel {
+                    x: parent.width - self.width + root.queue-out * self.width;
                     width: root.queue-beside ? root.queue-width : parent.width - sidebar.width;
                     height: parent.height;
-                    settled => {
-                        root.queue-settled = true;
-                    }
                 }
 
                 // "Find cover online" from an album page, over everything but the bar.
