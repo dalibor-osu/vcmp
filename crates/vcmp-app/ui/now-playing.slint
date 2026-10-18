@@ -67,7 +67,7 @@ component NextTrack {
 
         Text {
             text: @tr("Next");
-            color: Theme.colors.text-muted;
+            color: touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
             font-size: Theme.font-small;
             font-weight: Theme.weight-strong;
             horizontal-alignment: root.align;
@@ -119,6 +119,7 @@ component NextTrack {
 // `centered` under the cover in a narrow window, beside it otherwise.
 component TrackDetails inherits VerticalLayout {
     in property <bool> centered;
+    in property <length> title-size: Theme.font-display;
     callback show-album();
     callback show-artist();
     private property <TextHorizontalAlignment> align: root.centered ? TextHorizontalAlignment.center : TextHorizontalAlignment.left;
@@ -129,7 +130,7 @@ component TrackDetails inherits VerticalLayout {
     if !PlayerState.has-track: Text {
         text: @tr("Nothing playing");
         color: Theme.colors.text-muted;
-        font-size: Theme.font-display;
+        font-size: root.title-size;
         font-weight: Theme.weight-strong;
         wrap: word-wrap;
         min-height: self.preferred-height;
@@ -138,7 +139,7 @@ component TrackDetails inherits VerticalLayout {
     if PlayerState.has-track: TextLink {
         text: PlayerState.title;
         label: PlayerState.album == "" ? PlayerState.title : @tr("{0}, go to the album {1}", PlayerState.title, PlayerState.album);
-        font-size: Theme.font-display;
+        font-size: root.title-size;
         font-weight: Theme.weight-strong;
         wrap: true;
         horizontal-alignment: root.align;
@@ -195,9 +196,12 @@ export component NowPlayingView inherits Rectangle {
 
     private property <bool> wide: root.width > root.height * 1.2;
     private property <length> room: Theme.space-xxl * 2;
+    // Up to 880 px: the cover is decoded at up to 1200 px (src/player_service.rs), so
+    // it stays sharp at that size.
     private property <length> cover-size: max(120px, root.wide
-        ? min(root.height - root.room, root.width * 0.45, 560px)
-        : min(root.width - root.room, root.height * 0.5, 560px));
+        ? min(root.height - root.room, root.width * 0.45, 880px)
+        : min(root.width - root.room, root.height * 0.5, 880px));
+    private property <length> title-size: root.width > 1800px ? Theme.font-display-wide : Theme.font-display;
 
     background: Theme.colors.base;
     accessible-role: groupbox;
@@ -252,6 +256,7 @@ export component NowPlayingView inherits Rectangle {
                 TrackDetails {
                     width: parent.width;
                     height: parent.height;
+                    title-size: root.title-size;
                     show-album => {
                         root.show-album();
                     }
@@ -282,6 +287,7 @@ export component NowPlayingView inherits Rectangle {
                 TrackDetails {
                     width: parent.width;
                     height: parent.height;
+                    title-size: root.title-size;
                     centered: true;
                     show-album => {
                         root.show-album();

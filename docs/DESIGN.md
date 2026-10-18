@@ -66,3 +66,11 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
 - 2026-10-18, selection: in a run of selected tracks, only the first and last
   tracks' outer corners are rounded; the corners inside the run looked wrong. A
   small gap separates the first track from the line under the column headings.
+- 2026-10-18, after the first antislop audit (`anti-slop/audit-001-2026-10-18.md`):
+  - In a small window the queue covers the whole page area instead of sitting on
+    its side; it doesn't cover the sidebar.
+  - Errors use Catppuccin Red.
+  - No neon: the glow is gone. Pink stays the single accent.
+  - The accent's many jobs (finding 3), which buttons are filled (finding 5) and the
+    page widths on a full screen (finding 9) are open: the owner isn't sure yet
+    about 3 and 5, and has plans for 9.

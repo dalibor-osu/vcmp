@@ -205,7 +205,19 @@ export component AppWindow inherits Window {
     // page keeps the width its controls need. Only page widths depend on this, never
     // the window's layout.
     private property <length> queue-width: 320px;
-    private property <length> page-width: pages.width - (root.queue-open && root.width >= 1000px ? root.queue-width : 0px);
+    private property <bool> queue-beside: root.width >= 1000px;
+    // In a narrower window the open queue covers the pages (not the sidebar), and
+    // once it has slid in the pages are hidden, so the keyboard can't reach controls
+    // under it. Escape closes it.
+    private property <bool> queue-covers: root.queue-open && !root.queue-beside;
+    private property <bool> queue-settled;
+    private property <length> page-width: pages.width - (root.queue-open && root.queue-beside ? root.queue-width : 0px);
+
+    changed queue-open => {
+        if !self.queue-open {
+            self.queue-settled = false;
+        }
+    }
     private property <length> marker-height: 20px;
     // The marker's place below the first section; it slides when the page changes.
     // The room between two groups of sections, with a line across its middle.
@@ -244,6 +256,10 @@ export component AppWindow inherits Window {
         focus-on-tab-navigation: false;
         capture-key-pressed(event) => {
             Theme.keyboard-navigation = true;
+            if event.text == Key.Escape && root.queue-covers {
+                root.queue-open = false;
+                return accept;
+            }
             // Ctrl+F (Cmd+F on macOS) searches from anywhere.
             if (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") {
                 root.show-search();
@@ -410,8 +426,8 @@ export component AppWindow inherits Window {
                             if UpdateState.available && !LibraryState.scanning: SidebarUpdateNote { }
                         }
 
-                        // Current-page marker: the one place the neon glow is used. It
-                        // scrolls with the sections and hides outside their view.
+                        // Current-page marker. It scrolls with the sections and hides
+                        // outside their view.
                         marker := Rectangle {
                             x: Theme.space-l - 6px;
                             y: sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y + root.marker-offset;
@@ -420,13 +436,12 @@ export component AppWindow inherits Window {
                             height: root.marker-height;
                             border-radius: Theme.radius-s;
                             background: Theme.colors.accent;
-                            drop-shadow-blur: 8px;
-                            drop-shadow-color: Theme.colors.glow;
                         }
                     }
 
                     pages := Rectangle {
                         accessible-role: tab-panel;
+                        visible: !(root.queue-covers && root.queue-settled);
 
                         search-page := SearchPage {
                             x: 0;
@@ -670,7 +685,8 @@ export component AppWindow inherits Window {
 
                 // Leaves the queue panel its room when the window is wide enough.
                 if PlayerState.now-playing-open: NowPlayingView {
-                    width: parent.width - (root.queue-open && root.width >= 1000px ? root.queue-width : 0px);
+                    visible: !(root.queue-covers && root.queue-settled);
+                    width: parent.width - (root.queue-open && root.queue-beside ? root.queue-width : 0px);
                     height: parent.height;
                     close => {
                         PlayerState.now-playing-open = false;
@@ -683,11 +699,15 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Over the pages and the now playing view alike, at the right edge.
+                // Over the pages and the now playing view alike: at the right edge, or
+                // over all of them in a narrower window.
                 if root.queue-open: QueuePanel {
                     x: parent.width - self.width + self.slide;
-                    width: root.queue-width;
+                    width: root.queue-beside ? root.queue-width : parent.width - sidebar.width;
                     height: parent.height;
+                    settled => {
+                        root.queue-settled = true;
+                    }
                 }
 
                 // "Find cover online" from an album page, over everything but the bar.

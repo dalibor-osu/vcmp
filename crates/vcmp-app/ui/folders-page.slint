@@ -4,6 +4,7 @@ import { FocusRing, SectionHeading } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 import { TrackList, TrackRow } from "album-page.slint";
+import { AddFolderButton } from "library-settings.slint";
 
 // A folder in the browser: a music folder at the top, a subfolder below.
 export struct FolderRow {
@@ -69,7 +70,7 @@ component FolderLine {
 
         Text {
             text: root.folder.missing ? @tr("Not connected") : @tr("{n} track" | "{n} tracks" % root.folder.track-count);
-            color: Theme.colors.text-muted;
+            color: touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
             font-size: Theme.font-small;
             vertical-alignment: center;
             accessible-role: none;
@@ -116,7 +117,7 @@ component Crumb {
 
         Text {
             text: root.text;
-            color: root.here ? Theme.colors.text : Theme.colors.text-muted;
+            color: root.here || touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
             font-size: Theme.font-body;
             font-weight: root.here ? Theme.weight-strong : Theme.weight-regular;
             vertical-alignment: center;
@@ -252,13 +253,14 @@ export component FolderBrowser {
             }
 
             if !root.has-sources: Text {
-                text: @tr("No music folders yet. Add the folder your music is in in Settings.");
+                text: @tr("No music folders yet. Add the folder your music is in, and its folders show here.");
                 color: Theme.colors.text;
                 font-size: Theme.font-body;
                 wrap: word-wrap;
                 min-height: self.preferred-height;
                 max-width: Theme.content-max-width;
             }
+            if !root.has-sources: AddFolderButton { }
 
             scroll := ScrollView {
                 vertical-stretch: 1;

@@ -5,8 +5,8 @@ How VCMP's Slint UI is put together and why. Visual direction comes from
 with `crates/vcmp-app/ui/`.
 
 Design Read: a desktop music player shell for music enthusiasts, in a calm Catppuccin
-pastel language with one subtle neon accent, dial ENERGY 1 / RHYTHM 2 / MOTION 2 (the
-dials come from DESIGN.md).
+pastel language with one pink accent and no glow (the owner dropped the neon on
+2026-10-18), dial ENERGY 1 / RHYTHM 2 / MOTION 2 (the dials come from DESIGN.md).
 
 ## Files
 
@@ -68,7 +68,8 @@ dials come from DESIGN.md).
 
 ## Palettes
 
-Catppuccin Latte (light) and Mocha (dark), with Pink as the single accent.
+Catppuccin Latte (light) and Mocha (dark), with Pink as the single accent and Red for
+errors.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
@@ -80,26 +81,29 @@ Catppuccin Latte (light) and Mocha (dark), with Pink as the single accent.
 | text-muted | `#5c5f77` (subtext1) | `#a6adc8` (subtext0) | Descriptions, only on base or mantle |
 | accent | `#a1197d` | `#f5c2e7` (pink) | Current page, selected option, switched-on state |
 | on-accent | `#eff1f5` | `#11111b` | Text and marks on accent |
-| glow | `#ea76cb` at 69% | `#f5c2e7` at 69% | Neon glow around the page marker |
+| error | `#d20f39` (red) | `#f38ba8` (red) | What is wrong, as text on base only |
 
 Latte's own pink (`#ea76cb`) reaches only 2.3:1 on Latte base, so the light accent is
-the same hue darkened to 6.3:1. The original pink survives as the light glow. Latte's
-subtext0 and overlay0 fail contrast on its backgrounds, so the light theme uses
-subtext1 and overlay2 instead.
+the same hue darkened to 6.3:1. Latte's subtext0 and overlay0 fail contrast on its
+backgrounds, so the light theme uses subtext1 and overlay2 instead. Even subtext1 is
+4.05:1 on Latte's surface, so a row filled for hover or selection turns its
+secondary text to `text`. Latte's red is 4.80:1 on base but 4.46:1 on mantle, so
+errors are written on base only.
 
 ## Design decisions
 
 | Decision | Reason |
 |---|---|
 | Palettes live in Rust, not in Slint | One source for the UI and the contrast tests; future custom themes only swap values |
-| Pink marks what is active (page, option, switch) | Gives the neon accent a job, so it stays an accent rather than decoration |
-| Glow only on the current-page marker | DESIGN.md asks for subtle neon; one glowing element per screen keeps it subtle |
+| Pink marks what is active (page, option, switch) | Gives the accent a job, so it stays an accent rather than decoration |
+| No glow | The owner dropped the neon (2026-10-18). The page marker's glow, the one neon touch, barely showed in the light theme |
+| Red only for errors, with words | The owner's choice (2026-10-18): pink means active, so a wrong value marked in pink read as selected. The red label is bold and the sentence under the form names the field, so the colour never carries the message alone |
 | Sora for everything, two weights (400, 600) | The owner's choice; two weights carry hierarchy without a second family at ENERGY 1 |
-| Type scale 12 / 14 / 16 / 20 / 26 px, and 34 px for the track in the now playing view | Small steps suit a calm UI; the page title is the one large element per screen, and the now playing view's title takes its place there |
+| Type scale 12 / 14 / 16 / 20 / 26 px, and 34 px for the track in the now playing view (42 px when the view is wider than 1800 px) | Small steps suit a calm UI; the page title is the one large element per screen, and the now playing view's title takes its place there, a step larger next to the largest cover |
 | Now playing covers the pages, not the player bar | The bar already holds every control, so the view needs none of its own and the controls stay where people know them |
 | Titles, artists and albums of the playing track are links, underlined on hover | People expect to go from what plays to where it comes from; the underline marks a link without adding colour |
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
-| Radii 2 / 8 / 12 px, pill only for the switch | The switch track is the one shape where a pill carries meaning |
+| Radii 2 / 8 / 12 px; round (half the element's size) for icon-only buttons, the play button, progress and slider tracks, the slider knob and drop lines; the switch is a pill | Circles and round-ended tracks are what those controls are; everything else uses the three radii. `tests/ui_invariants.rs` refuses a radius written in bare pixels |
 | Content column capped at 720 px, except track lists and the songs table | Keeps a setting's label and its control within one glance on wide windows. Track lists span the page: the owner found half a wide window left empty beside them unfinished (2026-10-18) |
 | Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Playlists, Songs, Folders, Settings, About), then the playlists by name |
 | The sidebar's sections in three groups: Search; Albums to Folders; Settings and About | The owner's request (2026-10-18): Search and the app's own pages are not views of the library. A gap with a faint line sets the groups apart, the order stays; the page marker adds the gaps above its section |
@@ -113,7 +117,7 @@ subtext1 and overlay2 instead.
 | An artist's picture is their photo, or without one their newest album's cover | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists without a photo keep the initial |
 | Album artists by default, everyone behind a switch | The owner's choice: 391 of 532 artists in their library are only credited on others' albums, and would crowd the grid |
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
-| Accent-filled button only for "Add music folder…" on the empty Albums page | The single action that empty screen exists for; every other button is outlined |
+| Accent-filled button only for "Add music folder…" on the empty library pages (Albums, Artists, Songs, Folders) | The single action those empty screens exist for; every other button is outlined. Not yet true: Play and the tag editor's save buttons are filled too, which audit 001 (finding 5) leaves open with the accent's jobs (finding 3) |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
 | The sidebar's sections and playlists scroll as one, above its foot | Eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
 | A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
@@ -321,8 +325,9 @@ shown, because the page itself stays alive while hidden.
   with "Several values" as its placeholder, and keeps each track's own value unless
   something is typed in it. The cover works the same way ("Several covers").
 - **Saving:** Save or Enter in a field. A wrong value (a track number that isn't a
-  whole number, a year outside 1 to 9999, a line break) writes nothing and says
-  which field is wrong. Escape or Cancel closes without writing. Saving with
+  whole number, a year outside 1 to 9999, a line break) writes nothing, turns the
+  field's label bold in the error red, and says under the form, in red, which field
+  is wrong. Escape or Cancel closes without writing. Saving with
   nothing changed closes, writing nothing.
 - **Several files ask first:** when a save would write more than one file, the
   editor lists the changes in place of the form before anything is written (the
@@ -390,8 +395,9 @@ table can select several tracks for the track menu.
   it reads apart from the row under the pointer. Selected rows next to each other
   read as one block: only its outer corners are rounded and the bar runs through
   it (each row knows whether its neighbours are selected; a disc heading between
-  two rows parts them). A selected row's secondary text turns full strength,
-  because muted text on that fill would fall under 4.5:1 in the light theme. Assistive technology hears each row as selectable and selected.
+  two rows parts them). A selected or hovered row's secondary text turns full
+  strength, because muted text on that fill would fall under 4.5:1 in the light
+  theme. Assistive technology hears each row as selectable and selected.
 - **Where it lives:** each row model holds `selected`. Slint can't loop over rows,
   so `src/selection.rs` applies a toggle, range, all or none and returns the count;
   a new list (another album, a new sort or filter) starts with nothing selected. The
@@ -502,7 +508,8 @@ field. Unlike Search, a filter only narrows the page it is on.
 - **Leading on:** as in the player bar, the title, the album and the cover lead to
   the album's page, and the artist to the artist's page; the view closes on the
   way. The next track is a button that skips to it.
-- **Content:** the cover as large as the view allows (up to 560 px), then the
+- **Content:** the cover as large as the view allows (up to 880 px, within the
+  1200 px it is decoded at), then the
   title, artist and album, and the next track as the queue stands. Beside each
   other in a wide window, stacked and centred in a narrow one. With the queue
   panel open in a wide window, the view narrows to leave it room.
@@ -582,9 +589,11 @@ The Albums page tells apart why it is empty:
 - **The queue panel** slides in from the window's edge (at once with reduced
   motion). It opens from the queue button in the player bar, and stays open
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
-  the page narrows to make room for it; in a narrower one the panel lies over the
-  page's right edge, so the page keeps the width its controls need. It lies over
-  the now playing view too.
+  the page narrows to make room for it. In a narrower one the panel covers the
+  pages (and the now playing view) from the sidebar to the window's edge, so it
+  never hides half a page's controls; the sidebar stays. Once it has slid in, the
+  pages under it are hidden, so the keyboard can't reach controls nobody can see,
+  and Escape closes it.
   - Each track shows its album's cover, decoded off the UI thread at 96 px and
     kept per album (up to 500), and filled into the rows when it arrives.
   - Tracks added to Up next can also be dragged to another place, like a

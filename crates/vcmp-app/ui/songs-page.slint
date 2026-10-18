@@ -62,7 +62,7 @@ component ColumnHeader {
 
         Text {
             text: root.text;
-            color: root.sorted ? Theme.colors.text : Theme.colors.text-muted;
+            color: root.sorted || touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
             font-size: Theme.font-small;
             font-weight: root.sorted ? Theme.weight-strong : Theme.weight-regular;
             vertical-alignment: center;
@@ -150,9 +150,9 @@ component SongLine {
     // The keys held when the button went down.
     private property <bool> toggle-click;
     private property <bool> range-click;
-    // Secondary text turns full strength on a selected row, so it stays readable on
-    // the selection's fill.
-    private property <color> secondary: root.song.selected ? Theme.colors.text : Theme.colors.text-muted;
+    // Secondary text turns full strength on the fill of a selected or hovered row:
+    // muted text on that fill would fall under 4.5:1 in the light theme.
+    private property <color> secondary: root.song.selected || touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
     private property <bool> joined-above: root.song.selected && root.selected-above;
     private property <bool> joined-below: root.song.selected && root.selected-below;
     // The pointer is on the play button at the row's start.

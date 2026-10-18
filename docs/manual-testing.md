@@ -58,6 +58,9 @@ reading the code or with a simulated system, so they are the most likely to fail
       rest have played with Fewer repeats.
 - [ ] Space plays and pauses from anywhere except a text field, also after
       clicking around and after closing the now playing view.
+- [ ] Queue panel in a window narrower than 1000 px: it covers the whole page area
+      but not the sidebar, Tab doesn't reach the page under it, and Escape closes
+      it. Wider than that, it sits beside the page.
 - [ ] Queue panel: it slides in (at once with Reduce motion on); Play next and Add
       to queue land in the right places; drag an Up next track to another place,
       also past the visible rows (the list scrolls while you hold it at the edge);
@@ -104,6 +107,8 @@ reading the code or with a simulated system, so they are the most likely to fail
       show the new tags.
 - [ ] A field that differs between tracks shows "Several values" and keeps the
       values unless you type one.
+- [ ] Type a year like "abc" and save: the Year label turns bold and red, a red
+      sentence under the form says what's wrong, and nothing is written.
 - [ ] Rename the album whose page is open (its title or album artist): the page
       shows it under its new name, not as "no longer in your library".
 - [ ] Save an album or a selection: the editor first lists the number of files and
@@ -139,6 +144,10 @@ reading the code or with a simulated system, so they are the most likely to fail
 ### Window, look and keyboard
 
 - [ ] Light, dark and system theme, with the system switched while VCMP runs.
+- [ ] Light theme: hover over track rows, Songs table rows and headings, folder
+      rows and queue rows: the grey text turns dark and stays easy to read.
+- [ ] With no music folder, Albums, Artists, Songs and Folders each say so and
+      offer "Add music folder…".
 - [ ] Reduce motion on System: switch the operating system's setting while VCMP
       runs and check that page fades stop and start (Windows: "Animation effects";
       macOS: "Reduce motion"; GNOME: "Animations"; KDE: animation speed
@@ -153,7 +162,8 @@ reading the code or with a simulated system, so they are the most likely to fail
       entry stays in view.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the
       tag editor's error messages, the empty library message in a narrow window.
-- [ ] Now playing view: the large cover, the "…" menu (Add to playlist), closing
+- [ ] Now playing view: the large cover (up to 880 px on a full screen, with a
+      larger title in a very wide window), the "…" menu (Add to playlist), closing
       with Escape.
 
 ### Online

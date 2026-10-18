@@ -170,9 +170,9 @@ export component TrackLine {
     // The keys held when the button went down.
     private property <bool> toggle-click;
     private property <bool> range-click;
-    // Secondary text turns full strength on a selected row, so it stays readable on
-    // the selection's fill.
-    private property <color> secondary: root.track.selected ? Theme.colors.text : Theme.colors.text-muted;
+    // Secondary text turns full strength on the fill of a selected or hovered row:
+    // muted text on that fill would fall under 4.5:1 in the light theme.
+    private property <color> secondary: root.track.selected || touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
     private property <bool> joined-above: root.track.selected && root.selected-above;
     private property <bool> joined-below: root.track.selected && root.selected-below;
     // The pointer is on the play button, in the number's place.
@@ -666,7 +666,7 @@ export component TrackList {
                     y: (root.drag-to > root.drag-from ? root.drag-to + 1 : root.drag-to) * root.drag-row-height - 1px;
                     width: parent.width;
                     height: 2px;
-                    border-radius: 1px;
+                    border-radius: self.height / 2;
                     background: Theme.colors.accent;
                 }
             }
