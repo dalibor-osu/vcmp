@@ -88,7 +88,7 @@ pub fn is_newer(candidate: &Version, current: &Version) -> bool {
 }
 
 /// The version a release tag names ("v1.2.0" or "1.2.0"), unless it is a
-/// pre-release. Tags are `vX.Y.Z` by convention (README "Releases").
+/// pre-release. Tags are calendar versions, `vYY.MM.PATCH` (README "Versions").
 fn tag_version(tag: &str) -> Option<Version> {
     let version = Version::parse(tag.strip_prefix(['v', 'V']).unwrap_or(tag)).ok()?;
     version.pre.is_empty().then_some(version)
@@ -151,6 +151,15 @@ mod tests {
         assert!(newer("0.10.0", "0.9.0"), "numbers, not text");
         assert!(!newer("0.1.0", "0.1.0"));
         assert!(!newer("0.1.0", "0.2.0"));
+    }
+
+    #[test]
+    fn calendar_versions_compare_by_date() {
+        assert!(newer("26.10.1", "26.10.0"), "a fix that month");
+        assert!(newer("26.11.0", "26.10.3"), "the next month");
+        assert!(newer("27.1.0", "26.12.4"), "the next year");
+        assert!(newer("26.10.0", "0.1.0"), "past the versions before them");
+        assert!(!newer("26.9.0", "26.10.0"));
     }
 
     #[test]

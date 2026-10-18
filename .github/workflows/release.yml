@@ -1,8 +1,9 @@
 name: Release
 
-# A pushed tag vX.Y.Z on main builds the installers and attaches them to a draft
-# GitHub Release. Running the workflow by hand (workflow_dispatch) builds the same
-# installers as downloadable workflow artifacts and creates no release.
+# A pushed tag vYY.MM.PATCH on main (a calendar version, README "Versions") builds
+# the installers and attaches them to a draft GitHub Release. Running the workflow
+# by hand (workflow_dispatch) builds the same installers as downloadable workflow
+# artifacts and creates no release.
 
 on:
   push:

@@ -8,8 +8,11 @@ Read it before changing anything structural.
 ## Branches
 
 - `main` is production: it only receives merged pull requests, and releases are tags
-  on `main` (`vX.Y.Z`). Pushing such a tag runs `.github/workflows/release.yml`, which
-  drafts a GitHub Release with the installers; README "Releases" has the steps.
+  on `main` (`vYY.MM.PATCH`, a calendar version such as `v26.10.0`; README
+  "Versions"). Pushing such a tag runs `.github/workflows/release.yml`, which drafts
+  a GitHub Release with the installers; README "Releases" has the steps.
+  Pre-releases have no version suffix: they are releases published with GitHub's
+  pre-release box ticked.
 - All work happens on `feature/<topic>` branches that merge into `main` through a PR.
 - Never commit directly to `main`.
 
