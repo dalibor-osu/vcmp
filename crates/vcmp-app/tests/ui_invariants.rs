@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 /// String literals that are not translatable text: the product name, the font family,
 /// a URL, and the empty string (used in comparisons).
-// Names, the font, a URL, the empty string, and the key in the Ctrl+F shortcut.
+// Names, the font, a URL, the empty string, and the keys in the Ctrl+F and Ctrl+A
+// shortcuts.
 const ALLOWED_LITERALS: &[&str] = &[
     "\"VCMP\"",
     "\"Sora\"",
@@ -15,6 +16,8 @@ const ALLOWED_LITERALS: &[&str] = &[
     "\"\"",
     "\"f\"",
     "\"F\"",
+    "\"a\"",
+    "\"A\"",
 ];
 
 fn slint_sources() -> Vec<PathBuf> {

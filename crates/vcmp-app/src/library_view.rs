@@ -559,6 +559,7 @@ impl LibraryView {
                     .into(),
                 duration: format_duration(track.duration).into(),
                 path: track.path.to_string_lossy().as_ref().into(),
+                selected: false,
             })
             .collect();
         window.set_songs(ModelRc::new(VecModel::from(rows)));
@@ -868,6 +869,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
                 disc_start,
                 path: track.path.to_string_lossy().as_ref().into(),
                 unavailable: false,
+                selected: false,
             }
         })
         .collect();

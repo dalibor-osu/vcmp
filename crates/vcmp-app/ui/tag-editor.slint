@@ -47,8 +47,11 @@ export global TagEditorState {
     in-out property <bool> open;
     // How many tracks are edited; one shows the title and track number too.
     in property <int> track-count;
-    // What is edited: the track's or album's title, and its artist.
+    // What is edited: the track's or album's title (empty for tracks of several
+    // albums), and its artist.
     in property <string> subject;
+    // Every track of the album page's album, rather than a selection of tracks.
+    in property <bool> whole-album;
     in property <string> subject-artist;
     // The values as the files have them; empty where they differ (`mixed`).
     in property <TagValues> values;
@@ -183,7 +186,9 @@ export component TagEditorView inherits Rectangle {
                     }
                     Text {
                         text: root.single ? (TagEditorState.subject-artist == "" ? TagEditorState.subject : @tr("{0} by {1}", TagEditorState.subject, TagEditorState.subject-artist))
-                            : @tr("All {0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject);
+                            : TagEditorState.whole-album ? @tr("All {0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject)
+                            : TagEditorState.subject != "" ? @tr("{0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject)
+                            : @tr("{n} selected track" | "{n} selected tracks" % TagEditorState.track-count);
                         color: Theme.colors.text;
                         font-size: Theme.font-heading;
                         wrap: word-wrap;

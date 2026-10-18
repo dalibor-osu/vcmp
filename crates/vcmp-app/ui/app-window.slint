@@ -4,10 +4,11 @@ import { ReduceMotion, Theme, ThemeMode, ThemePalette } from "theme.slint";
 import { NavItem, PlaylistLink } from "components.slint";
 import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
 import { FolderRow } from "folders-page.slint";
-import { SongColumn, SongRow } from "songs-page.slint";
+import { SongColumn, SongRow, SongSelection } from "songs-page.slint";
 import { ArtistDetail } from "artist-page.slint";
 import { AlbumTile, ArtworkState } from "album-grid.slint";
-import { AlbumDetail, TrackRow } from "album-page.slint";
+import { AlbumDetail, TrackRow, TrackSelection } from "album-page.slint";
+import { SelectionChange } from "selection.slint";
 import { PlaylistDetail } from "playlist-page.slint";
 import { Playlists } from "playlist-state.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
@@ -27,8 +28,10 @@ export { LastfmProblem, LastfmState, LastfmStatus }
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
 export { CoverSearch, CoverSearchStatus, PhotoSearch, PhotoSearchStatus }
 export { TagEditorState, TagEditorStatus, TagFailure, TagFailureReason, TagMixed, TagProblem, TagValues }
-export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow }
+export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow, SongSelection }
+export { SelectionChange }
 export { UpdateState }
+export { TrackSelection }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { search, albums, artists, playlists, songs, folders, settings, about }
@@ -242,7 +245,8 @@ export component AppWindow inherits Window {
             // here, before the focused control, so buttons and lists never take it.
             // The app also catches it before Slint routes keys (src/shortcuts.rs),
             // so it works when nothing has the focus.
-            if event.text == Key.Space && !root.typing {
+            // Ctrl+Space is left to the track lists, where it selects.
+            if event.text == Key.Space && !root.typing && !event.modifiers.control {
                 if PlayerState.has-track {
                     PlayerState.toggle-play();
                 }

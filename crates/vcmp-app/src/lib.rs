@@ -14,6 +14,7 @@ pub mod player_service;
 pub mod playlists;
 pub mod preferences;
 pub mod saved_queue;
+pub mod selection;
 pub mod shortcuts;
 pub mod tag_editor;
 pub mod theme;
@@ -26,6 +27,7 @@ pub fn create_window() -> Result<AppWindow, slint::PlatformError> {
     let window = AppWindow::new()?;
     theme::install(&window);
     icons::install(&window);
+    selection::install(&window);
     window.set_version(env!("CARGO_PKG_VERSION").into());
     Ok(window)
 }

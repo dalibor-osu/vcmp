@@ -11,7 +11,10 @@ use vcmp_library::{Library, Playlist, PlaylistEntry, PlaylistId, Track, TrackId}
 
 use crate::albums::{Card, CoverGrid, Grid, initial};
 use crate::library_view::format_duration;
-use crate::{AlbumTile, AppWindow, PlaylistDetail, Playlists, TrackRow};
+use crate::selection;
+use crate::{
+    AlbumTile, AppWindow, PlaylistDetail, Playlists, SongSelection, TrackRow, TrackSelection,
+};
 
 /// Image files the picture chooser offers.
 const PICTURE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
@@ -117,11 +120,19 @@ impl PlaylistBrowser {
         });
         let weak = Rc::downgrade(&browser);
         window.on_remove_playlist_track(move |index| {
-            let (Some(browser), Ok(position)) = (weak.upgrade(), u32::try_from(index)) else {
+            let (Some(browser), Ok(index)) = (weak.upgrade(), usize::try_from(index)) else {
                 return;
             };
-            browser.edit("remove the track", |library, id| {
-                library.remove_from_playlist(id, &[position])
+            let Some(window) = browser.window.upgrade() else {
+                return;
+            };
+            // The selected entries, when the one asked for is among them.
+            let positions: Vec<u32> = selection::chosen(&window.get_playlist_tracks(), index)
+                .into_iter()
+                .map(|position| position as u32)
+                .collect();
+            browser.edit("remove the tracks", |library, id| {
+                library.remove_from_playlist(id, &positions)
             });
         });
         let weak = Rc::downgrade(&browser);
@@ -141,6 +152,22 @@ impl PlaylistBrowser {
             .on_add_track(move |index, path| {
                 if let Some(browser) = weak.upgrade() {
                     browser.add_track(index, Path::new(path.as_str()));
+                }
+            });
+        let weak = Rc::downgrade(&browser);
+        window
+            .global::<TrackSelection>()
+            .on_add_to_playlist(move |rows, row, index| {
+                if let Some(browser) = weak.upgrade() {
+                    browser.add_paths(index, &selection::chosen_paths(&rows, row));
+                }
+            });
+        let weak = Rc::downgrade(&browser);
+        window
+            .global::<SongSelection>()
+            .on_add_to_playlist(move |rows, row, index| {
+                if let Some(browser) = weak.upgrade() {
+                    browser.add_paths(index, &selection::chosen_paths(&rows, row));
                 }
             });
         browser
@@ -311,6 +338,30 @@ impl PlaylistBrowser {
         };
         let name = window.global::<Playlists>().get_new_name();
         self.add_tracks(index, &[track], &name);
+    }
+
+    /// Adds the library's tracks with these files to playlist `index`, or for -1 to a
+    /// new playlist, in this order.
+    fn add_paths(&self, index: i32, paths: &[String]) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let tracks: Vec<TrackId> = paths
+            .iter()
+            .filter_map(
+                |path| match self.library.track_id_for_path(Path::new(path)) {
+                    Ok(track) => track,
+                    Err(error) => {
+                        log::error!("could not look up {path}: {error}");
+                        None
+                    }
+                },
+            )
+            .collect();
+        if !tracks.is_empty() {
+            let name = window.global::<Playlists>().get_new_name();
+            self.add_tracks(index, &tracks, &name);
+        }
     }
 
     /// Adds tracks to playlist `index`, or for -1 to a new playlist called

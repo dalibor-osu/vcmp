@@ -28,8 +28,8 @@ use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
     AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
-    LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, TagEditorState,
-    TagEditorStatus, Theme, ThemeMode, UpdateState,
+    LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, SelectionChange,
+    TagEditorState, TagEditorStatus, Theme, ThemeMode, TrackSelection, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -63,6 +63,8 @@ struct Shot {
     tags_waiting: bool,
     // The artist photo picker is open, with stand-in photos.
     photo_picker: bool,
+    // Two of the album's tracks are selected.
+    selection: bool,
 }
 
 const fn shot(
@@ -85,6 +87,14 @@ const fn shot(
         tags: false,
         tags_waiting: false,
         photo_picker: false,
+        selection: false,
+    }
+}
+
+const fn selection(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        selection: true,
+        ..shot(name, mode, 1, Some(ALBUM), 0)
     }
 }
 
@@ -166,6 +176,8 @@ const SHOTS: &[Shot] = &[
     cover_picker("cover-picker-dark", ThemeMode::Dark),
     photo_picker("photo-picker-light", ThemeMode::Light),
     photo_picker("photo-picker-dark", ThemeMode::Dark),
+    selection("selection-light", ThemeMode::Light),
+    selection("selection-dark", ThemeMode::Dark),
     tags("tags-light", ThemeMode::Light),
     tags("tags-dark", ThemeMode::Dark),
     tags_waiting("tags-waiting-light", ThemeMode::Light),
@@ -296,6 +308,13 @@ fn prepare(window: &AppWindow, shot: &Shot) {
             window.set_artist_open(false);
             window.set_playlist_open(false);
         }
+    }
+    let tracks = window.get_album_tracks();
+    let rows = window.global::<TrackSelection>();
+    rows.invoke_change(tracks.clone(), 0, 0, SelectionChange::None);
+    if shot.selection {
+        rows.invoke_change(tracks.clone(), 0, 0, SelectionChange::Toggle);
+        rows.invoke_change(tracks, 1, 1, SelectionChange::Toggle);
     }
     let editor = window.global::<TagEditorState>();
     if shot.tags {

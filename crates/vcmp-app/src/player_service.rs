@@ -33,6 +33,7 @@ use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, CoverFinder, Lookup};
 use crate::albums::initial;
 use crate::library_view::{LibraryView, format_duration};
 use crate::saved_queue;
+use crate::selection::{self, Selectable};
 use crate::{
     AppWindow, PlayState, PlayerProblem, PlayerState, QueueRow, QueueSource, Repeat, Shuffle,
     ShuffleKind,
@@ -471,19 +472,11 @@ impl PlayerService {
         window.on_queue_search_track({
             let weak = weak.clone();
             move |index, next| {
-                let Some(service) = weak.upgrade() else {
-                    return;
-                };
-                let tracks = service.view.found_tracks();
-                let track = usize::try_from(index)
-                    .ok()
-                    .and_then(|index| tracks.get(index));
-                if let Some(entry) = track.and_then(entry) {
-                    service.player.send(if next {
-                        Command::PlayNext(vec![entry])
-                    } else {
-                        Command::AddToQueue(vec![entry])
-                    });
+                if let Some(service) = weak.upgrade()
+                    && let Some(window) = service.window.upgrade()
+                {
+                    let tracks = service.view.found_tracks();
+                    service.queue_chosen(&window.get_search_tracks(), index, &tracks, next);
                 }
             }
         });
@@ -498,18 +491,11 @@ impl PlayerService {
         window.on_queue_song({
             let weak = weak.clone();
             move |index, next| {
-                let Some(service) = weak.upgrade() else {
-                    return;
-                };
-                let track = usize::try_from(index)
-                    .ok()
-                    .and_then(|index| service.view.song(index));
-                if let Some(entry) = track.as_ref().and_then(entry) {
-                    service.player.send(if next {
-                        Command::PlayNext(vec![entry])
-                    } else {
-                        Command::AddToQueue(vec![entry])
-                    });
+                if let Some(service) = weak.upgrade()
+                    && let Some(window) = service.window.upgrade()
+                {
+                    let tracks = service.view.songs();
+                    service.queue_chosen(&window.get_songs(), index, &tracks, next);
                 }
             }
         });
@@ -524,19 +510,11 @@ impl PlayerService {
         window.on_queue_folder_file({
             let weak = weak.clone();
             move |index, next| {
-                let Some(service) = weak.upgrade() else {
-                    return;
-                };
-                let files = service.view.folders().files();
-                let track = usize::try_from(index)
-                    .ok()
-                    .and_then(|index| files.get(index));
-                if let Some(entry) = track.and_then(entry) {
-                    service.player.send(if next {
-                        Command::PlayNext(vec![entry])
-                    } else {
-                        Command::AddToQueue(vec![entry])
-                    });
+                if let Some(service) = weak.upgrade()
+                    && let Some(window) = service.window.upgrade()
+                {
+                    let files = service.view.folders().files();
+                    service.queue_chosen(&window.get_folder_files(), index, &files, next);
                 }
             }
         });
@@ -759,23 +737,48 @@ impl PlayerService {
         });
     }
 
-    /// Puts entry `index` of the open playlist into Up next, if its file is there.
+    /// Puts entry `index` of the open playlist (or the selected entries, when it is one
+    /// of them) into Up next; entries whose file is gone are left out.
     pub fn queue_playlist_track(&self, index: i32, next: bool) {
-        let Some(playlist) = self.view.playlists().shown() else {
+        let (Some(window), Some(playlist)) = (self.window.upgrade(), self.view.playlists().shown())
+        else {
             return;
         };
-        let track = usize::try_from(index)
-            .ok()
-            .and_then(|index| playlist.entries.get(index))
-            .map(|entry| &entry.track)
-            .filter(|track| track.available);
-        if let Some(entry) = track.and_then(entry) {
-            self.player.send(if next {
-                Command::PlayNext(vec![entry])
-            } else {
-                Command::AddToQueue(vec![entry])
-            });
+        let tracks: Vec<Track> = playlist
+            .entries
+            .into_iter()
+            .map(|entry| entry.track)
+            .collect();
+        self.queue_chosen(&window.get_playlist_tracks(), index, &tracks, next);
+    }
+
+    /// Puts the tracks a list's menu acts on into Up next, at its front (`next`) or
+    /// its end: the list's selected tracks when row `index` is one of them, or else
+    /// that track. `tracks` are the list's tracks in its rows' order.
+    fn queue_chosen<T: Selectable>(
+        &self,
+        rows: &ModelRc<T>,
+        index: i32,
+        tracks: &[Track],
+        next: bool,
+    ) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        let entries: Vec<QueueEntry> = selection::chosen(rows, index)
+            .into_iter()
+            .filter_map(|row| tracks.get(row))
+            .filter(|track| track.available)
+            .filter_map(entry)
+            .collect();
+        if entries.is_empty() {
+            return;
         }
+        self.player.send(if next {
+            Command::PlayNext(entries)
+        } else {
+            Command::AddToQueue(entries)
+        });
     }
 
     /// Plays every song in the Songs page's order, from song `start`.
@@ -788,43 +791,25 @@ impl PlayerService {
         });
     }
 
-    /// Puts appearance `index` of the open artist into Up next.
+    /// Puts appearance `index` of the open artist (or the selected appearances) into
+    /// Up next.
     pub fn queue_artist_appearance(&self, index: i32, next: bool) {
-        let Some(artist) = self.view.shown_artist() else {
+        let (Some(window), Some(artist)) = (self.window.upgrade(), self.view.shown_artist()) else {
             return;
         };
-        let track = usize::try_from(index)
-            .ok()
-            .and_then(|index| artist.tracks.get(artist.appearances_from + index));
-        if let Some(entry) = track.and_then(entry) {
-            self.player.send(if next {
-                Command::PlayNext(vec![entry])
-            } else {
-                Command::AddToQueue(vec![entry])
-            });
-        }
+        let appearances = &artist.tracks[artist.appearances_from..];
+        self.queue_chosen(&window.get_artist_appearances(), index, appearances, next);
     }
 
-    /// Puts track `index` of the open album into Up next: at its front, or its end.
+    /// Puts track `index` of the open album (or its selected tracks) into Up next: at
+    /// its front, or its end.
     pub fn queue_album_track(&self, index: i32, next: bool) {
-        let Some(album) = self.view.shown_album() else {
+        let (Some(window), Some(album)) = (self.window.upgrade(), self.view.shown_album()) else {
             return;
         };
-        let track = match self.library.album_tracks(album.id) {
-            Ok(tracks) => usize::try_from(index)
-                .ok()
-                .and_then(|index| tracks.into_iter().nth(index)),
-            Err(error) => {
-                log::error!("could not read the tracks of {:?}: {error}", album.title);
-                return;
-            }
-        };
-        if let Some(entry) = track.as_ref().and_then(entry) {
-            self.player.send(if next {
-                Command::PlayNext(vec![entry])
-            } else {
-                Command::AddToQueue(vec![entry])
-            });
+        match self.library.album_tracks(album.id) {
+            Ok(tracks) => self.queue_chosen(&window.get_album_tracks(), index, &tracks, next),
+            Err(error) => log::error!("could not read the tracks of {:?}: {error}", album.title),
         }
     }
 
