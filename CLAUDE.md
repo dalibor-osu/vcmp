@@ -150,11 +150,13 @@ cargo run -p vcmp-playback --example play -- path/to/album
 | `docs/ui.md` | UI structure, tokens, design reasons, known limits |
 | `docs/library.md` | Library storage, schema, scan and re-link rules, search, known limits |
 | `docs/playback.md` | Playback engine: threads, data path, queue and shuffle rules, known limits |
+| `docs/manual-testing.md` | What only a person can check: real devices, online services, Windows and macOS |
 | `ideas.md` | The owner's original idea list |
 
 Keep the technical documentation up to date: when a change alters behaviour,
 structure, commands or conventions described in these files, update the files in the
-same change.
+same change. A change that tests can't fully check adds its manual steps to
+`docs/manual-testing.md`.
 
 ## Localization
 

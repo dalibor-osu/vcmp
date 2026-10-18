@@ -20,8 +20,9 @@ player.send(Command::PlayContext { entries, origin: Some("album:42".into()), sta
 
 - **Events into Slint (workstream 4):** forward them from a thread blocking on the
   receiver, through `slint::invoke_from_event_loop`.
-- **Device list:** `output_devices()` lists output devices by name for Settings. The
-  system default is `None`.
+- **Device list:** `output_devices()` lists output devices by name for Settings,
+  without ALSA's converter and utility plugins (see Known limits). The system
+  default is `None`.
 - **Queue entries:** each entry is a `TrackRef` (source plus id; a local file's id is
   its path) and optional artist and album keys.
   - Shuffle uses the keys to keep the same artist or album apart.
@@ -259,10 +260,15 @@ paused.
 
 - **MP3 gapless:** an MP3 without a LAME/Xing header, or with only iTunes' `iTunSMPB`,
   plays with its encoder delay and padding, so with a small gap.
-- **Linux device names:** the list is raw ALSA, including plugins such as "Rate
-  Converter Plugin...". The UI should put "System default" first, and may filter or
-  label the rest. cpal's optional PipeWire or PulseAudio backends could replace this
-  later.
+- **Linux devices are ALSA's:** Settings lists "System default" first, then the
+  sound servers ALSA reaches (PipeWire, PulseAudio, JACK) and the cards' own
+  devices. `output_devices` leaves out the plugins that convert or discard audio
+  (rate converters, up- and downmix, speex, null), the OSS and USB stream plugins,
+  which almost never open, and ALSA's own names for the default. A card is opened directly, past the sound
+  server: while PipeWire or PulseAudio holds it, opening fails as busy and the
+  player shows that as a problem. A saved device that is now hidden still opens.
+  cpal's optional PulseAudio backend (pure Rust, also served by pipewire-pulse)
+  would list the sound server's outputs by their own names instead.
 - **No return to the requested device:** after a fallback, the engine stays on the
   default even if the requested device comes back. It switches on the next
   `SetOutputDevice` or restart.
