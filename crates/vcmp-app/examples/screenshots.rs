@@ -326,8 +326,10 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     let rows = window.global::<TrackSelection>();
     rows.invoke_change(tracks.clone(), 0, 0, SelectionChange::None);
     if shot.selection {
+        // A block of two and one on its own.
         rows.invoke_change(tracks.clone(), 0, 0, SelectionChange::Toggle);
-        rows.invoke_change(tracks, 1, 1, SelectionChange::Toggle);
+        rows.invoke_change(tracks.clone(), 1, 1, SelectionChange::Toggle);
+        rows.invoke_change(tracks, 3, 3, SelectionChange::Toggle);
     }
     let editor = window.global::<TagEditorState>();
     if shot.tags {

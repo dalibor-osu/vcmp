@@ -387,9 +387,11 @@ table can select several tracks for the track menu.
   are for one track and hide. A right click on a track outside the selection clears
   it first, so the menu acts on that track alone.
 - **Look:** a selected row has the hover fill and a 3 px accent bar at its edge, so
-  it reads apart from the row under the pointer; its secondary text turns full
-  strength, because muted text on that fill would fall under 4.5:1 in the light
-  theme. Assistive technology hears each row as selectable and selected.
+  it reads apart from the row under the pointer. Selected rows next to each other
+  read as one block: only its outer corners are rounded and the bar runs through
+  it (each row knows whether its neighbours are selected; a disc heading between
+  two rows parts them). A selected row's secondary text turns full strength,
+  because muted text on that fill would fall under 4.5:1 in the light theme. Assistive technology hears each row as selectable and selected.
 - **Where it lives:** each row model holds `selected`. Slint can't loop over rows,
   so `src/selection.rs` applies a toggle, range, all or none and returns the count;
   a new list (another album, a new sort or filter) starts with nothing selected. The
@@ -442,7 +444,8 @@ table can select several tracks for the track menu.
   the page, under a row of headings: #, the title (File on the folders page), the
   column beside it when the list has one (Artist on a compilation's album page,
   Album under "Appears on", Artist and album elsewhere, Title and artist for files)
-  and Time. See [Table columns](#table-columns).
+  and Time, with a small gap between the line under them and the first row. See
+  [Table columns](#table-columns).
 
 ## Page filters
 

@@ -143,6 +143,10 @@ export component TrackLine {
     in property <bool> playing;
     // The column beside the title (artist, album or both) is shown.
     in property <bool> detail-column;
+    // The rows just above and below are selected too, with no heading between: a run
+    // of selected rows reads as one block, rounded only at its ends.
+    in property <bool> selected-above;
+    in property <bool> selected-below;
     // The keyboard's current track in a focused list.
     in property <bool> focused;
     // A click, and whether it toggles the row's selection (Ctrl, or Cmd on macOS) or
@@ -169,6 +173,8 @@ export component TrackLine {
     // Secondary text turns full strength on a selected row, so it stays readable on
     // the selection's fill.
     private property <color> secondary: root.track.selected ? Theme.colors.text : Theme.colors.text-muted;
+    private property <bool> joined-above: root.track.selected && root.selected-above;
+    private property <bool> joined-below: root.track.selected && root.selected-below;
     // The pointer is on the play button, in the number's place.
     private property <bool> on-play-button: touch.has-hover && touch.mouse-x < number.x + number.width + Theme.space-l / 2;
 
@@ -190,7 +196,10 @@ export component TrackLine {
 
         row := Rectangle {
             min-height: Theme.target-height;
-            border-radius: Theme.radius-m;
+            border-top-left-radius: root.joined-above ? 0 : Theme.radius-m;
+            border-top-right-radius: root.joined-above ? 0 : Theme.radius-m;
+            border-bottom-left-radius: root.joined-below ? 0 : Theme.radius-m;
+            border-bottom-right-radius: root.joined-below ? 0 : Theme.radius-m;
             background: root.track.selected || touch.has-hover ? Theme.colors.surface : transparent;
             accessible-role: list-item;
             accessible-label: root.track.unavailable ? @tr("{0}, file not found", root.track.title)
@@ -202,13 +211,17 @@ export component TrackLine {
             }
 
             // A selected row is marked at its edge, as well as filled, so it reads
-            // apart from the row under the pointer.
+            // apart from the row under the pointer. The mark runs on through a block
+            // of selected rows.
             if root.track.selected: Rectangle {
                 x: 0;
-                y: Theme.space-s;
+                y: root.joined-above ? 0 : Theme.space-s;
                 width: 3px;
-                height: parent.height - 2 * Theme.space-s;
-                border-radius: Theme.radius-s;
+                height: parent.height - (root.joined-above ? 0 : Theme.space-s) - (root.joined-below ? 0 : Theme.space-s);
+                border-top-left-radius: root.joined-above ? 0 : Theme.radius-s;
+                border-top-right-radius: root.joined-above ? 0 : Theme.radius-s;
+                border-bottom-left-radius: root.joined-below ? 0 : Theme.radius-s;
+                border-bottom-right-radius: root.joined-below ? 0 : Theme.radius-s;
                 background: Theme.colors.accent;
             }
 
@@ -413,6 +426,9 @@ export component TrackList {
     }
 
     VerticalLayout {
+        // Keeps the first row's fill off the line under the headings.
+        spacing: Theme.space-xs;
+
         // Headings over the columns; the edge between the title and the column beside
         // it resizes them, for every track list at once.
         if root.tracks.length > 0: Rectangle {
@@ -595,6 +611,9 @@ export component TrackList {
                         track: track;
                         show-disc: root.show-disc;
                         detail-column: root.detail-heading != "";
+                        // A disc heading between two rows parts them.
+                        selected-above: index > 0 && root.tracks[index - 1].selected && !(root.show-disc && track.disc-start);
+                        selected-below: index + 1 < root.tracks.length && root.tracks[index + 1].selected && !(root.show-disc && root.tracks[index + 1].disc-start);
                         playing: track.path == root.playing-path;
                         focused: list.has-focus && index == root.current;
                         draggable: root.editable;
