@@ -12,7 +12,7 @@ Early development. In place so far:
 - the library core: source directories, scanning with tag reading, album and artist
   grouping, moved-file re-linking, artwork caching, search and a file watcher;
 - tag writing in the library core (single and batch, with embedded covers, through a
-  verified copy of each file); the tag editor UI is still to come;
+  verified copy of each file);
 - the Albums page: a cover grid that stays fast with thousands of albums, and album
   pages with tracks by disc; an album without a cover can fetch one from the Cover
   Art Archive, picked from what MusicBrainz finds;
@@ -43,8 +43,11 @@ Early development. In place so far:
 - an update check: when VCMP starts, it asks GitHub Releases for a newer version and
   links to its release page from the sidebar and the About page (it can be switched
   off in Settings);
-- a tag editor for one track or a whole album, cover included, writing only what was
-  changed through a verified copy of each file;
+- a tag editor for one track, a whole album or the selected tracks, cover included,
+  writing only what was changed through a verified copy of each file;
+- selecting several tracks (Ctrl or Shift with a click or the arrow keys) in track
+  lists and the Songs table, to queue them, add them to a playlist or edit their
+  tags together;
 - artist photos: your own image, or one found on fanart.tv through MusicBrainz when
   you ask (in builds made with VCMP's fanart.tv API key).
 
@@ -168,6 +171,7 @@ directories on the same machine share it.
 - [UI foundation](docs/ui.md): how the UI is built, and the rules its tests enforce
 - [Library](docs/library.md): storage, scanning, re-linking, artwork and search
 - [Playback engine](docs/playback.md): how audio gets from a file to the speakers
+- [Manual testing](docs/manual-testing.md): what to check by hand before a release
 - [CLAUDE.md](CLAUDE.md): branches, conventions, localization
 - [Original ideas](ideas.md)
 

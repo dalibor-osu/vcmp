@@ -33,18 +33,51 @@ pub(crate) trait Output {
 }
 
 /// Names of the output devices, for a settings list. The system default is not
-/// listed by name; select it with `None`.
+/// listed by name; select it with `None`. ALSA's utility plugins are left out (see
+/// [`hidden_alsa_device`]); a saved name still opens.
 pub fn output_devices() -> Result<Vec<String>, PlaybackError> {
     let host = cpal::default_host();
+    let alsa = host.id().name() == "ALSA";
     let mut names = Vec::new();
     for device in host.output_devices().map_err(output_error)? {
-        if let Some(name) = device_name(&device)
-            && !names.contains(&name)
-        {
+        let Ok(description) = device.description() else {
+            continue;
+        };
+        // cpal gives the ALSA PCM name as the driver.
+        if alsa && description.driver().is_some_and(hidden_alsa_device) {
+            continue;
+        }
+        let name = description.name().to_owned();
+        if !names.contains(&name) {
             names.push(name);
         }
     }
     Ok(names)
+}
+
+/// Whether an ALSA PCM is left out of the device list: the null device, the
+/// sample rate converters, the up- and downmixers, the speex filter, the OSS
+/// plugin (it needs the kernel's long-gone `/dev/dsp`), the USB stream plugin that
+/// every USB card lists, and `default` and `sysdefault`, which "System default"
+/// stands for. Sound servers (`pipewire`, `pulse`, `jack`) and the cards' own PCMs
+/// (`sysdefault:CARD=...`, `front:...`, `hdmi:...`) stay.
+fn hidden_alsa_device(pcm: &str) -> bool {
+    const HIDDEN: [&str; 10] = [
+        "null",
+        "default",
+        "sysdefault",
+        "lavrate",
+        "samplerate",
+        "speexrate",
+        "speex",
+        "upmix",
+        "vdownmix",
+        "oss",
+    ];
+    match pcm.split_once(':') {
+        Some((plugin, _card)) => plugin == "usbstream",
+        None => HIDDEN.contains(&pcm),
+    }
 }
 
 fn output_error(error: cpal::Error) -> PlaybackError {
@@ -292,6 +325,49 @@ pub(crate) mod testing {
 
         fn lost(&self) -> bool {
             self.0.0.lost.load(Ordering::Relaxed)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hidden_alsa_device;
+
+    #[test]
+    fn alsa_plugins_are_hidden_and_cards_and_servers_stay() {
+        // What `aplay -L` and cpal list on a PipeWire desktop with a USB interface,
+        // HDMI and on-board audio.
+        let hidden = [
+            "null",
+            "default",
+            "sysdefault",
+            "lavrate",
+            "samplerate",
+            "speexrate",
+            "speex",
+            "upmix",
+            "vdownmix",
+            "oss",
+            "usbstream:CARD=USB",
+            "usbstream:CARD=HD3000",
+        ];
+        let shown = [
+            "pipewire",
+            "pulse",
+            "jack",
+            "sysdefault:CARD=USB",
+            "front:CARD=USB,DEV=0",
+            "iec958:CARD=Generic,DEV=0",
+            "hdmi:CARD=HDMI,DEV=0",
+            "hw:CARD=0,DEV=0",
+            "plughw:CARD=0,DEV=0",
+            "default:CARD=USB",
+        ];
+        for pcm in hidden {
+            assert!(hidden_alsa_device(pcm), "{pcm} is hidden");
+        }
+        for pcm in shown {
+            assert!(!hidden_alsa_device(pcm), "{pcm} is shown");
         }
     }
 }
