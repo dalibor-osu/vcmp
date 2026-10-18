@@ -116,7 +116,7 @@ component TagInput inherits VerticalLayout {
 
     Text {
         text: root.label;
-        color: root.wrong ? Theme.colors.accent : Theme.colors.text;
+        color: root.wrong ? Theme.colors.error : Theme.colors.text;
         font-size: Theme.font-small;
         font-weight: root.wrong ? Theme.weight-strong : Theme.weight-regular;
         accessible-role: none;
@@ -458,7 +458,7 @@ export component TagEditorView inherits Rectangle {
                         : root.problem == TagProblem.year ? @tr("The year must be a number from 1 to 9999.")
                         : root.problem == TagProblem.line-break ? @tr("Tags are one line each, so they can't hold line breaks or other control characters.")
                         : @tr("That file isn't a JPEG or PNG image VCMP can read, so the cover stays as it was.");
-                    color: Theme.colors.text;
+                    color: Theme.colors.error;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
                     min-height: self.preferred-height;

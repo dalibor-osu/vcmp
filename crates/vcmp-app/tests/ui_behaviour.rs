@@ -229,6 +229,69 @@ fn the_queue_panel_slides_in_unless_motion_is_reduced() {
 }
 
 #[test]
+fn in_a_narrow_window_the_queue_covers_the_pages_not_the_sidebar() {
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(900.0, 700.0));
+    let panel = |window: &AppWindow| {
+        ElementHandle::find_by_element_type_name(window, "QueuePanel")
+            .next()
+            .expect("the queue panel is open")
+    };
+    // Only what is shown can be found.
+    let page_shown = |window: &AppWindow| {
+        ElementHandle::find_by_accessible_label(window, "Filter albums")
+            .next()
+            .is_some()
+    };
+    assert!(page_shown(&window));
+    window.set_queue_open(true);
+    // The panel is made when first looked at, and slides in from then.
+    panel(&window);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    let (x, width) = (
+        panel(&window).absolute_position().x,
+        panel(&window).size().width,
+    );
+    assert_eq!(
+        (x, width),
+        (220.0, 900.0 - 220.0),
+        "from the sidebar to the edge"
+    );
+    assert!(
+        !page_shown(&window),
+        "the page under it is hidden, so the keyboard can't reach it"
+    );
+    find(&window, AccessibleRole::Tab, "Songs");
+
+    press(&window, Key::Escape);
+    assert!(!window.get_queue_open(), "Escape closes it");
+    assert!(page_shown(&window));
+
+    // Beside the page in a wide window, where Escape is left to the page.
+    window.window().set_size(LogicalSize::new(1200.0, 700.0));
+    window.set_queue_open(true);
+    panel(&window);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert_eq!(panel(&window).size().width, 320.0);
+    assert!(page_shown(&window));
+    press(&window, Key::Escape);
+    assert!(window.get_queue_open());
+}
+
+#[test]
+fn every_library_page_offers_to_add_a_folder_when_empty() {
+    let window = open_window();
+    for section in ["Albums", "Artists", "Songs", "Folders"] {
+        open_page(&window, section);
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+        let buttons = ElementHandle::find_by_accessible_label(&window, "Add music folder…")
+            .filter(|element| element.accessible_role() == Some(AccessibleRole::Button))
+            .count();
+        assert_eq!(buttons, 1, "{section} shows the button");
+    }
+}
+
+#[test]
 fn reduced_motion_makes_transitions_instant() {
     let window = open_window();
     let albums_marker = marker_y(&window);

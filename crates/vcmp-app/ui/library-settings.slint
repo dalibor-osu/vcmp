@@ -84,6 +84,20 @@ component FolderRow {
 }
 
 // Settings for where music comes from, and the state of the last scan.
+// The way into an empty library, on every page that lists it: the system's folder
+// dialog, as Add folder… in Settings opens it.
+export component AddFolderButton inherits HorizontalLayout {
+    alignment: start;
+
+    Button {
+        text: @tr("Add music folder…");
+        primary: true;
+        clicked => {
+            LibraryState.add-folder();
+        }
+    }
+}
+
 export component LibrarySection inherits VerticalLayout {
     private property <bool> show-unreadable;
 

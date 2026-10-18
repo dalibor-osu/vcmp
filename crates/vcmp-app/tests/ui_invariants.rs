@@ -121,6 +121,36 @@ fn durations_only_in_theme() {
     );
 }
 
+/// Corner radii are `Theme` tokens, or worked out from the element's own size (half
+/// of it for round shapes: icon buttons, tracks, knobs, drop lines); never a bare
+/// pixel value.
+#[test]
+fn radii_come_from_theme_or_the_shape() {
+    let mut violations = Vec::new();
+    for path in slint_sources()
+        .into_iter()
+        .filter(|path| !is_theme_file(path))
+    {
+        for (number, line) in code_lines(&path) {
+            let Some((name, value)) = line.split_once(':') else {
+                continue;
+            };
+            let value = value.trim().trim_end_matches(';');
+            let bare = value
+                .strip_suffix("px")
+                .is_some_and(|number| number.parse::<f32>().is_ok());
+            if name.trim().ends_with("radius") && bare {
+                violations.push(format!("{}:{number}: {line}", path.display()));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "radii must come from Theme or the element's size:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Removes every `@tr(...)` call, including plural forms such as
 /// `@tr("{n} track" | "{n} tracks" % count)`, and every `@image-url(...)` (a file
 /// name), leaving the rest of the line.

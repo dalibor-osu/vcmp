@@ -15,14 +15,15 @@ export struct ThemePalette {
     // Boundary of interactive elements, at least 3:1 against base and mantle.
     outline: color,
     text: color,
-    // Secondary text; only placed on base or mantle.
+    // Secondary text; only placed on base or mantle. Rows filled for hover or
+    // selection turn their secondary text to `text`.
     text-muted: color,
     // Marks what is active: current page, selected option, switched-on state.
     accent: color,
     // Text and marks drawn on an accent fill.
     on-accent: color,
-    // The neon glow; used only around the current-page marker.
-    glow: color,
+    // Says what is wrong, as text on base only: a value the tag editor can't write.
+    error: color,
 }
 
 export enum ThemeMode { system, light, dark }
@@ -68,8 +69,10 @@ export global Theme {
     out property <length> font-heading: 16px;
     out property <length> font-wordmark: 20px;
     out property <length> font-title: 26px;
-    // The track title in the now playing view, the one larger text.
+    // The track title in the now playing view, the one larger text, and a step up
+    // in a window wide enough for the largest cover.
     out property <length> font-display: 34px;
+    out property <length> font-display-wide: 42px;
     out property <int> weight-regular: 400;
     out property <int> weight-strong: 600;
 

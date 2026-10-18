@@ -1,9 +1,9 @@
 //! Colour palettes for the UI's `Theme` global: Catppuccin Latte (light) and Mocha
-//! (dark), with pink as the single accent.
+//! (dark), with pink as the single accent and Catppuccin red for errors.
 //!
 //! Latte's own pink is too pale to meet contrast requirements on its light
-//! backgrounds, so the light accent is a darker shade of the same hue. The original
-//! Latte pink is kept for the glow, which carries no information.
+//! backgrounds, so the light accent is a darker shade of the same hue. Latte's red
+//! reaches 4.5:1 only on base, which is where errors are written.
 
 use slint::{Color, ComponentHandle};
 
@@ -11,10 +11,6 @@ use crate::{AppWindow, Theme, ThemePalette};
 
 const fn rgb(hex: u32) -> Color {
     Color::from_argb_u8(0xff, (hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
-}
-
-const fn glow(hex: u32) -> Color {
-    Color::from_argb_u8(0xb0, (hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
 pub fn light() -> ThemePalette {
@@ -27,7 +23,7 @@ pub fn light() -> ThemePalette {
         text_muted: rgb(0x5c5f77),
         accent: rgb(0xa1197d),
         on_accent: rgb(0xeff1f5),
-        glow: glow(0xea76cb),
+        error: rgb(0xd20f39),
     }
 }
 
@@ -41,7 +37,7 @@ pub fn dark() -> ThemePalette {
         text_muted: rgb(0xa6adc8),
         accent: rgb(0xf5c2e7),
         on_accent: rgb(0x11111b),
-        glow: glow(0xf5c2e7),
+        error: rgb(0xf38ba8),
     }
 }
 
@@ -85,7 +81,10 @@ mod tests {
             ("muted text on mantle", p.text_muted, p.mantle),
             ("accent text on base", p.accent, p.base),
             ("accent text on mantle", p.accent, p.mantle),
+            // The playing track's title on a hovered or selected row.
+            ("accent text on surface", p.accent, p.surface),
             ("on-accent on accent", p.on_accent, p.accent),
+            ("error text on base", p.error, p.base),
         ];
         let control_pairs = [
             ("outline on base", p.outline, p.base),

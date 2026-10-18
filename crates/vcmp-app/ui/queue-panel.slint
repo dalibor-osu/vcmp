@@ -118,7 +118,7 @@ component QueueLine {
             }
             if root.entry.artist != "": Text {
                 text: root.entry.artist;
-                color: Theme.colors.text-muted;
+                color: touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
                 font-size: Theme.font-small;
                 overflow: elide;
                 accessible-role: none;
@@ -127,7 +127,7 @@ component QueueLine {
 
         Text {
             text: root.entry.duration;
-            color: Theme.colors.text-muted;
+            color: touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
             font-size: Theme.font-small;
             vertical-alignment: center;
             horizontal-stretch: 0;
@@ -175,6 +175,14 @@ export component QueuePanel inherits Rectangle {
         self.slide = 0;
     }
     animate slide { duration: Theme.duration-medium; easing: ease-out; }
+    // The panel is in its place.
+    callback settled();
+
+    changed slide => {
+        if self.slide == 0 {
+            root.settled();
+        }
+    }
 
     private property <int> up-next-count: PlayerState.up-next.length;
     private property <int> count: self.up-next-count + PlayerState.upcoming.length;
@@ -472,7 +480,7 @@ export component QueuePanel inherits Rectangle {
                             y: root.drag-line-y;
                             width: parent.width;
                             height: 2px;
-                            border-radius: 1px;
+                            border-radius: self.height / 2;
                             background: Theme.colors.accent;
                         }
                     }

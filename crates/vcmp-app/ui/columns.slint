@@ -72,7 +72,7 @@ export component ColumnEdge {
     Rectangle {
         width: touch.has-hover || touch.pressed || focus.has-focus ? 2px : 1px;
         height: parent.height - 2 * Theme.space-s;
-        border-radius: 1px;
+        border-radius: self.width / 2;
         background: touch.has-hover || touch.pressed || focus.has-focus ? Theme.colors.text-muted : Theme.colors.surface;
     }
 
