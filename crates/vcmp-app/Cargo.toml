@@ -22,9 +22,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 # The winit hook catches Space before Slint routes it (src/shortcuts.rs).
 slint = { workspace = true, features = ["unstable-winit-030"] }
-vcmp-integrations = { version = "0.1.0", path = "../vcmp-integrations" }
-vcmp-library = { version = "0.1.0", path = "../vcmp-library" }
-vcmp-playback = { version = "0.1.0", path = "../vcmp-playback" }
+vcmp-integrations = { version = "26.10.0", path = "../vcmp-integrations" }
+vcmp-library = { version = "26.10.0", path = "../vcmp-library" }
+vcmp-playback = { version = "26.10.0", path = "../vcmp-playback" }
 # Opens Last.fm's page where the user allows VCMP to scrobble.
 webbrowser = "1.2.4"
 

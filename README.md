@@ -100,24 +100,45 @@ Builds are unsigned for now (signing is an open question in the spec), so Window
 SmartScreen and macOS Gatekeeper warn on first start. On macOS, right-click the app
 and choose Open, or run `xattr -dr com.apple.quarantine /Applications/VCMP.app`.
 
+### Versions
+
+VCMP's versions are dates: `YY.MM.PATCH`, the year and month of the release and a
+counter for further releases that month. The first release of October 2026 is
+`26.10.0`, a fix later that month `26.10.1`, the next release in November `26.11.0`.
+There is no "2.0" to wait for; the version says how new a copy is.
+
+It is a plain three-number version, so Cargo, the `v`-tags, the release workflow's
+check and the update check (which compares versions as numbers) take it as it is.
+The Windows MSI caps the first two numbers at 255, which a two-digit year and a
+month stay under until 2255.
+
+**Pre-releases** carry no suffix: a version to try is published with GitHub's
+"Set as a pre-release" box ticked, and promoted to a full release (the box
+unticked) once it holds up. The update check skips pre-releases, so only people
+who download one get it. A suffix would break installers: the MSI takes only a
+numeric one, which Debian then sorts after the release itself. A pre-release that
+needs fixing makes way for the next patch number (`26.11.1`).
+
 ### Cutting a release
 
 1. On a `feature/` branch, set `version` under `[workspace.package]` in the root
-   `Cargo.toml` to the new version, run `cargo check` to update `Cargo.lock`, and
-   merge the pull request into `main`.
+   `Cargo.toml` to the release's version (`YY.MM.PATCH` of the day you will tag; also
+   the three VCMP crates' `version` in `crates/vcmp-app/Cargo.toml`), run
+   `cargo check` to update `Cargo.lock`, and merge the pull request into `main`.
 2. Tag the merge commit on `main` and push the tag:
 
    ```bash
-   git switch main && git pull && git tag v0.2.0 && git push origin v0.2.0
+   git switch main && git pull && git tag v26.10.0 && git push origin v26.10.0
    ```
 
 3. The workflow checks that the tag is on `main` and matches the version, builds the
    installers on Windows, macOS and Linux, and creates a **draft** GitHub Release with
-   them, a `SHA256SUMS.txt` and generated notes. Review the notes and publish it.
+   them, a `SHA256SUMS.txt` and generated notes. Review the notes and publish it,
+   ticking "Set as a pre-release" for a version to try first.
 
 Once a release is published, copies of VCMP with the update check on link to it at
-their next start. The check takes the highest `vX.Y.Z` tag among the published
-releases and skips drafts and pre-releases. It asks GitHub without signing in, so it
+their next start. The check takes the highest `vYY.MM.PATCH` tag among the
+published releases and skips drafts and pre-releases. It asks GitHub without signing in, so it
 finds nothing while the repository is private.
 
 To try the packaging without a release, run the workflow by hand (Actions → Release
