@@ -1,5 +1,6 @@
-//! The tag editor: one track, an album with differing values, wrong values, a file
-//! that can't be written, and the cover. Files are copies in a temporary directory.
+//! The tag editor: one track, an album with differing values, the list of changes
+//! before writing several files, wrong values, a file that can't be written, and the
+//! cover. Files are copies in a temporary directory.
 
 mod common;
 
@@ -15,7 +16,9 @@ use slint::{ComponentHandle, LogicalSize, Model, SharedString};
 use vcmp_app::library_service::{Delivery, LibraryPaths};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::tag_editor::TagEditor;
-use vcmp_app::{AppWindow, TagEditorState, TagEditorStatus, TagFailureReason, TagProblem};
+use vcmp_app::{
+    AppWindow, TagEditorState, TagEditorStatus, TagFailureReason, TagField, TagProblem,
+};
 use vcmp_library::{Library, Track};
 
 struct App {
@@ -129,6 +132,33 @@ impl App {
         key(&self.window, Key::Return);
         assert!(self.editor.wait_until_written(Duration::from_secs(10)));
     }
+
+    /// Saves an edit of several files: Enter lists the changes, then Write writes.
+    fn save_all(&self) {
+        key(&self.window, Key::Return);
+        assert!(
+            self.state().get_confirming(),
+            "the changes are listed first"
+        );
+        let files = self.state().get_confirm_files();
+        find_button(self, &format!("Write {files} files")).invoke_accessible_default_action();
+        assert!(self.editor.wait_until_written(Duration::from_secs(10)));
+    }
+
+    fn field_text(&self, label: &str) -> Option<String> {
+        ElementHandle::find_by_accessible_label(&self.window, label)
+            .find(|element| element.accessible_role() == Some(AccessibleRole::TextInput))
+            .and_then(|field| field.accessible_value())
+            .map(|value| value.to_string())
+    }
+
+    fn changes(&self) -> Vec<(TagField, String, bool)> {
+        self.state()
+            .get_changes()
+            .iter()
+            .map(|change| (change.field, change.value.to_string(), change.removed))
+            .collect()
+    }
 }
 
 #[test]
@@ -187,12 +217,98 @@ fn an_album_keeps_what_differs_unless_it_is_typed() {
     );
 
     app.type_into("Album artist", "Band");
-    app.save();
+    app.save_all();
     for title in ["One", "Two"] {
         assert_eq!(app.track(title).album_artist.as_deref(), Some("Band"));
     }
     assert_eq!(app.track("One").year, None, "the years stay their own");
     assert_eq!(app.track("Two").year, Some(2001));
+}
+
+#[test]
+fn several_files_are_written_only_after_the_changes_are_listed() {
+    let app = start();
+    app.open_album();
+    app.state().invoke_edit_album();
+    app.type_into("Genre", "Ambient");
+    app.type_into("Year", "1999");
+    // Enter in the Artist field, where the focus starts.
+    key(&app.window, Key::Return);
+
+    assert!(app.state().get_confirming());
+    assert_eq!(app.state().get_confirm_files(), 2);
+    assert_eq!(
+        app.changes(),
+        [
+            (TagField::Year, "1999".to_string(), false),
+            (TagField::Genre, "Ambient".to_string(), false)
+        ]
+    );
+    assert!(app.shows("Write 2 files"));
+    assert!(app.shows("Ambient"));
+    assert_eq!(
+        app.field_text("Genre"),
+        None,
+        "the list takes the form's place"
+    );
+    assert_eq!(app.track("One").genre, None, "nothing written yet");
+
+    // The focus is on Back, so a second Enter goes back instead of writing.
+    key(&app.window, Key::Return);
+    assert!(!app.state().get_confirming());
+    assert_eq!(app.track("One").genre, None);
+    assert_eq!(app.field_text("Genre").as_deref(), Some("Ambient"), "kept");
+    // The focus is back in the field Enter was pressed in, its text selected.
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: "Duo".into() });
+    assert_eq!(app.field_text("Artist").as_deref(), Some("Duo"));
+
+    // Escape leaves the list too, and the editor stays open.
+    key(&app.window, Key::Return);
+    assert!(app.shows("Write 2 files"));
+    key(&app.window, Key::Escape);
+    assert!(!app.state().get_confirming());
+    assert!(app.state().get_open());
+
+    app.save_all();
+    assert!(!app.state().get_open(), "closes once written");
+    for title in ["One", "Two"] {
+        let track = app.track(title);
+        assert_eq!(track.genre.as_deref(), Some("Ambient"));
+        assert_eq!(track.year, Some(1999));
+        assert_eq!(track.artist.as_deref(), Some("Duo"));
+    }
+}
+
+#[test]
+fn an_unchanged_album_closes_without_a_list() {
+    let app = start();
+    app.open_album();
+    app.state().invoke_edit_album();
+    key(&app.window, Key::Return);
+    assert!(!app.state().get_confirming());
+    assert!(!app.state().get_open());
+}
+
+#[test]
+fn the_list_shows_a_new_or_removed_cover() {
+    let app = start();
+    app.open_album();
+    app.state().invoke_edit_album();
+    app.editor.use_cover(png());
+    key(&app.window, Key::Return);
+    assert_eq!(app.changes(), [(TagField::Cover, String::new(), false)]);
+    assert!(app.shows("The new cover"));
+
+    // Another cover chosen meanwhile makes the list wrong, so the form comes back.
+    app.editor.use_cover(png());
+    assert!(!app.state().get_confirming());
+
+    find_button(&app, "Remove cover").invoke_accessible_default_action();
+    key(&app.window, Key::Return);
+    assert_eq!(app.changes(), [(TagField::Cover, String::new(), true)]);
+    assert!(app.shows("Removed"));
 }
 
 #[test]
@@ -227,7 +343,7 @@ fn a_read_only_file_is_reported_and_the_rest_written() {
     app.open_album();
     app.state().invoke_edit_album();
     app.type_into("Genre", "Ambient");
-    app.save();
+    app.save_all();
 
     assert_eq!(app.state().get_status(), TagEditorStatus::Failed);
     let failures: Vec<(String, TagFailureReason)> = app
@@ -390,7 +506,7 @@ fn an_album_is_written_at_once_except_the_playing_track() {
     app.open_album();
     app.state().invoke_edit_album();
     app.type_into("Genre", "Ambient");
-    app.save();
+    app.save_all();
 
     assert_eq!(app.track("One").genre.as_deref(), Some("Ambient"));
     assert_eq!(app.track("Two").genre, None);

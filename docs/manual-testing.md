@@ -87,6 +87,10 @@ reading the code or with a simulated system, so they are the most likely to fail
       show the new tags.
 - [ ] A field that differs between tracks shows "Several values" and keeps the
       values unless you type one.
+- [ ] Save an album or a selection: the editor first lists the number of files and
+      each changed field, and writes only after "Write N files". A second Enter,
+      Back and Escape return to the form with your values; one track still writes
+      at once.
 - [ ] Change and remove the embedded cover.
 - [ ] Edit the track that is playing.
 - [ ] Make a file read-only, then save: the editor names the file and the reason,
