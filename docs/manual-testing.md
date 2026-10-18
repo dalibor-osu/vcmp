@@ -38,6 +38,10 @@ reading the code or with a simulated system, so they are the most likely to fail
       Settings, and the grid scrolls smoothly once it's done.
 - [ ] Albums, Artists (album artists and all artists), Songs and Folders show the
       same music; the filters narrow each page.
+- [ ] Tracks without an album tag show in an "Unknown" album of their artist, with
+      a question mark for a cover, after the artist's other albums. Tracks with no
+      artist either are in an "Unknown" album by "Unknown artist", last in the
+      grid. Give such a track an album in the tag editor: it moves there.
 - [ ] Ctrl+F (Cmd+F on macOS) searches artists, albums, playlists and tracks.
 - [ ] With "Update automatically" on, copy an album into the folder, then delete
       it: it appears and disappears without a rescan.

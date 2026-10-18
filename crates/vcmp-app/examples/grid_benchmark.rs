@@ -80,6 +80,7 @@ fn synthetic_albums(count: usize) -> Vec<Album> {
             track_count: 10,
             fetched_cover: false,
             musicbrainz_id: None,
+            unknown: false,
             artwork: Some(Artwork {
                 original: path.clone(),
                 thumbnail: path,

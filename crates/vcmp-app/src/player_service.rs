@@ -1684,11 +1684,13 @@ impl PlayerService {
                 return;
             }
         }
+        // An Unknown album is no release MusicBrainz could know.
         let Some(Album {
             title,
             artist: Some(artist),
             track_count,
             musicbrainz_id: None,
+            unknown: false,
             ..
         }) = self.library.album(album).ok().flatten()
         else {

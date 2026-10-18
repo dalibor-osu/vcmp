@@ -183,6 +183,14 @@ longest album (116 tracks): it opens in 33 ms and renders in 0.7 ms p50 (release
 Choosing an album shows `AlbumView` in place of the grid. The grid stays alive, so
 its scroll position and current card survive.
 
+- **Unknown albums:** the library puts tracks without an album tag into an
+  "Unknown" album of their artist, and those naming no artist into one Unknown
+  album by "Unknown artist", last in the grid (see `docs/library.md`). Their card
+  and page say "Unknown" (and "Unknown artist"), words of the UI rather than tags,
+  with a question mark in place of a cover, and offer no "Find cover online".
+  Editing the album tag of their tracks moves them to a real album, and the page
+  follows.
+
 - **Getting back:** the back button, Escape, or the Albums sidebar entry. Focus
   returns to the album's card. The sidebar entry opens the grid from any section,
   not the album last open (the same for Artists and Playlists).

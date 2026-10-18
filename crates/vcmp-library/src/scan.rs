@@ -538,25 +538,19 @@ fn apply(
         .as_deref()
         .map(|name| upsert_artist(tx, name, tags.mb_artist_id.as_deref()))
         .transpose()?;
-    let album_id = match &tags.album {
-        Some(album) => {
-            let (owner, owner_mbid) = match &tags.album_artist {
-                Some(name) => (Some(name.as_str()), tags.mb_album_artist_id.as_deref()),
-                None => (tags.artist.as_deref(), tags.mb_artist_id.as_deref()),
-            };
-            let owner_id = owner
-                .map(|name| upsert_artist(tx, name, owner_mbid))
-                .transpose()?;
-            Some(upsert_album(
-                tx,
-                album,
-                owner,
-                owner_id,
-                tags.mb_album_id.as_deref(),
-            )?)
-        }
-        None => None,
+    // The album belongs to its album artist, or else the track artist.
+    let (owner, owner_mbid) = match &tags.album_artist {
+        Some(name) => (Some(name.as_str()), tags.mb_album_artist_id.as_deref()),
+        None => (tags.artist.as_deref(), tags.mb_artist_id.as_deref()),
     };
+    let owner_id = owner
+        .map(|name| upsert_artist(tx, name, owner_mbid))
+        .transpose()?;
+    let album_id = Some(match &tags.album {
+        Some(album) => upsert_album(tx, album, owner, owner_id, tags.mb_album_id.as_deref())?,
+        // Without an album tag: the owner's Unknown album.
+        None => upsert_unknown_album(tx, owner_id)?,
+    });
 
     let id = match existing {
         Some(id) => {
@@ -714,6 +708,22 @@ fn upsert_album(
     Ok(statement.query_row(params![key, title, owner_id, mbid], |row| row.get(0))?)
 }
 
+/// The "Unknown" album of the artist `owner_id` (or of no artist), which holds the
+/// tracks without an album tag. Keyed by the artist's id, so the schema migration
+/// that first made them builds the same keys.
+fn upsert_unknown_album(tx: &Transaction, owner_id: Option<i64>) -> Result<i64> {
+    let key = format!(
+        "unknown:{}",
+        owner_id.map(|id| id.to_string()).unwrap_or_default()
+    );
+    let mut statement = tx.prepare_cached(
+        "INSERT INTO albums (group_key, title, artist_id, unknown) VALUES (?1, '', ?2, 1)
+         ON CONFLICT (group_key) DO UPDATE SET unknown = 1
+         RETURNING id",
+    )?;
+    Ok(statement.query_row(params![key, owner_id], |row| row.get(0))?)
+}
+
 /// Removes albums and artists nothing refers to any more, refreshes album years and
 /// rebuilds the artist and album search indexes.
 fn finish_groups(conn: &mut Connection) -> Result<()> {
@@ -747,7 +757,8 @@ fn find_artwork(
     let albums: Vec<(i64, Option<String>, i64)> = conn
         .prepare(
             "SELECT id, artwork_hash, artwork_state FROM albums
-             WHERE EXISTS (SELECT 1 FROM tracks WHERE album_id = albums.id AND available = 1)",
+             WHERE unknown = 0
+               AND EXISTS (SELECT 1 FROM tracks WHERE album_id = albums.id AND available = 1)",
         )?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;

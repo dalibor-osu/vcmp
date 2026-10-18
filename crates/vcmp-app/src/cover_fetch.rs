@@ -145,6 +145,10 @@ impl CoverFetch {
         let (Some(window), Some(album)) = (self.window.upgrade(), self.view.shown_album()) else {
             return;
         };
+        // An Unknown album is no release to find a cover for.
+        if album.unknown {
+            return;
+        }
         let search = self.next_search();
         self.album.set(Some(album.id));
         self.covers.borrow_mut().clear();

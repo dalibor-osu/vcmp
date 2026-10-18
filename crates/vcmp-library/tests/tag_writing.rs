@@ -414,8 +414,14 @@ fn clearing_fields_and_the_cover() {
             track.title, "track",
             "the file name stands in for the title"
         );
-        assert_eq!(track.album_id, None);
-        assert!(setup.library.albums().unwrap().is_empty());
+        // With its tags cleared, the track is in the Unknown album without an artist.
+        let albums = setup.library.albums().unwrap();
+        assert_eq!(albums.len(), 1, "{extension}");
+        assert!(
+            albums[0].unknown && albums[0].artist.is_none(),
+            "{extension}"
+        );
+        assert_eq!(track.album_id, Some(albums[0].id));
     }
 }
 

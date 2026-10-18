@@ -12,7 +12,7 @@ use std::time::Duration;
 use slint::{ComponentHandle, Image, Model, ModelRc, Timer, TimerMode, VecModel};
 use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Playlist, Track};
 
-use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, cards, initial};
+use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, album_initial, cards, initial};
 use crate::folders::FolderBrowser;
 use crate::playlists::{self, PlaylistBrowser};
 use crate::{
@@ -927,10 +927,11 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
         has_cover: cover.is_some(),
         cover: cover.unwrap_or_default(),
         fetched_cover: album.fetched_cover,
-        initial: initial(&album.title).into(),
+        initial: album_initial(album).into(),
         failed,
         missing: false,
         track_artists: rows.iter().any(|row| !row.artist.is_empty()),
+        unknown: album.unknown,
     });
     window.set_album_tracks(ModelRc::new(VecModel::from(rows)));
     window.set_album_multi_disc(discs.len() > 1);

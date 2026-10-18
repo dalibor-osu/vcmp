@@ -361,7 +361,7 @@ export component AlbumsPage inherits Rectangle {
                     : root.filter != "" ? @tr("No albums match “{}”.", root.filter)
                     : LibraryState.scanning ? @tr("Looking for albums in your music folders. They appear here as they are found.")
                     : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in, and VCMP finds your albums.")
-                    : @tr("No albums found in your music folders. Tracks without an album tag don't appear here.");
+                    : @tr("No albums found in your music folders.");
                 color: Theme.colors.text;
                 font-size: Theme.font-body;
                 wrap: word-wrap;

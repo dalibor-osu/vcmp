@@ -45,8 +45,13 @@ pub fn add(dir: &Path, name: &str, song: Song) {
     let file = lofty::read_from_path(&path).unwrap();
     let mut tag = Tag::new(file.primary_tag_type());
     tag.set_title(song.title.into());
-    tag.set_artist(song.artist.into());
-    tag.set_album(song.album.into());
+    // An empty artist or album is left out of the tag.
+    if !song.artist.is_empty() {
+        tag.set_artist(song.artist.into());
+    }
+    if !song.album.is_empty() {
+        tag.set_album(song.album.into());
+    }
     tag.set_track(song.track);
     tag.set_disk(song.disc);
     if let Some(album_artist) = song.album_artist {

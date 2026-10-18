@@ -39,7 +39,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `settings` | Key/value preferences: `library.auto_update`, `ui.theme`, `ui.reduced_motion` (`system`, `on` or `off`) |
 | `source_dirs` | Source directories (canonical path) and their `recursive` flag |
 | `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration |
-| `albums` | Album groups, their artist, year and artwork state |
+| `albums` | Album groups, their artist, year and artwork state, and whether the album is an artist's Unknown album (`unknown`, version 9) |
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
 | `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
 | `track_search`, `album_search`, `artist_search` | FTS5 trigram indexes, case and diacritics ignored (version 3; version 1 indexed words) |
@@ -92,6 +92,15 @@ aren't valid UTF-8 keep working.
    - An album is keyed by its MusicBrainz release ID when tagged. Otherwise it is
      keyed by album artist (or track artist, when there is no album artist) plus
      title, lowercased.
+   - Every track belongs to an album. One without an album tag goes into the
+     "Unknown" album of its album artist (or track artist): an album row with
+     `unknown = 1`, an empty title and the group key `unknown:<artist id>`. A track
+     naming no artist either goes into the one Unknown album without an artist
+     (`unknown:`). Keying by the artist's id rather than the name lets the
+     migration that first made them (version 9, in SQL, whose `lower()` folds only
+     ASCII) build the same keys as a scan. Unknown albums get no artwork, no cover
+     lookups and no "Find cover online"; they sort after their artist's other
+     albums, and the one without an artist last of all.
    - The album year is the earliest track year.
    - Albums and artists nothing refers to any more are deleted, and the artist and
      album search indexes are rebuilt.
@@ -109,7 +118,7 @@ marks its tracks unavailable; adding it back and scanning restores them with the
 IDs.
 
 A file without tags gets its file name (without the extension) as its title; its
-artist and album stay empty.
+artist and album stay empty, and it lands in the Unknown album without an artist.
 Display names for empty values ("Unknown artist") belong to the UI, so they can be
 translated.
 

@@ -227,7 +227,11 @@ fn untagged_file_is_titled_by_its_name() {
         (tracks[0].artist.as_deref(), tracks[0].album.as_deref()),
         (None, None)
     );
-    assert!(setup.library.albums().unwrap().is_empty());
+    // It belongs to the Unknown album without an artist.
+    let albums = setup.library.albums().unwrap();
+    assert_eq!(albums.len(), 1);
+    assert!(albums[0].unknown && albums[0].artist.is_none());
+    assert_eq!(tracks[0].album_id, Some(albums[0].id));
 }
 
 #[test]
@@ -885,17 +889,17 @@ fn an_artist_page_has_own_albums_and_appearances() {
     );
     assert_eq!(
         (singer.album_count, singer.track_count),
-        (1, 3),
-        "its own album, and every credited track"
+        (2, 3),
+        "its own album and its Unknown one, and every credited track"
     );
-    let own: Vec<String> = setup
+    let own: Vec<(String, bool)> = setup
         .library
         .artist_albums(singer.id)
         .unwrap()
         .into_iter()
-        .map(|album| album.title)
+        .map(|album| (album.title, album.unknown))
         .collect();
-    assert_eq!(own, ["Solo"]);
+    assert_eq!(own, [("Solo".to_string(), false), (String::new(), true)]);
     let mut appearances: Vec<String> = setup
         .library
         .artist_appearances(singer.id)
@@ -904,7 +908,8 @@ fn an_artist_page_has_own_albums_and_appearances() {
         .map(|track| track.title)
         .collect();
     appearances.sort();
-    assert_eq!(appearances, ["Guest spot", "Loose"]);
+    // The loose track is in the singer's own Unknown album now.
+    assert_eq!(appearances, ["Guest spot"]);
 }
 
 #[test]
@@ -1334,4 +1339,180 @@ fn a_fetched_cover_follows_its_album_through_a_renaming_edit() {
     assert_eq!(albums[0].title, "Bare (Remastered)");
     assert_eq!(albums[0].artwork, Some(fetched));
     assert!(albums[0].fetched_cover);
+}
+
+/// Each album as (title, artist, unknown), in the library's order.
+fn album_list(library: &Library) -> Vec<(String, Option<String>, bool)> {
+    library
+        .albums()
+        .unwrap()
+        .into_iter()
+        .map(|album| (album.title, album.artist, album.unknown))
+        .collect()
+}
+
+fn titles(tracks: Vec<vcmp_library::Track>) -> Vec<String> {
+    tracks.into_iter().map(|track| track.title).collect()
+}
+
+/// A track tagged with a title and maybe an artist, but no album.
+fn loose<'a>(title: &'a str, artist: Option<&'a str>) -> Tags<'a> {
+    Tags {
+        title: Some(title),
+        artist,
+        ..Tags::default()
+    }
+}
+
+#[test]
+fn tracks_without_an_album_go_into_unknown_albums() {
+    let mut setup = Setup::new();
+    let music = setup.music();
+    add_file(
+        &music,
+        "a.flac",
+        "silence.flac",
+        song("One", "Band", "Record"),
+    );
+    add_file(
+        &music,
+        "b.flac",
+        "silence.flac",
+        Tags {
+            picture: Some(png()),
+            ..loose("Loose", Some("Band"))
+        },
+    );
+    add_file(
+        &music,
+        "c.flac",
+        "silence.flac",
+        loose("Stray", Some("Other")),
+    );
+    add_file(&music, "d.flac", "silence.flac", loose("Nobody", None));
+    add_file(
+        &music,
+        "e.flac",
+        "silence.flac",
+        loose("Nobody either", None),
+    );
+    setup.add_music_source();
+    setup.scan();
+
+    let band = Some("Band".to_string());
+    let other = Some("Other".to_string());
+    assert_eq!(
+        album_list(&setup.library),
+        [
+            ("Record".to_string(), band.clone(), false),
+            // After the artist's own albums.
+            (String::new(), band.clone(), true),
+            (String::new(), other.clone(), true),
+            // Tracks naming neither, last of all.
+            (String::new(), None, true),
+        ]
+    );
+    let albums = setup.library.albums().unwrap();
+    assert_eq!(
+        titles(setup.library.album_tracks(albums[1].id).unwrap()),
+        ["Loose"]
+    );
+    assert_eq!(
+        titles(setup.library.album_tracks(albums[3].id).unwrap()),
+        ["Nobody", "Nobody either"]
+    );
+    assert!(
+        albums[1].artwork.is_none(),
+        "an Unknown album has no artwork, even from its files"
+    );
+    assert!(
+        setup
+            .library
+            .tracks()
+            .unwrap()
+            .iter()
+            .all(|track| track.album_id.is_some()),
+        "every track has an album"
+    );
+    let band_id = albums[0].artist_id.unwrap();
+    assert_eq!(setup.library.artist_albums(band_id).unwrap().len(), 2);
+
+    // Given an album, the track leaves the Unknown album, which goes.
+    write_tags(&music.join("b.flac"), song("Loose", "Band", "Record"));
+    setup.scan();
+    assert_eq!(
+        album_list(&setup.library),
+        [
+            ("Record".to_string(), band, false),
+            (String::new(), other, true),
+            (String::new(), None, true),
+        ]
+    );
+}
+
+#[test]
+fn the_schema_upgrade_puts_existing_tracks_into_unknown_albums() {
+    let mut setup = Setup::new();
+    let music = setup.music();
+    add_file(
+        &music,
+        "a.flac",
+        "silence.flac",
+        song("One", "Band", "Record"),
+    );
+    add_file(
+        &music,
+        "b.flac",
+        "silence.flac",
+        loose("Loose", Some("Band")),
+    );
+    add_file(
+        &music,
+        "c.flac",
+        "silence.flac",
+        Tags {
+            album_artist: Some("Owner"),
+            ..loose("Guest", Some("Singer"))
+        },
+    );
+    add_file(&music, "d.flac", "silence.flac", loose("Nobody", None));
+    setup.add_music_source();
+    setup.scan();
+    let scanned = album_list(&setup.library);
+
+    // Back to the database as the previous version left it: no Unknown albums.
+    let db = setup.base.join("data/library.sqlite3");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "UPDATE tracks SET album_id = NULL WHERE album IS NULL;
+         DELETE FROM albums WHERE unknown = 1;
+         DELETE FROM artists WHERE name = 'Owner';
+         ALTER TABLE albums DROP COLUMN unknown;
+         PRAGMA user_version = 8;",
+    )
+    .unwrap();
+    drop(conn);
+    setup.library = Library::open(&db, &setup.cache()).unwrap();
+    assert_eq!(
+        album_list(&setup.library),
+        scanned,
+        "the upgrade groups as a scan"
+    );
+    let owner = setup
+        .library
+        .albums()
+        .unwrap()
+        .into_iter()
+        .find(|album| album.artist.as_deref() == Some("Owner"))
+        .expect("the album artist's Unknown album");
+    assert_eq!(
+        titles(setup.library.album_tracks(owner.id).unwrap()),
+        ["Guest"]
+    );
+
+    // A later scan finds the same Unknown albums rather than making new ones.
+    write_tags(&music.join("b.flac"), loose("Loose again", Some("Band")));
+    write_tags(&music.join("d.flac"), loose("Nobody again", None));
+    setup.scan();
+    assert_eq!(album_list(&setup.library), scanned);
 }

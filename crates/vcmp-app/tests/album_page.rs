@@ -341,3 +341,43 @@ fn the_track_list_spans_the_page() {
         row.size().width
     );
 }
+
+#[test]
+fn tracks_without_an_album_show_in_unknown_albums() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    add(&music, "a.flac", Song::new("Solo", "Zed", "Zed Alone"));
+    add(&music, "b.flac", Song::new("Loose", "Zed", ""));
+    add(&music, "c.flac", Song::new("Nobody", "", ""));
+    let mut library = Library::open(
+        &dir.path().join("library.sqlite3"),
+        &dir.path().join("cache"),
+    )
+    .unwrap();
+    library.add_source(&music, true).unwrap();
+    library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+    let window = vcmp_app::create_window().unwrap();
+    let _view = library_view::LibraryView::connect(&window, Rc::new(library)).unwrap();
+    window.show().unwrap();
+
+    // Zed's own album, then Zed's Unknown one, then the one for tracks naming neither.
+    card(&window, "Zed Alone, Zed");
+    card(&window, "Unknown, Zed").invoke_accessible_default_action();
+    let detail = window.get_album_detail();
+    assert!(detail.unknown);
+    assert_eq!(detail.initial, "?", "a question mark for a cover");
+    let titles: Vec<String> = rows(&window)
+        .iter()
+        .map(|row| row.title.to_string())
+        .collect();
+    assert_eq!(titles, ["Loose"]);
+    assert!(
+        ElementHandle::find_by_accessible_label(&window, "Find a cover for Unknown online")
+            .next()
+            .is_none(),
+        "no cover to find for an Unknown album"
+    );
+    press(&window, Key::Escape);
+    card(&window, "Unknown, Unknown artist");
+}
