@@ -74,3 +74,10 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   - The accent's many jobs (finding 3), which buttons are filled (finding 5) and the
     page widths on a full screen (finding 9) are open: the owner isn't sure yet
     about 3 and 5, and has plans for 9.
+- 2026-10-20, Settings and the tag editor (part of finding 9): the Settings page
+  looked weird with everything on the left and the right side blank. It is wider
+  (responsively) and centred in the view. The tag editor and album editing, with
+  even more empty room and no sidebar, pop out as a dialog in the middle of the
+  screen. Chosen from offered options: Settings' column grows with the window
+  between 720 and 960 px, and the cover and photo pickers become the same kind of
+  dialog.

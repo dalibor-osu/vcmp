@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, TextField, TextLink } from "components.slint";
+import { Button, Modal, TextField, TextLink } from "components.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
 
 // Where a photo search stands; the picker words it.
@@ -53,13 +53,17 @@ export global PhotoSearch {
     callback remove();
 }
 
-// The picker, over the sidebar and pages like the cover picker. The photos are one
-// tab stop (arrow keys, Enter or a click picks one); Escape or Cancel closes it. The
-// focus starts on Cancel and moves to the first photo when it arrives.
-export component PhotoPicker inherits Rectangle {
+// The picker, a dialog over the sidebar and pages like the cover picker. The photos are
+// one tab stop (arrow keys, Enter or a click picks one); Escape, Cancel or a click
+// beside the dialog closes it. The focus starts on Cancel and moves to the first photo
+// when it arrives.
+export component PhotoPicker inherits Modal {
     private property <int> count: PhotoSearch.photos.length;
     private property <bool> photos-focused;
     private property <bool> busy: PhotoSearch.status == PhotoSearchStatus.downloading;
+    private property <bool> can-search-again: PhotoSearch.status == PhotoSearchStatus.failed;
+    // Shift+Tab came round to Search again: each change focuses it.
+    private property <int> wrap-first;
 
     changed count => {
         if self.count == 0 {
@@ -70,12 +74,10 @@ export component PhotoPicker inherits Rectangle {
         }
     }
 
-    background: Theme.colors.base;
-    accessible-role: groupbox;
-    accessible-label: @tr("Find a photo of {}", PhotoSearch.artist-name);
-    opacity: 0;
+    label: @tr("Find a photo of {}", PhotoSearch.artist-name);
+    card-width: Theme.dialog-wide-width;
+    tall: true;
     init => {
-        self.opacity = 1;
         // Photos that arrived before the picker was drawn take the focus at once.
         if root.count > 0 {
             root.photos-focused = true;
@@ -84,96 +86,115 @@ export component PhotoPicker inherits Rectangle {
             cancel-button.focus();
         }
     }
-    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
-
-    // Escape closes, wherever the focus is in the picker.
-    FocusScope {
-        focus-on-click: false;
-        focus-on-tab-navigation: false;
-        key-pressed(event) => {
-            if event.text == Key.Escape {
-                PhotoSearch.cancel();
-                return accept;
-            }
-            reject
+    escape => {
+        PhotoSearch.cancel();
+    }
+    scrim-clicked => {
+        PhotoSearch.cancel();
+    }
+    focus-first => {
+        if root.count > 0 {
+            grid.focus-card(grid.current);
+        } else if root.can-search-again {
+            root.wrap-first += 1;
+        } else {
+            cancel-button.focus();
         }
+    }
+    focus-last => {
+        cancel-button.focus();
+    }
 
-        ScrollView {
-            width: parent.width;
-            height: parent.height;
+    scroll := ScrollView {
+        vertical-stretch: 1;
+
+        VerticalLayout {
+            padding: Theme.space-xl;
+            padding-bottom: Theme.space-s;
+            spacing: Theme.space-xl;
+            alignment: start;
 
             VerticalLayout {
-                padding: Theme.space-xxl;
-                padding-top: Theme.space-xl;
-                spacing: Theme.space-xl;
-                alignment: start;
+                spacing: Theme.space-s;
 
-                VerticalLayout {
-                    spacing: Theme.space-s;
-                    max-width: Theme.content-max-width;
+                Text {
+                    text: @tr("Choose a photo");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-title;
+                    font-weight: Theme.weight-strong;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                Text {
+                    text: PhotoSearch.artist-name;
+                    color: Theme.colors.text;
+                    font-size: Theme.font-heading;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                Text {
+                    text: PhotoSearch.status == PhotoSearchStatus.searching ? @tr("Looking on MusicBrainz and fanart.tv. Photos appear here as they are found.")
+                        : PhotoSearch.status == PhotoSearchStatus.found ? @tr("Pick the photo to use for this artist. The photos come from fanart.tv; the name under each is the artist MusicBrainz matched.")
+                        : PhotoSearch.status == PhotoSearchStatus.nothing-found ? @tr("No photos turned up for this artist. fanart.tv may not have any yet, or MusicBrainz knows the artist under another name.")
+                        : PhotoSearch.status == PhotoSearchStatus.failed ? @tr("MusicBrainz or fanart.tv could not be reached. Check the internet connection and search again.")
+                        : PhotoSearch.status == PhotoSearchStatus.refused ? (PhotoSearch.personal-key != ""
+                            ? @tr("fanart.tv didn't accept the personal API key from Settings. Check it there, or remove it to search with VCMP's key alone.")
+                            : @tr("fanart.tv didn't accept VCMP's key, so no photos can be found. A newer version of VCMP may fix this."))
+                        : PhotoSearch.status == PhotoSearchStatus.downloading ? @tr("Downloading the photo…")
+                        : @tr("That photo could not be downloaded. Pick it again, or another one.");
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+            }
 
-                    Text {
-                        text: @tr("Choose a photo");
-                        color: Theme.colors.text;
-                        font-size: Theme.font-title;
-                        font-weight: Theme.weight-strong;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                    }
-                    Text {
-                        text: PhotoSearch.artist-name;
-                        color: Theme.colors.text;
-                        font-size: Theme.font-heading;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                    }
-                    Text {
-                        text: PhotoSearch.status == PhotoSearchStatus.searching ? @tr("Looking on MusicBrainz and fanart.tv. Photos appear here as they are found.")
-                            : PhotoSearch.status == PhotoSearchStatus.found ? @tr("Pick the photo to use for this artist. The photos come from fanart.tv; the name under each is the artist MusicBrainz matched.")
-                            : PhotoSearch.status == PhotoSearchStatus.nothing-found ? @tr("No photos turned up for this artist. fanart.tv may not have any yet, or MusicBrainz knows the artist under another name.")
-                            : PhotoSearch.status == PhotoSearchStatus.failed ? @tr("MusicBrainz or fanart.tv could not be reached. Check the internet connection and search again.")
-                            : PhotoSearch.status == PhotoSearchStatus.refused ? (PhotoSearch.personal-key != ""
-                                ? @tr("fanart.tv didn't accept the personal API key from Settings. Check it there, or remove it to search with VCMP's key alone.")
-                                : @tr("fanart.tv didn't accept VCMP's key, so no photos can be found. A newer version of VCMP may fix this."))
-                            : PhotoSearch.status == PhotoSearchStatus.downloading ? @tr("Downloading the photo…")
-                            : @tr("That photo could not be downloaded. Pick it again, or another one.");
-                        color: Theme.colors.text-muted;
-                        font-size: Theme.font-body;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
+            grid := CardGrid {
+                tiles: PhotoSearch.photos;
+                round: true;
+                photos: true;
+                label: @tr("Photos found");
+                // Room for the scroll bar beside the photos.
+                available-width: root.shown-width - 2 * Theme.space-xl - Theme.space-l;
+                activated(index) => {
+                    if !root.busy {
+                        PhotoSearch.choose(index);
                     }
                 }
+            }
+        }
+    }
 
-                HorizontalLayout {
-                    spacing: Theme.space-m;
-                    alignment: start;
+    // Marks where the photos scroll under the foot.
+    Rectangle {
+        height: 1px;
 
-                    if PhotoSearch.status == PhotoSearchStatus.failed: Button {
-                        text: @tr("Search again");
-                        clicked => {
-                            PhotoSearch.find();
-                        }
-                    }
-                    cancel-button := Button {
-                        text: @tr("Cancel");
-                        clicked => {
-                            PhotoSearch.cancel();
-                        }
-                    }
-                }
+        Rectangle {
+            visible: scroll.content-height > scroll.visible-height;
+            background: Theme.colors.surface;
+        }
+    }
 
-                grid := CardGrid {
-                    tiles: PhotoSearch.photos;
-                    round: true;
-                    photos: true;
-                    label: @tr("Photos found");
-                    available-width: min(Theme.content-max-width, root.width - 2 * Theme.space-xxl - Theme.space-l);
-                    activated(index) => {
-                        if !root.busy {
-                            PhotoSearch.choose(index);
-                        }
-                    }
-                }
+    HorizontalLayout {
+        padding: Theme.space-xl;
+        padding-top: Theme.space-l;
+        spacing: Theme.space-m;
+        alignment: start;
+
+        if root.can-search-again: Button {
+            property <int> wrap: root.wrap-first;
+            changed wrap => {
+                self.focus();
+            }
+            text: @tr("Search again");
+            clicked => {
+                PhotoSearch.find();
+            }
+        }
+        cancel-button := Button {
+            text: @tr("Cancel");
+            clicked => {
+                PhotoSearch.cancel();
             }
         }
     }

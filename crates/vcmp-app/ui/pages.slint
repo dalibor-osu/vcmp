@@ -15,9 +15,13 @@ import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
 import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
 import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
 
-// Shared page frame: title plus content, fading in when the page is opened.
-component Page inherits VerticalLayout {
+// Shared frame of Settings and About: title plus content in a column in the middle of
+// the page, fading in when the page is opened. The column takes 60 % of a wide page,
+// from the reading width up to `column-max-width`, and all of a narrow one.
+component Page inherits HorizontalLayout {
     in property <string> title;
+
+    private property <length> room: root.width - 2 * Theme.space-xxl;
 
     opacity: 0;
     init => {
@@ -26,17 +30,22 @@ component Page inherits VerticalLayout {
     animate opacity { duration: Theme.duration-medium; easing: ease-out; }
 
     padding: Theme.space-xxl;
-    spacing: Theme.space-xl;
-    alignment: start;
+    alignment: center;
 
-    Text {
-        text: root.title;
-        color: Theme.colors.text;
-        font-size: Theme.font-title;
-        font-weight: Theme.weight-strong;
+    VerticalLayout {
+        width: min(root.room, max(Theme.content-max-width, min(Theme.column-max-width, root.room * 0.6)));
+        spacing: Theme.space-xl;
+        alignment: start;
+
+        Text {
+            text: root.title;
+            color: Theme.colors.text;
+            font-size: Theme.font-title;
+            font-weight: Theme.weight-strong;
+        }
+
+        @children
     }
-
-    @children
 }
 
 
@@ -48,13 +57,10 @@ export component SettingsPage inherits Page {
         PlayerState.refresh-output-devices();
     }
 
-    LibrarySection {
-        max-width: Theme.content-max-width;
-    }
+    LibrarySection { }
 
     VerticalLayout {
         spacing: Theme.space-xs;
-        max-width: Theme.content-max-width;
 
         SettingRow {
             title: @tr("Update automatically");
@@ -72,7 +78,6 @@ export component SettingsPage inherits Page {
 
     VerticalLayout {
         spacing: Theme.space-xs;
-        max-width: Theme.content-max-width;
 
         SectionHeading {
             text: @tr("Playback");
@@ -131,7 +136,6 @@ export component SettingsPage inherits Page {
     // Only in builds that can search fanart.tv at all.
     if PhotoSearch.available: VerticalLayout {
         spacing: Theme.space-xs;
-        max-width: Theme.content-max-width;
 
         SectionHeading {
             text: @tr("Artist photos");
@@ -142,7 +146,6 @@ export component SettingsPage inherits Page {
 
     VerticalLayout {
         spacing: Theme.space-xs;
-        max-width: Theme.content-max-width;
 
         SectionHeading {
             text: @tr("Appearance");
@@ -179,9 +182,7 @@ export component SettingsPage inherits Page {
         }
     }
 
-    UpdatesSection {
-        max-width: Theme.content-max-width;
-    }
+    UpdatesSection { }
 }
 
 export component AboutPage inherits Page {
@@ -191,7 +192,6 @@ export component AboutPage inherits Page {
 
     VerticalLayout {
         spacing: Theme.space-s;
-        max-width: Theme.content-max-width;
 
         SectionHeading {
             text: "VCMP";

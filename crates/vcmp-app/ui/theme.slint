@@ -24,6 +24,8 @@ export struct ThemePalette {
     on-accent: color,
     // Says what is wrong, as text on base only: a value the tag editor can't write.
     error: color,
+    // Translucent, over the sidebar and pages behind a dialog; nothing is drawn on it.
+    scrim: color,
 }
 
 export enum ThemeMode { system, light, dark }
@@ -80,6 +82,12 @@ export global Theme {
     out property <length> target-height: 40px;
     // Reading width for page content, so labels and their controls stay close.
     out property <length> content-max-width: 720px;
+    // Settings and About: a column in the middle of the page, growing from
+    // `content-max-width` to this on wide windows.
+    out property <length> column-max-width: 960px;
+    // Dialogs: the tag editor's form, and the pickers' grid of covers or photos.
+    out property <length> dialog-width: 720px;
+    out property <length> dialog-wide-width: 960px;
 
     out property <duration> duration-fast: root.reduced-motion ? 0ms : 120ms;
     out property <duration> duration-medium: root.reduced-motion ? 0ms : 220ms;

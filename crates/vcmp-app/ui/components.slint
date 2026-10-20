@@ -1046,3 +1046,104 @@ export component TextLink {
         radius: Theme.radius-s;
     }
 }
+
+// A dialog over the sidebar and pages: the scrim dims them and takes the pointer, and
+// the card in the middle holds the children, top to bottom. The card is as tall as
+// its content, up to the room the window leaves; a `ScrollView` among the children
+// with a vertical stretch gives up height first. Tab and Shift+Tab go round the
+// card's controls rather than to the page behind: past the last control the dialog
+// asks for its first (`focus-first`), before the first for its last (`focus-last`).
+export component Modal inherits Rectangle {
+    in property <string> label;
+    // The card's width on a wide window; a narrower one keeps a margin around it.
+    in property <length> card-width: Theme.dialog-width;
+    // As tall as the room allows from the start, for content that arrives while the
+    // dialog shows, so the card doesn't grow under the pointer.
+    in property <bool> tall;
+    out property <length> shown-width: card.width;
+    // Escape, wherever the focus is in the dialog.
+    callback escape();
+    // A click on the scrim beside the card.
+    callback scrim-clicked();
+    callback focus-first();
+    callback focus-last();
+
+    private property <length> room: root.height - 2 * Theme.space-xl;
+
+    background: Theme.colors.scrim;
+    accessible-role: groupbox;
+    accessible-label: root.label;
+    opacity: 0;
+    init => {
+        self.opacity = 1;
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+
+    // Nothing behind the dialog hovers, scrolls or takes a click.
+    TouchArea {
+        clicked => {
+            root.scrim-clicked();
+        }
+        scroll-event(event) => {
+            accept
+        }
+    }
+
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.escape();
+                return accept;
+            }
+            reject
+        }
+
+        card := Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: min(root.card-width, root.width - 2 * Theme.space-xxl);
+            height: root.tall ? root.room : min(content.preferred-height, root.room);
+            border-radius: Theme.radius-l;
+            border-width: 1px;
+            border-color: Theme.colors.surface;
+            background: Theme.colors.base;
+            clip: true;
+
+            // A click on the card's own background stays on the card.
+            TouchArea { }
+
+            FocusScope {
+                x: 0;
+                y: 0;
+                width: 0;
+                height: 0;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        root.focus-last();
+                    }
+                }
+            }
+
+            content := VerticalLayout {
+                width: parent.width;
+                height: parent.height;
+
+                @children
+            }
+
+            FocusScope {
+                x: 0;
+                y: 0;
+                width: 0;
+                height: 0;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        root.focus-first();
+                    }
+                }
+            }
+        }
+    }
+}

@@ -429,6 +429,80 @@ fn the_editor_fits_the_smallest_window() {
             );
         }
     }
+
+    // The form scrolls, and the buttons stay in view above the player bar.
+    let dialog = ElementHandle::find_by_accessible_label(&app.window, "Edit tags")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Groupbox))
+        .expect("the dialog");
+    let dialog_bottom = dialog.absolute_position().y + dialog.size().height;
+    for label in ["Save the tags", "Cancel"] {
+        let button = find_button(&app, label);
+        let bottom = button.absolute_position().y + button.size().height;
+        assert!(
+            bottom <= dialog_bottom,
+            "{label} ends at {bottom}, below the dialog's room at {dialog_bottom}"
+        );
+    }
+}
+
+#[test]
+fn the_form_fills_a_dialog_in_the_middle_of_the_window() {
+    let app = start();
+    app.open_album();
+    app.state().invoke_edit_album();
+    let field = |label: &str| {
+        ElementHandle::find_by_accessible_label(&app.window, label)
+            .find(|element| element.accessible_role() == Some(AccessibleRole::TextInput))
+            .unwrap_or_else(|| panic!("no field {label:?}"))
+    };
+    let artist = field("Artist");
+    assert!(
+        artist.size().width > 400.0,
+        "the fields take the dialog's width, not their own: {}",
+        artist.size().width
+    );
+    // As far in from the window's left edge as from its right. The text input sits
+    // 12 px inside the field's frame.
+    let left = find_button(&app, "Choose a cover image")
+        .absolute_position()
+        .x;
+    let right = artist.absolute_position().x + artist.size().width + 12.0;
+    assert!(
+        (left + right - 1100.0).abs() < 1.0,
+        "the form runs from {left} to {right} in a 1100 px window"
+    );
+}
+
+#[test]
+fn tab_goes_round_the_dialog() {
+    let app = start();
+    app.open_album();
+    app.state().invoke_edit_album();
+    mock_elapsed_time(Duration::ZERO);
+
+    // From Artist past Album, Album artist, Disc, Year, Genre, Save and Cancel, round
+    // to Choose image… and back to Artist.
+    for _ in 0..9 {
+        key(&app.window, Key::Tab);
+    }
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: "X".into() });
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: "X".into() });
+    assert!(
+        app.field_text("Artist")
+            .is_some_and(|text| text.contains('X')),
+        "the focus came round to Artist"
+    );
+
+    // Shift+Tab before Choose image… comes round to Cancel.
+    for _ in 0..2 {
+        key(&app.window, Key::Backtab);
+    }
+    key(&app.window, Key::Return);
+    assert!(!app.state().get_open(), "Enter on Cancel closes the editor");
 }
 
 /// The title the file itself holds.
