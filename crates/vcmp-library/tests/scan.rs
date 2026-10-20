@@ -8,8 +8,12 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use lofty::config::WriteOptions;
-use lofty::file::{FileType, TaggedFileExt};
+use lofty::TextEncoding;
+use lofty::config::{ParseOptions, WriteOptions};
+use lofty::file::{AudioFile, FileType, TaggedFileExt};
+use lofty::flac::FlacFile;
+use lofty::id3::v2::{CommentFrame, Frame, FrameId, TextInformationFrame};
+use lofty::mpeg::MpegFile;
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
 use tempfile::TempDir;
@@ -1498,6 +1502,7 @@ fn the_schema_upgrade_puts_existing_tracks_into_unknown_albums() {
          DELETE FROM albums WHERE unknown = 1;
          DELETE FROM artists WHERE name = 'Owner';
          ALTER TABLE albums DROP COLUMN unknown;
+         DROP TABLE track_tags;
          PRAGMA user_version = 8;",
     )
     .unwrap();
@@ -1525,4 +1530,160 @@ fn the_schema_upgrade_puts_existing_tracks_into_unknown_albums() {
     write_tags(&music.join("d.flac"), loose("Nobody again", None));
     setup.scan();
     assert_eq!(album_list(&setup.library), scanned);
+}
+
+/// The stored tag entries of the track at `path`, as (key, value) pairs in order.
+fn entries(library: &Library, path: &Path) -> Vec<(String, String)> {
+    let id = library.track_id_for_path(path).unwrap().unwrap();
+    library
+        .track_tags(id)
+        .unwrap()
+        .into_iter()
+        .map(|entry| (entry.key, entry.value))
+        .collect()
+}
+
+fn values(entries: &[(String, String)], key: &str) -> Vec<String> {
+    entries
+        .iter()
+        .filter(|(k, _)| k == key)
+        .map(|(_, value)| value.clone())
+        .collect()
+}
+
+#[test]
+fn stores_every_tag_item_under_its_common_or_native_key() {
+    let mut setup = Setup::new();
+    let album = setup.music().join("Album");
+
+    let mp3 = add_file(
+        &album,
+        "1.mp3",
+        "silence.mp3",
+        song("One", "Artist", "Album"),
+    );
+    let mut id3 = MpegFile::read_from(&mut fs::File::open(&mp3).unwrap(), ParseOptions::new())
+        .unwrap()
+        .id3v2()
+        .cloned()
+        .unwrap();
+    id3.insert(Frame::Text(TextInformationFrame::new(
+        FrameId::new("TCOM").unwrap(),
+        TextEncoding::UTF8,
+        "Composer\0Second composer",
+    )));
+    id3.insert_user_text("VCMP TEST".into(), "  kept as written  ".into());
+    id3.insert(Frame::Comment(CommentFrame::new(
+        TextEncoding::UTF8,
+        *b"eng",
+        "iTunNORM",
+        "0000 0001",
+    )));
+    id3.save_to_path(&mp3, WriteOptions::default()).unwrap();
+
+    let flac = add_file(
+        &album,
+        "2.flac",
+        "silence.flac",
+        song("Two", "Artist", "Album"),
+    );
+    let mut comments =
+        FlacFile::read_from(&mut fs::File::open(&flac).unwrap(), ParseOptions::new())
+            .unwrap()
+            .vorbis_comments()
+            .cloned()
+            .unwrap();
+    comments.push("ARTIST".into(), "Guest".into());
+    comments.push("composer".into(), "Writer".into());
+    comments.push("MyField".into(), "value".into());
+    comments
+        .save_to_path(&flac, WriteOptions::default())
+        .unwrap();
+
+    // Without an ID3v2 tag, the entries come from the ID3v1 tag the fields come from.
+    let old = add_file(&album, "3.mp3", "silence.mp3", Tags::default());
+    TagType::Id3v2
+        .remove_from_path(&old, WriteOptions::default())
+        .unwrap();
+    let mut id3v1 = Tag::new(TagType::Id3v1);
+    id3v1.set_title("Old".into());
+    id3v1.save_to_path(&old, WriteOptions::default()).unwrap();
+
+    setup.add_music_source();
+    setup.scan();
+
+    let mp3 = entries(&setup.library, &mp3);
+    assert_eq!(values(&mp3, "TrackTitle"), ["One"]);
+    assert_eq!(values(&mp3, "TrackArtist"), ["Artist"]);
+    assert_eq!(values(&mp3, "AlbumTitle"), ["Album"]);
+    assert_eq!(values(&mp3, "Composer"), ["Composer", "Second composer"]);
+    assert_eq!(values(&mp3, "id3:TXXX:VCMP TEST"), ["  kept as written  "]);
+    assert_eq!(values(&mp3, "id3:COMM:iTunNORM"), ["0000 0001"]);
+
+    let flac = entries(&setup.library, &flac);
+    assert_eq!(values(&flac, "TrackArtist"), ["Artist", "Guest"]);
+    assert_eq!(values(&flac, "Composer"), ["Writer"]);
+    assert_eq!(values(&flac, "vorbis:MYFIELD"), ["value"]);
+
+    let old = entries(&setup.library, &old);
+    assert_eq!(values(&old, "TrackTitle"), ["Old"]);
+}
+
+#[test]
+fn a_tag_write_replaces_the_stored_entries() {
+    let mut setup = Setup::new();
+    let path = add_file(
+        &setup.music(),
+        "a.flac",
+        "silence.flac",
+        song("Old", "Artist", "Album"),
+    );
+    setup.add_music_source();
+    setup.scan();
+    let id = setup.library.track_id_for_path(&path).unwrap().unwrap();
+
+    let edit = TagEdit {
+        title: FieldEdit::Set("New".into()),
+        ..TagEdit::default()
+    };
+    let report = setup
+        .library
+        .write_tags(&[(id, &edit)], &AtomicBool::new(false), |_, _| {})
+        .unwrap();
+    assert_eq!(report.written, [id]);
+    let stored = entries(&setup.library, &path);
+    assert_eq!(values(&stored, "TrackTitle"), ["New"]);
+    assert_eq!(values(&stored, "TrackArtist"), ["Artist"]);
+}
+
+#[test]
+fn upgrading_rereads_every_file_once_to_store_its_tags() {
+    let mut setup = Setup::new();
+    let music = setup.music();
+    let a = add_file(
+        &music,
+        "a.flac",
+        "silence.flac",
+        song("A", "Artist", "Album"),
+    );
+    let b = add_file(&music, "b.mp3", "silence.mp3", song("B", "Artist", "Album"));
+    setup.add_music_source();
+    setup.scan();
+
+    // Back to the database as the previous version left it: no tag entries.
+    let db = setup.base.join("data/library.sqlite3");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch("DROP TABLE track_tags; PRAGMA user_version = 9;")
+        .unwrap();
+    drop(conn);
+    setup.library = Library::open(&db, &setup.cache()).unwrap();
+    assert!(entries(&setup.library, &a).is_empty());
+
+    let report = setup.scan();
+    assert_eq!((report.updated, report.unchanged), (2, 0));
+    assert_eq!(values(&entries(&setup.library, &a), "TrackTitle"), ["A"]);
+    assert_eq!(values(&entries(&setup.library, &b), "TrackTitle"), ["B"]);
+
+    let report = setup.scan();
+    assert_eq!((report.updated, report.unchanged), (0, 2));
 }

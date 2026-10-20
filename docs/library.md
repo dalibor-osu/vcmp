@@ -31,7 +31,7 @@ path (see [Writing tags](#writing-tags)).
 
 ## Schema
 
-Version 8, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 10, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -49,6 +49,7 @@ migrations; a database from a newer build is refused instead of being altered.
 | `scrobble_queue` | Plays waiting to be sent to Last.fm: artist, title, album, album artist, track number, length and when the play started, oldest first (version 6). They copy the tags rather than reference tracks, so a rescan or tag edit can't change what was listened to |
 | `folder_art` | Each music folder's cover images (`cover.jpg` and the like) as a fingerprint of their names, sizes and modification times, so a scan notices one added, replaced or removed (version 7) |
 | `artist_photos` | The photo chosen for an artist: the file under `images/artists/`, the web address it came from (NULL for a file of the owner's) and when. Keyed by the artist's name, ignoring case, so it outlives artist rows a scan removes and adds (version 8) |
+| `track_tags` | Every text item of the tag VCMP reads from each track's file, by key, in order (version 10; see [All tags](#all-tags)) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -121,6 +122,35 @@ A file without tags gets its file name (without the extension) as its title; its
 artist and album stay empty, and it lands in the Unknown album without an artist.
 Display names for empty values ("Unknown artist") belong to the UI, so they can be
 translated.
+
+## All tags
+
+Besides the fields VCMP shows, a scan stores every text item of the tag it reads
+(ID3v2 in MP3 and WAV, Vorbis comments in FLAC and Ogg Vorbis) in `track_tags`, and
+`Library::track_tags` returns them. They are there for AI agents (see the
+[MCP spec](specs/2026-10-19-mcp-library-server.md)), which can find, for example,
+every track without a MusicBrainz ID.
+
+- **Keys.** An item lofty has a format-independent name for is stored under that
+  name (`TrackTitle`, `Composer`, `MusicBrainzReleaseId`, `ReplayGainTrackGain`),
+  the same in every format. Anything else keeps the format's own key behind a
+  prefix: `id3:` and the frame ID, plus the frame's description after a colon where
+  it has one (`id3:TXXX:MY FIELD`, `id3:COMM:iTunNORM`, `id3:POPM:<email>`), or
+  `vorbis:` and the field name in capitals (`vorbis:MYFIELD`).
+- **Values** are stored as the file holds them, untrimmed. A field with several
+  values (Vorbis comments may repeat a field, ID3v2.4 separates values with a NUL)
+  is one row per value, and `position` keeps the order. `TRCK` and `TPOS` split into
+  number and total (`TrackNumber`, `TrackTotal`); one that isn't a number stays
+  whole under `TrackNumber`, so malformed values stay visible.
+- **What is left out:** pictures, binary frames (`PRIV`, `GEOB`, chapters) and a
+  file's other tags (ID3v1 and APE in an MP3, RIFF INFO in a WAV). A file without
+  the tag VCMP reads stores the items of the tag its fields came from instead.
+- **Reading** goes through each format's own lofty type, not the probe's
+  format-independent view: that view drops the items it has no name for.
+- **Upgrading** to version 10 sets every track's stored modification time to -1, so
+  the next scan re-reads every file once as if it had changed. That includes looking
+  for every album's artwork again (step 7). Tracks whose files are unavailable at
+  that scan get their tags when they come back.
 
 ## Writing tags
 
@@ -275,9 +305,16 @@ Cold runs start with an empty OS file cache
 | First version, files cached | 0.1 s | 0.5 s | 5.7 s | 6.3 s |
 | Current, files cached | 0.1 s | 0.7 s | 0.2 s | 1.0 s |
 | Rescan, nothing changed | | | | 0.15 s |
+| Upgrade to schema version 10 (every file re-read, every album's artwork looked for), files not read for two days but cache not dropped | 4.9 s | 38.8 s | 4.6 s | 48.3 s |
 
 The Discovering phase is the same code in every version; its 4.5 to 6.5 s spread
 shows the run-to-run noise of cold measurements.
+
+Storing all tags (version 10) took the database from 3.6 to 8.5 MB on this library:
+42,637 entries under 155 keys for 3,486 tagged tracks. The values hold 1.7 MB of
+text, two thirds of it lyrics (the largest single value is an 825 KB lyrics tag);
+the keys, their index and SQLite's page overhead take the rest. A rescan afterwards
+took 0.4 s.
 
 Where the time goes (`examples/scan_profile.rs`):
 

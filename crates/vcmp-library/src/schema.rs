@@ -215,6 +215,26 @@ INSERT INTO album_search (rowid, title, artist)
     SELECT albums.id, albums.title, IFNULL(artists.name, '')
     FROM albums LEFT JOIN artists ON artists.id = albums.artist_id;
 "#,
+    r#"
+-- Every text item of the tag VCMP reads, as the file holds it, so tags VCMP doesn't
+-- show can be looked at and searched (by AI agents through MCP, for one). key is
+-- lofty's common name ("Composer") or the format's own key behind a prefix
+-- ("id3:TXXX:MY FIELD", "vorbis:MYFIELD"); position is the item's place in the
+-- track's list, so repeated keys keep their order.
+CREATE TABLE track_tags (
+    track_id INTEGER NOT NULL REFERENCES tracks(id),
+    position INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (track_id, position)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX track_tags_key ON track_tags(key);
+
+-- Fill the table: a modification time no file has makes the next scan re-read every
+-- file, as if it had changed.
+UPDATE tracks SET modified_ms = -1;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

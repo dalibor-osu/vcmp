@@ -33,7 +33,7 @@ pub use playlists::{Playlist, PlaylistEntry, PlaylistId};
 pub use query::{Album, AlbumId, Artist, ArtistId, SearchResults, Track, TrackId};
 pub use scan::{ScanPhase, ScanProgress, ScanReport, SkippedFile};
 pub use scrobbles::{QueuedScrobble, Scrobble};
-pub use tags::Format;
+pub use tags::{Format, TagEntry};
 pub use watch::LibraryWatcher;
 
 use artwork::ArtworkStore;
@@ -262,6 +262,24 @@ impl Library {
     /// A single track, including unavailable ones (playlists show those greyed out).
     pub fn track(&self, id: TrackId) -> Result<Option<Track>> {
         query::track(&self.conn, id)
+    }
+
+    /// Every text item of the tag VCMP reads from the track's file, as the last scan
+    /// found it: the fields [`Track`] shows and all the others. Empty for a track not
+    /// read since the database gained these (the next scan reads it).
+    pub fn track_tags(&self, id: TrackId) -> Result<Vec<TagEntry>> {
+        let mut statement = self.conn.prepare_cached(
+            "SELECT key, value FROM track_tags WHERE track_id = ?1 ORDER BY position",
+        )?;
+        let entries = statement
+            .query_map([id.0], |row| {
+                Ok(TagEntry {
+                    key: row.get(0)?,
+                    value: row.get(1)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(entries)
     }
 
     /// Writes tag edits into the tracks' files, then re-reads them into the database
