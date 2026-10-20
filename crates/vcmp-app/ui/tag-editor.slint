@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, ProgressBar, TextField } from "components.slint";
+import { Button, Modal, ProgressBar, TextField } from "components.slint";
 
 // The tags the editor shows and saves, as text. Numbers are checked when saved.
 export struct TagValues {
@@ -104,10 +104,18 @@ component TagInput inherits VerticalLayout {
     // The field takes the focus as it is made.
     in property <bool> takes-focus;
     in-out property <string> text;
+    // Tab came round to this field: each change of `wrap` focuses it while `wraps` is set.
+    in property <int> wrap;
+    in property <bool> wraps;
     callback accepted();
 
     init => {
         if root.takes-focus {
+            field.focus-text();
+        }
+    }
+    changed wrap => {
+        if root.wraps {
             field.focus-text();
         }
     }
@@ -135,10 +143,11 @@ component TagInput inherits VerticalLayout {
     }
 }
 
-// Over the sidebar and pages, like the cover picker. Enter in a field saves; Escape
-// or Cancel closes without writing. A save to several files first lists the changes
-// in place of the form, with the focus on Back; Escape goes back too.
-export component TagEditorView inherits Rectangle {
+// A dialog over the sidebar and pages, like the cover picker. Enter in a field saves;
+// Escape or Cancel closes without writing. A save to several files first lists the
+// changes in place of the form, with the focus on Back; Escape goes back too. The
+// form scrolls in a short window, and the buttons stay at the foot of the dialog.
+export component TagEditorView inherits Modal {
     private property <bool> single: TagEditorState.track-count == 1;
     private property <bool> writing: TagEditorState.status == TagEditorStatus.writing;
     private property <bool> waiting: TagEditorState.status == TagEditorStatus.waiting;
@@ -149,6 +158,11 @@ export component TagEditorView inherits Rectangle {
     private property <int> focus-index: root.single ? 0 : 1;
     // Where the form was scrolled to before the list of changes took its place.
     private property <length> form-scroll;
+    // Tab went past the last control, or Shift+Tab before the first: each change sends
+    // the focus to the control at the other end. While the tags are written, only the
+    // fields take it.
+    private property <int> wrap-first;
+    private property <int> wrap-last;
     private property <TagMixed> mixed: TagEditorState.mixed;
     private property <TagProblem> problem: TagEditorState.problem;
     private property <string> title-text: TagEditorState.values.title;
@@ -186,409 +200,436 @@ export component TagEditorView inherits Rectangle {
         }
     }
 
-    background: Theme.colors.base;
-    accessible-role: groupbox;
-    accessible-label: @tr("Edit tags");
-    opacity: 0;
-    init => {
-        self.opacity = 1;
-    }
-    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
-
-    // Escape leaves the list of changes, or else closes, wherever the focus is in the editor.
-    FocusScope {
-        focus-on-click: false;
-        focus-on-tab-navigation: false;
-        key-pressed(event) => {
-            if event.text == Key.Escape {
-                if root.confirming {
-                    TagEditorState.back();
-                } else {
-                    TagEditorState.cancel();
-                }
-                return accept;
-            }
-            reject
+    label: @tr("Edit tags");
+    card-width: Theme.dialog-width;
+    // A click beside the dialog does nothing: it would lose what was typed.
+    escape => {
+        if root.confirming {
+            TagEditorState.back();
+        } else {
+            TagEditorState.cancel();
         }
+    }
+    focus-first => {
+        root.wrap-first += 1;
+    }
+    focus-last => {
+        root.wrap-last += 1;
+    }
 
-        scroll := ScrollView {
-            width: parent.width;
-            height: parent.height;
+    scroll := ScrollView {
+        vertical-stretch: 1;
+        preferred-height: body.preferred-height;
+
+        body := VerticalLayout {
+            padding: Theme.space-xl;
+            padding-bottom: Theme.space-s;
+            spacing: Theme.space-xl;
+            alignment: start;
 
             VerticalLayout {
-                padding: Theme.space-xxl;
-                padding-top: Theme.space-xl;
-                spacing: Theme.space-xl;
-                alignment: start;
+                spacing: Theme.space-s;
 
-                VerticalLayout {
-                    spacing: Theme.space-s;
-                    max-width: Theme.content-max-width;
-
-                    Text {
-                        text: @tr("Edit tags");
-                        color: Theme.colors.text;
-                        font-size: Theme.font-title;
-                        font-weight: Theme.weight-strong;
-                    }
-                    Text {
-                        text: root.single ? (TagEditorState.subject-artist == "" ? TagEditorState.subject : @tr("{0} by {1}", TagEditorState.subject, TagEditorState.subject-artist))
-                            : TagEditorState.whole-album ? @tr("All {0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject)
-                            : TagEditorState.subject != "" ? @tr("{0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject)
-                            : @tr("{n} selected track" | "{n} selected tracks" % TagEditorState.track-count);
-                        color: Theme.colors.text;
-                        font-size: Theme.font-heading;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                    }
-                    Text {
-                        text: root.confirming ? @tr("The tags below will be written into {n} file. Tags not listed stay as each file has them." | "The tags below will be written into {n} files. Tags not listed stay as each file has them." % TagEditorState.confirm-files)
-                            : root.single ? @tr("The tags are written into the file, then read back to check them. An empty field removes its tag.")
-                            : @tr("What you change is written into every track. A field showing “Several values” keeps each track's own unless you type one.");
-                        color: Theme.colors.text-muted;
-                        font-size: Theme.font-body;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                    }
+                Text {
+                    text: @tr("Edit tags");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-title;
+                    font-weight: Theme.weight-strong;
                 }
-
-                if !root.confirming: HorizontalLayout {
-                    spacing: Theme.space-xl;
-                    alignment: start;
-
-                    // The cover, and the ways to change it.
-                    VerticalLayout {
-                        spacing: Theme.space-m;
-                        alignment: start;
-
-                        Rectangle {
-                            width: 160px;
-                            height: 160px;
-                            border-radius: Theme.radius-l;
-                            clip: true;
-                            background: Theme.colors.surface;
-
-                            if TagEditorState.has-cover: Image {
-                                width: parent.width;
-                                height: parent.height;
-                                source: TagEditorState.cover;
-                                image-fit: ImageFit.cover;
-                                accessible-role: none;
-                            }
-                            if !TagEditorState.has-cover: Text {
-                                width: parent.width - 2 * Theme.space-m;
-                                text: root.mixed.cover ? @tr("Several covers") : @tr("No cover");
-                                color: Theme.colors.text-muted;
-                                font-size: Theme.font-body;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                                wrap: word-wrap;
-                                min-height: self.preferred-height;
-                            }
-                        }
-
-                        Button {
-                            text: @tr("Choose image…");
-                            label: @tr("Choose a cover image");
-                            enabled: !root.writing;
-                            clicked => {
-                                TagEditorState.choose-cover();
-                            }
-                        }
-                        if TagEditorState.has-cover || root.mixed.cover: Button {
-                            text: @tr("Remove cover");
-                            enabled: !root.writing;
-                            clicked => {
-                                TagEditorState.remove-cover();
-                            }
-                        }
-                    }
-
-                    VerticalLayout {
-                        spacing: Theme.space-m;
-                        horizontal-stretch: 1;
-                        max-width: 480px;
-
-                        if root.single: TagInput {
-                            takes-focus: root.focus-index == 0;
-                            label: @tr("Title");
-                            text <=> root.title-text;
-                            accepted => {
-                                root.save(0);
-                            }
-                        }
-                        TagInput {
-                            takes-focus: root.focus-index == 1;
-                            label: @tr("Artist");
-                            mixed: root.mixed.artist;
-                            text <=> root.artist-text;
-                            accepted => {
-                                root.save(1);
-                            }
-                        }
-                        TagInput {
-                            takes-focus: root.focus-index == 2;
-                            label: @tr("Album");
-                            mixed: root.mixed.album;
-                            text <=> root.album-text;
-                            accepted => {
-                                root.save(2);
-                            }
-                        }
-                        TagInput {
-                            takes-focus: root.focus-index == 3;
-                            label: @tr("Album artist");
-                            mixed: root.mixed.album-artist;
-                            text <=> root.album-artist-text;
-                            accepted => {
-                                root.save(3);
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: Theme.space-m;
-
-                            if root.single: TagInput {
-                                // Equal widths, whatever they hold.
-                                horizontal-stretch: 1;
-                                preferred-width: 0;
-                                takes-focus: root.focus-index == 4;
-                                label: @tr("Track");
-                                wrong: root.problem == TagProblem.track;
-                                text <=> root.track-text;
-                                accepted => {
-                                    root.save(4);
-                                }
-                            }
-                            TagInput {
-                                // Equal widths, whatever they hold.
-                                horizontal-stretch: 1;
-                                preferred-width: 0;
-                                takes-focus: root.focus-index == 5;
-                                label: @tr("Disc");
-                                mixed: root.mixed.disc;
-                                wrong: root.problem == TagProblem.disc;
-                                text <=> root.disc-text;
-                                accepted => {
-                                    root.save(5);
-                                }
-                            }
-                            TagInput {
-                                // Equal widths, whatever they hold.
-                                horizontal-stretch: 1;
-                                preferred-width: 0;
-                                takes-focus: root.focus-index == 6;
-                                label: @tr("Year");
-                                mixed: root.mixed.year;
-                                wrong: root.problem == TagProblem.year;
-                                text <=> root.year-text;
-                                accepted => {
-                                    root.save(6);
-                                }
-                            }
-                        }
-
-                        TagInput {
-                            takes-focus: root.focus-index == 7;
-                            label: @tr("Genre");
-                            mixed: root.mixed.genre;
-                            text <=> root.genre-text;
-                            accepted => {
-                                root.save(7);
-                            }
-                        }
-                    }
+                Text {
+                    text: root.single ? (TagEditorState.subject-artist == "" ? TagEditorState.subject : @tr("{0} by {1}", TagEditorState.subject, TagEditorState.subject-artist))
+                        : TagEditorState.whole-album ? (TagEditorState.subject == "" ? @tr("All {} tracks of the Unknown album", TagEditorState.track-count) : @tr("All {0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject))
+                        : TagEditorState.subject != "" ? @tr("{0} tracks of {1}", TagEditorState.track-count, TagEditorState.subject)
+                        : @tr("{n} selected track" | "{n} selected tracks" % TagEditorState.track-count);
+                    color: Theme.colors.text;
+                    font-size: Theme.font-heading;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
                 }
-
-                // In place of the form while a save to several files waits to be
-                // confirmed: each changed field, labelled as in the form, in form order.
-                if root.confirming: VerticalLayout {
-                    spacing: Theme.space-m;
-                    max-width: Theme.content-max-width;
-
-                    for change in TagEditorState.changes: VerticalLayout {
-                        spacing: Theme.space-xs;
-
-                        Text {
-                            text: change.field == TagField.title ? @tr("Title")
-                                : change.field == TagField.artist ? @tr("Artist")
-                                : change.field == TagField.album ? @tr("Album")
-                                : change.field == TagField.album-artist ? @tr("Album artist")
-                                : change.field == TagField.track ? @tr("Track")
-                                : change.field == TagField.disc ? @tr("Disc")
-                                : change.field == TagField.year ? @tr("Year")
-                                : change.field == TagField.genre ? @tr("Genre")
-                                : @tr("Cover");
-                            color: Theme.colors.text-muted;
-                            font-size: Theme.font-small;
-                        }
-                        // The cover that will be written, as the form showed it.
-                        if change.field == TagField.cover && !change.removed: Rectangle {
-                            width: 64px;
-                            height: 64px;
-                            border-radius: Theme.radius-m;
-                            clip: true;
-                            background: Theme.colors.surface;
-
-                            Image {
-                                width: parent.width;
-                                height: parent.height;
-                                source: TagEditorState.cover;
-                                image-fit: ImageFit.cover;
-                                accessible-role: image;
-                                accessible-label: @tr("The new cover");
-                            }
-                        }
-                        // Muted and worded, so a removal doesn't read as a value.
-                        if change.field != TagField.cover || change.removed: Text {
-                            text: change.removed ? @tr("Removed") : change.value;
-                            color: change.removed ? Theme.colors.text-muted : Theme.colors.text;
-                            font-size: Theme.font-body;
-                            wrap: word-wrap;
-                            min-height: self.preferred-height;
-                        }
-                    }
-                }
-
-                // Why nothing was written yet: one sentence for the wrong value.
-                if root.problem != TagProblem.none: Text {
-                    max-width: Theme.content-max-width;
-                    text: root.problem == TagProblem.track ? @tr("The track number must be a whole number, like 3.")
-                        : root.problem == TagProblem.disc ? @tr("The disc number must be a whole number, like 1.")
-                        : root.problem == TagProblem.year ? @tr("The year must be a number from 1 to 9999.")
-                        : root.problem == TagProblem.line-break ? @tr("Tags are one line each, so they can't hold line breaks or other control characters.")
-                        : @tr("That file isn't a JPEG or PNG image VCMP can read, so the cover stays as it was.");
-                    color: Theme.colors.error;
+                Text {
+                    text: root.confirming ? @tr("The tags below will be written into {n} file. Tags not listed stay as each file has them." | "The tags below will be written into {n} files. Tags not listed stay as each file has them." % TagEditorState.confirm-files)
+                        : root.single ? @tr("The tags are written into the file, then read back to check them. An empty field removes its tag.")
+                        : @tr("What you change is written into every track. A field showing “Several values” keeps each track's own unless you type one.");
+                    color: Theme.colors.text-muted;
                     font-size: Theme.font-body;
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                 }
+            }
 
-                if root.writing: VerticalLayout {
-                    spacing: Theme.space-s;
-                    max-width: Theme.content-max-width;
+            if !root.confirming: HorizontalLayout {
+                spacing: Theme.space-xl;
 
-                    Text {
-                        text: @tr("Writing tags: {0} of {1} files", TagEditorState.done, TagEditorState.track-count);
-                        color: Theme.colors.text;
-                        font-size: Theme.font-body;
-                    }
-                    ProgressBar {
-                        progress: TagEditorState.track-count > 0 ? TagEditorState.done / TagEditorState.track-count : 0;
-                        label: @tr("Writing tags");
-                    }
-                }
+                // The cover, and the ways to change it.
+                VerticalLayout {
+                    spacing: Theme.space-m;
+                    alignment: start;
 
-                // The files that kept their old tags, each with the reason.
-                if TagEditorState.status == TagEditorStatus.failed && !root.confirming: VerticalLayout {
-                    spacing: Theme.space-s;
-                    max-width: Theme.content-max-width;
+                    Rectangle {
+                        width: 160px;
+                        height: 160px;
+                        border-radius: Theme.radius-l;
+                        clip: true;
+                        background: Theme.colors.surface;
 
-                    Text {
-                        text: TagEditorState.waiting-file == "" ? @tr("These files kept their old tags. The others were written.") : @tr("These files kept their old tags.");
-                        color: Theme.colors.text;
-                        font-size: Theme.font-body;
-                        font-weight: Theme.weight-strong;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                    }
-                    for failure in TagEditorState.failures: VerticalLayout {
-                        Text {
-                            text: failure.file;
-                            color: Theme.colors.text;
-                            font-size: Theme.font-body;
-                            overflow: elide;
+                        if TagEditorState.has-cover: Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: TagEditorState.cover;
+                            image-fit: ImageFit.cover;
+                            accessible-role: none;
                         }
-                        Text {
-                            text: failure.reason == TagFailureReason.unavailable ? @tr("The file isn't there now.")
-                                : failure.reason == TagFailureReason.read-only ? @tr("The file is read-only.")
-                                : failure.reason == TagFailureReason.unreadable ? @tr("Its tags could not be read.")
-                                : failure.reason == TagFailureReason.write ? @tr("The tags could not be written.")
-                                : failure.reason == TagFailureReason.verify ? @tr("The written tags didn't read back right, so the file was left as it was.")
-                                : failure.reason == TagFailureReason.changed ? @tr("The file changed while it was written, so it was left as it was.")
-                                : @tr("The file could not be replaced. Another program, or VCMP playing it, may be using it.");
+                        if !TagEditorState.has-cover: Text {
+                            width: parent.width - 2 * Theme.space-m;
+                            text: root.mixed.cover ? @tr("Several covers") : @tr("No cover");
                             color: Theme.colors.text-muted;
-                            font-size: Theme.font-small;
+                            font-size: Theme.font-body;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
                             wrap: word-wrap;
                             min-height: self.preferred-height;
                         }
                     }
-                }
 
-                // Why one file still has its old tags (the player has it open), above the
-                // buttons. Always in the layout and collapsed while nothing waits: a wrapped
-                // text that an `if` creates gets its height before its width, and its last
-                // line was cut off.
-                VerticalLayout {
-                    spacing: TagEditorState.waiting-file == "" ? 0px : Theme.space-xl;
-
-                    VerticalLayout {
-                        max-width: Theme.content-max-width;
-
-                        Text {
-                            visible: TagEditorState.waiting-file != "";
-                            height: self.visible ? self.preferred-height : 0px;
-                            text: !self.visible ? "" : root.waiting && !root.single ? @tr("{0} is in use by the player, so its new tags will be written when playback stops or the next track starts. The other tracks have their new tags.", TagEditorState.waiting-file)
-                                : @tr("{0} is in use by the player, so its new tags will be written when playback stops or the next track starts.", TagEditorState.waiting-file);
-                            color: Theme.colors.text;
-                            font-size: Theme.font-body;
-                            wrap: word-wrap;
-                        }
-                    }
-
-                    if !root.confirming: HorizontalLayout {
-                        spacing: Theme.space-m;
-                        alignment: start;
-
-                        // Once only the waiting file is left, there is nothing more to save.
-                        if !root.waiting: Button {
-                            text: TagEditorState.status == TagEditorStatus.failed ? @tr("Try again") : @tr("Save");
-                            label: TagEditorState.status == TagEditorStatus.failed ? @tr("Write the tags again") : @tr("Save the tags");
-                            primary: true;
-                            enabled: !root.writing;
-                            init => {
-                                if root.focus-index == 8 {
-                                    self.focus();
-                                }
-                            }
-                            clicked => {
-                                root.save(8);
-                            }
-                        }
-                        Button {
-                            text: TagEditorState.status == TagEditorStatus.failed || root.waiting ? @tr("Close") : @tr("Cancel");
-                            primary: root.waiting;
-                            enabled: !root.writing;
-                            clicked => {
-                                TagEditorState.cancel();
-                            }
-                        }
-                    }
-
-                    // The focus starts on Back, as on any question before a change that
-                    // is hard to undo: an Enter pressed twice by accident goes back to
-                    // the form instead of writing.
-                    if root.confirming: HorizontalLayout {
-                        spacing: Theme.space-m;
-                        alignment: start;
-
-                        Button {
-                            text: @tr("Write {n} file" | "Write {n} files" % TagEditorState.confirm-files);
-                            primary: true;
-                            clicked => {
-                                TagEditorState.confirm();
-                            }
-                        }
-                        Button {
-                            text: @tr("Back");
-                            label: @tr("Back to editing");
-                            init => {
+                    // The form's first control.
+                    Button {
+                        property <int> wrap: root.wrap-first;
+                        changed wrap => {
+                            if !root.writing {
                                 self.focus();
                             }
-                            clicked => {
-                                TagEditorState.back();
+                        }
+                        text: @tr("Choose image…");
+                        label: @tr("Choose a cover image");
+                        enabled: !root.writing;
+                        clicked => {
+                            TagEditorState.choose-cover();
+                        }
+                    }
+                    if TagEditorState.has-cover || root.mixed.cover: Button {
+                        text: @tr("Remove cover");
+                        enabled: !root.writing;
+                        clicked => {
+                            TagEditorState.remove-cover();
+                        }
+                    }
+                }
+
+                // The fields take the rest of the dialog's width.
+                VerticalLayout {
+                    spacing: Theme.space-m;
+                    horizontal-stretch: 1;
+
+                    if root.single: TagInput {
+                        takes-focus: root.focus-index == 0;
+                        wrap: root.wrap-first;
+                        wraps: root.writing;
+                        label: @tr("Title");
+                        text <=> root.title-text;
+                        accepted => {
+                            root.save(0);
+                        }
+                    }
+                    TagInput {
+                        takes-focus: root.focus-index == 1;
+                        wrap: root.wrap-first;
+                        wraps: root.writing && !root.single;
+                        label: @tr("Artist");
+                        mixed: root.mixed.artist;
+                        text <=> root.artist-text;
+                        accepted => {
+                            root.save(1);
+                        }
+                    }
+                    TagInput {
+                        takes-focus: root.focus-index == 2;
+                        label: @tr("Album");
+                        mixed: root.mixed.album;
+                        text <=> root.album-text;
+                        accepted => {
+                            root.save(2);
+                        }
+                    }
+                    TagInput {
+                        takes-focus: root.focus-index == 3;
+                        label: @tr("Album artist");
+                        mixed: root.mixed.album-artist;
+                        text <=> root.album-artist-text;
+                        accepted => {
+                            root.save(3);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: Theme.space-m;
+
+                        if root.single: TagInput {
+                            // Equal widths, whatever they hold.
+                            horizontal-stretch: 1;
+                            preferred-width: 0;
+                            takes-focus: root.focus-index == 4;
+                            label: @tr("Track");
+                            wrong: root.problem == TagProblem.track;
+                            text <=> root.track-text;
+                            accepted => {
+                                root.save(4);
                             }
                         }
+                        TagInput {
+                            // Equal widths, whatever they hold.
+                            horizontal-stretch: 1;
+                            preferred-width: 0;
+                            takes-focus: root.focus-index == 5;
+                            label: @tr("Disc");
+                            mixed: root.mixed.disc;
+                            wrong: root.problem == TagProblem.disc;
+                            text <=> root.disc-text;
+                            accepted => {
+                                root.save(5);
+                            }
+                        }
+                        TagInput {
+                            // Equal widths, whatever they hold.
+                            horizontal-stretch: 1;
+                            preferred-width: 0;
+                            takes-focus: root.focus-index == 6;
+                            label: @tr("Year");
+                            mixed: root.mixed.year;
+                            wrong: root.problem == TagProblem.year;
+                            text <=> root.year-text;
+                            accepted => {
+                                root.save(6);
+                            }
+                        }
+                    }
+
+                    TagInput {
+                        takes-focus: root.focus-index == 7;
+                        wrap: root.wrap-last;
+                        wraps: root.writing;
+                        label: @tr("Genre");
+                        mixed: root.mixed.genre;
+                        text <=> root.genre-text;
+                        accepted => {
+                            root.save(7);
+                        }
+                    }
+                }
+            }
+
+            // In place of the form while a save to several files waits to be
+            // confirmed: each changed field, labelled as in the form, in form order.
+            if root.confirming: VerticalLayout {
+                spacing: Theme.space-m;
+
+                for change in TagEditorState.changes: VerticalLayout {
+                    spacing: Theme.space-xs;
+
+                    Text {
+                        text: change.field == TagField.title ? @tr("Title")
+                            : change.field == TagField.artist ? @tr("Artist")
+                            : change.field == TagField.album ? @tr("Album")
+                            : change.field == TagField.album-artist ? @tr("Album artist")
+                            : change.field == TagField.track ? @tr("Track")
+                            : change.field == TagField.disc ? @tr("Disc")
+                            : change.field == TagField.year ? @tr("Year")
+                            : change.field == TagField.genre ? @tr("Genre")
+                            : @tr("Cover");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                    }
+                    // The cover that will be written, as the form showed it.
+                    if change.field == TagField.cover && !change.removed: Rectangle {
+                        width: 64px;
+                        height: 64px;
+                        border-radius: Theme.radius-m;
+                        clip: true;
+                        background: Theme.colors.surface;
+
+                        Image {
+                            width: parent.width;
+                            height: parent.height;
+                            source: TagEditorState.cover;
+                            image-fit: ImageFit.cover;
+                            accessible-role: image;
+                            accessible-label: @tr("The new cover");
+                        }
+                    }
+                    // Muted and worded, so a removal doesn't read as a value.
+                    if change.field != TagField.cover || change.removed: Text {
+                        text: change.removed ? @tr("Removed") : change.value;
+                        color: change.removed ? Theme.colors.text-muted : Theme.colors.text;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                }
+            }
+
+            // The files that kept their old tags, each with the reason.
+            if TagEditorState.status == TagEditorStatus.failed && !root.confirming: VerticalLayout {
+                spacing: Theme.space-s;
+
+                Text {
+                    text: TagEditorState.waiting-file == "" ? @tr("These files kept their old tags. The others were written.") : @tr("These files kept their old tags.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    font-weight: Theme.weight-strong;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                for failure in TagEditorState.failures: VerticalLayout {
+                    Text {
+                        text: failure.file;
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: failure.reason == TagFailureReason.unavailable ? @tr("The file isn't there now.")
+                            : failure.reason == TagFailureReason.read-only ? @tr("The file is read-only.")
+                            : failure.reason == TagFailureReason.unreadable ? @tr("Its tags could not be read.")
+                            : failure.reason == TagFailureReason.write ? @tr("The tags could not be written.")
+                            : failure.reason == TagFailureReason.verify ? @tr("The written tags didn't read back right, so the file was left as it was.")
+                            : failure.reason == TagFailureReason.changed ? @tr("The file changed while it was written, so it was left as it was.")
+                            : @tr("The file could not be replaced. Another program, or VCMP playing it, may be using it.");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                }
+            }
+        }
+    }
+
+    // Marks where the form scrolls under the foot, when it doesn't fit.
+    Rectangle {
+        height: 1px;
+
+        Rectangle {
+            visible: scroll.content-height > scroll.visible-height;
+            background: Theme.colors.surface;
+        }
+    }
+
+    // The foot, in view however the form is scrolled: what keeps the tags from being
+    // written, the progress, and the buttons.
+    VerticalLayout {
+        padding: Theme.space-xl;
+        padding-top: Theme.space-l;
+        spacing: Theme.space-l;
+
+        // Why nothing was written yet: one sentence for the wrong value.
+        if root.problem != TagProblem.none: Text {
+            text: root.problem == TagProblem.track ? @tr("The track number must be a whole number, like 3.")
+                : root.problem == TagProblem.disc ? @tr("The disc number must be a whole number, like 1.")
+                : root.problem == TagProblem.year ? @tr("The year must be a number from 1 to 9999.")
+                : root.problem == TagProblem.line-break ? @tr("Tags are one line each, so they can't hold line breaks or other control characters.")
+                : @tr("That file isn't a JPEG or PNG image VCMP can read, so the cover stays as it was.");
+            color: Theme.colors.error;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        if root.writing: VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: @tr("Writing tags: {0} of {1} files", TagEditorState.done, TagEditorState.track-count);
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+            }
+            ProgressBar {
+                progress: TagEditorState.track-count > 0 ? TagEditorState.done / TagEditorState.track-count : 0;
+                label: @tr("Writing tags");
+            }
+        }
+
+        // Why one file still has its old tags (the player has it open), above the
+        // buttons. Always in the layout and collapsed while nothing waits: a wrapped
+        // text that an `if` creates gets its height before its width, and its last
+        // line was cut off.
+        VerticalLayout {
+            spacing: TagEditorState.waiting-file == "" ? 0px : Theme.space-l;
+
+            Text {
+                visible: TagEditorState.waiting-file != "";
+                height: self.visible ? self.preferred-height : 0px;
+                text: !self.visible ? "" : root.waiting && !root.single ? @tr("{0} is in use by the player, so its new tags will be written when playback stops or the next track starts. The other tracks have their new tags.", TagEditorState.waiting-file)
+                    : @tr("{0} is in use by the player, so its new tags will be written when playback stops or the next track starts.", TagEditorState.waiting-file);
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+            }
+
+            if !root.confirming: HorizontalLayout {
+                spacing: Theme.space-m;
+                alignment: start;
+
+                // Once only the waiting file is left, there is nothing more to save.
+                if !root.waiting: Button {
+                    text: TagEditorState.status == TagEditorStatus.failed ? @tr("Try again") : @tr("Save");
+                    label: TagEditorState.status == TagEditorStatus.failed ? @tr("Write the tags again") : @tr("Save the tags");
+                    primary: true;
+                    enabled: !root.writing;
+                    init => {
+                        if root.focus-index == 8 {
+                            self.focus();
+                        }
+                    }
+                    clicked => {
+                        root.save(8);
+                    }
+                }
+                // The form's last control.
+                Button {
+                    property <int> wrap: root.wrap-last;
+                    changed wrap => {
+                        if !root.writing {
+                            self.focus();
+                        }
+                    }
+                    text: TagEditorState.status == TagEditorStatus.failed || root.waiting ? @tr("Close") : @tr("Cancel");
+                    primary: root.waiting;
+                    enabled: !root.writing;
+                    clicked => {
+                        TagEditorState.cancel();
+                    }
+                }
+            }
+
+            // The focus starts on Back, as on any question before a change that is
+            // hard to undo: an Enter pressed twice by accident goes back to the form
+            // instead of writing.
+            if root.confirming: HorizontalLayout {
+                spacing: Theme.space-m;
+                alignment: start;
+
+                Button {
+                    property <int> wrap: root.wrap-first;
+                    changed wrap => {
+                        self.focus();
+                    }
+                    text: @tr("Write {n} file" | "Write {n} files" % TagEditorState.confirm-files);
+                    primary: true;
+                    clicked => {
+                        TagEditorState.confirm();
+                    }
+                }
+                Button {
+                    property <int> wrap: root.wrap-last;
+                    changed wrap => {
+                        self.focus();
+                    }
+                    text: @tr("Back");
+                    label: @tr("Back to editing");
+                    init => {
+                        self.focus();
+                    }
+                    clicked => {
+                        TagEditorState.back();
                     }
                 }
             }

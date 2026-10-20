@@ -12,8 +12,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 
 | File | Holds |
 |---|---|
-| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content width, durations, drag scrolling |
-| `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar` |
+| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, durations, drag scrolling |
+| `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
@@ -82,13 +82,15 @@ errors.
 | accent | `#a1197d` | `#f5c2e7` (pink) | Current page, selected option, switched-on state |
 | on-accent | `#eff1f5` | `#11111b` | Text and marks on accent |
 | error | `#d20f39` (red) | `#f38ba8` (red) | What is wrong, as text on base only |
+| scrim | `#4c4f69` at 45 % (text) | `#11111b` at 70 % (crust) | Dims the sidebar and pages behind a dialog |
 
 Latte's own pink (`#ea76cb`) reaches only 2.3:1 on Latte base, so the light accent is
 the same hue darkened to 6.3:1. Latte's subtext0 and overlay0 fail contrast on its
 backgrounds, so the light theme uses subtext1 and overlay2 instead. Even subtext1 is
 4.05:1 on Latte's surface, so a row filled for hover or selection turns its
 secondary text to `text`. Latte's red is 4.80:1 on base but 4.46:1 on mantle, so
-errors are written on base only.
+errors are written on base only. Nothing is drawn on the scrim; a dialog's card is
+base, with a surface border, so the dialog's text keeps base's contrast.
 
 ## Design decisions
 
@@ -105,6 +107,7 @@ errors are written on base only.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px; round (half the element's size) for icon-only buttons, the play button, progress and slider tracks, the slider knob and drop lines; the switch is a pill | Circles and round-ended tracks are what those controls are; everything else uses the three radii. `tests/ui_invariants.rs` refuses a radius written in bare pixels |
 | Content column capped at 720 px, except track lists and the songs table | Keeps a setting's label and its control within one glance on wide windows. Track lists span the page: the owner found half a wide window left empty beside them unfinished (2026-10-18) |
+| Settings and About in a column in the middle of the page, 60 % of its width, from 720 to 960 px (`Theme.column-max-width`) | The owner's request (2026-10-20): the column at the left of a wide window, with the right side blank, looked weird. 960 px still keeps a setting's label and its control within reach; About shares the frame, so the two pages next to each other in the sidebar look alike |
 | Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Playlists, Songs, Folders, Settings, About), then the playlists by name |
 | The sidebar's sections in three groups: Search; Albums to Folders; Settings and About | The owner's request (2026-10-18): Search and the app's own pages are not views of the library. A gap with a faint line sets the groups apart, the order stays; the page marker adds the gaps above its section |
 | A sidebar section always opens on its grid | The owner's request (2026-10-18): the album, artist or playlist last open is not where someone choosing Albums means to go |
@@ -127,9 +130,12 @@ errors are written on base only.
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
 | Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
 | "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
-| The cover picker covers the sidebar and pages like the now playing view | One overlay pattern in the app; the covers get the room, and the player bar stays usable |
+| The cover picker is a dialog in the middle of the window, over the dimmed sidebar and pages | The owner's request (2026-10-20): a form or a few covers at the top left of a full-window overlay left most of a wide window empty. One dialog pattern (`Modal`) for the tag editor and both pickers; the page stays in sight behind the scrim, and the player bar stays usable. The pickers' card is 960 px wide (`Theme.dialog-wide-width`), room for five covers in a row, and as tall as the window allows from the start, so it doesn't grow as covers arrive |
 | Artist photo actions sit under the picture, and their picker is the cover picker's twin | The same place and pattern as an album's "Find cover online", so one way of working covers both |
-| The tag editor is the same kind of overlay, not a separate window | One overlay pattern again. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
+| The tag editor is the same kind of dialog, not a separate window | One dialog pattern again, 720 px wide (`Theme.dialog-width`) and as tall as the form. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
+| A dialog keeps the keyboard: Tab and Shift+Tab go round its controls | The page behind is in sight but not in use. A focus that moved to it would be hidden behind the scrim, and Escape would no longer reach the dialog |
+| A click beside a picker closes it; beside the tag editor it does nothing | A picker holds nothing to lose. The tag editor holds typed values, so only Cancel and Escape close it |
+| The tag editor's buttons stay at the foot of the dialog while the form scrolls | Save and Cancel are in view in a short window however far the form is scrolled, and so is the sentence saying why nothing was written |
 | An album's differing values show as empty fields saying "Several values" | Writing only the fields the user changed is the safe default for a batch: a field left alone can't flatten twelve track numbers into one |
 | A save to several files first lists its changes in the form's place, with the focus on Back | The spec asks for no bulk tag writes without a preview. The list shows exactly what goes into every file, and starts at the top even in a scrolled editor. Back has the focus, as Cancel does before deleting a playlist, so an Enter pressed twice goes back instead of rewriting an album |
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
@@ -210,7 +216,7 @@ its scroll position and current card survive.
   cover fetched this way has "Change cover…" there instead, whose menu offers "Find
   another cover" (the same picker) and "Remove cover", which goes back to no cover
   and lets the automatic Discord lookup run again.
-  - It opens the cover picker (`CoverPicker`) over the sidebar and pages, and
+  - It opens the cover picker (`CoverPicker`), a dialog over the sidebar and pages, and
     `CoverFetch` asks `vcmp-integrations::musicbrainz::CoverPicker` for covers. That
     sends the album title and artist to musicbrainz.org, at one request a second
     (shared with the Discord lookup), and fetches 250 px previews from the Cover
@@ -231,8 +237,9 @@ its scroll position and current card survive.
     sentence, so another cover can be picked.
   - Keyboard: the focus starts on Cancel and moves to the first cover when it
     arrives; the covers are one tab stop (`CardGrid`: arrows, Home/End, Enter).
-    Escape or Cancel closes the picker and stops the search, and the focus returns
-    to the album page's back button.
+    Tab and Shift+Tab stay in the picker. Escape, Cancel or a click beside the
+    dialog closes the picker and stops the search, and the focus returns to the
+    album page's back button.
 
 The Albums page fades in through a `FadeCurtain`, created each time the page is
 shown, because the page itself stays alive while hidden. The Albums, Artists and
@@ -263,13 +270,12 @@ the new view in too.
     marked as gone, until the user leaves.
 - **The artist's photo:** under the picture, "Find photo online", "Choose photo…"
   and, once there is one, "Remove photo".
-  - "Find photo online" opens a picker over the sidebar and pages, like the cover
-    picker. The artist is looked up on MusicBrainz (by the ID the files are tagged
+  - "Find photo online" opens a picker, a dialog like the cover picker. The artist is looked up on MusicBrainz (by the ID the files are tagged
     with, then by name; only sure, same-name matches), and their photos come from
     fanart.tv, the best liked first, up to 8. Each shows the name MusicBrainz has
     and its disambiguation ("UK rock band"), so two artists of the same name can be
-    told apart. A click or Enter picks one, which is downloaded in full; Escape or
-    Cancel closes. Nothing is sent until the button is used, and the button is
+    told apart. A click or Enter picks one, which is downloaded in full; Escape,
+    Cancel or a click beside the dialog closes. Nothing is sent until the button is used, and the button is
     there only in builds with VCMP's fanart.tv project key (`VCMP_FANARTTV_API_KEY`).
     When fanart.tv refuses a key, the picker says so apart from an unreachable
     service, and names the personal key when one was sent.
@@ -346,15 +352,18 @@ the new view in too.
   for tracks of one album, or counts the tracks of several.
 - **The form:** the cover, with Choose image… (JPEG or PNG) and Remove cover, then
   Artist, Album, Album artist, Disc, Year and Genre, plus Title and Track for one
-  track. The focus starts in the first field.
+  track. The focus starts in the first field. The form fills a dialog in the middle
+  of the window; in a short window it scrolls, and the buttons stay at the foot.
+  An album without an album tag is "the Unknown album" in the subtitle, as its
+  page calls it "Unknown".
 - **What gets written:** only the fields the user changed. An emptied field removes
   its tag. For an album, a field whose value differs between tracks starts empty
   with "Several values" as its placeholder, and keeps each track's own value unless
   something is typed in it. The cover works the same way ("Several covers").
 - **Saving:** Save or Enter in a field. A wrong value (a track number that isn't a
   whole number, a year outside 1 to 9999, a line break) writes nothing, turns the
-  field's label bold in the error red, and says under the form, in red, which field
-  is wrong. Escape or Cancel closes without writing. Saving with
+  field's label bold in the error red, and says above the buttons, in red, which
+  field is wrong. Escape or Cancel closes without writing. Saving with
   nothing changed closes, writing nothing.
 - **Several files ask first:** when a save would write more than one file, the
   editor lists the changes in place of the form before anything is written (the
@@ -849,6 +858,11 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   appearance change, chosen or not.
 - State is never shown by colour alone: the selected option is bold and filled, and
   the switch knob changes side.
+- A dialog (`Modal`) keeps the focus: an empty `FocusScope` before and after its
+  controls catches Tab past the last control and Shift+Tab before the first, and
+  the dialog moves the focus to its other end (`focus-first`, `focus-last`). Only
+  Tab goes round, so the player bar can't be reached by keyboard while a dialog is
+  open; Space and the media keys still play and pause.
 
 ## Known limits
 

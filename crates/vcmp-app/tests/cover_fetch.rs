@@ -419,3 +419,34 @@ fn nothing_found_and_failures_are_said_plainly() {
     assert_eq!(app.state().get_status(), CoverSearchStatus::CutShort);
     assert_eq!(app.covers().len(), 1);
 }
+
+#[test]
+fn a_click_beside_the_picker_closes_it() {
+    let app = open();
+    app.window
+        .window()
+        .set_size(slint::LogicalSize::new(1100.0, 720.0));
+    let click = |x: f32, y: f32| {
+        let window = app.window.window();
+        let position = slint::LogicalPosition::new(x, y);
+        let button = slint::platform::PointerEventButton::Left;
+        window.dispatch_event(WindowEvent::PointerMoved { position });
+        window.dispatch_event(WindowEvent::PointerPressed { position, button });
+        window.dispatch_event(WindowEvent::PointerReleased { position, button });
+    };
+    app.press(AccessibleRole::Button, "Record, Band");
+    app.frame();
+    app.press(AccessibleRole::Button, "Find a cover for Record online");
+    app.frame();
+    app.source.take();
+
+    // On the dialog itself, away from its controls, a click does nothing.
+    click(550.0, 300.0);
+    assert!(app.state().get_open());
+    assert!(app.source.take().is_empty());
+
+    // Beside it, over the dimmed sidebar, it cancels.
+    click(20.0, 300.0);
+    assert!(!app.state().get_open());
+    assert_eq!(app.source.take(), [Asked::Cancel]);
+}
