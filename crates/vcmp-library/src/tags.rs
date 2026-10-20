@@ -171,7 +171,7 @@ pub(crate) fn read(path: &Path, with_cover: bool) -> Result<ReadTrack, String> {
 }
 
 /// The name a [`TagEntry`] uses for an item lofty knows across formats.
-fn generic_key(key: ItemKey) -> String {
+pub(crate) fn generic_key(key: ItemKey) -> String {
     format!("{key:?}")
 }
 
@@ -196,7 +196,7 @@ fn generic_entries(tag: &Tag) -> Vec<TagEntry> {
 /// ID3v2.4 text frames separate several values with a NUL.
 const ID3V2_SEPARATOR: char = '\0';
 
-fn id3v2_entries(tag: &Id3v2Tag) -> Vec<TagEntry> {
+pub(crate) fn id3v2_entries(tag: &Id3v2Tag) -> Vec<TagEntry> {
     // lofty's split moves the frames it has common names for into a generic tag and
     // keeps the rest, which become `id3:` entries.
     let (remainder, generic) = tag.clone().split_tag();
@@ -260,7 +260,7 @@ fn described(id: &str, description: &str) -> String {
     }
 }
 
-fn vorbis_entries(tag: &VorbisComments) -> Vec<TagEntry> {
+pub(crate) fn vorbis_entries(tag: &VorbisComments) -> Vec<TagEntry> {
     tag.items()
         .map(|(key, value)| TagEntry {
             key: ItemKey::from_key(TagType::VorbisComments, key)

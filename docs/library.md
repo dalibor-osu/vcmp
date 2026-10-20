@@ -15,6 +15,7 @@ crate.
 | Playlist pictures made from covers | cache directory, `mosaics/<hash>.jpg`, 400 px |
 | Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px |
 | Artist photos the owner chose | data directory, `images/artists/<hash>.jpg`, longest side 800 px |
+| Covers kept for change sets | data directory, `images/undo/<hash>.<ext>`, the original bytes (see [Change sets](#change-sets)) |
 
 Covers fetched online (see [Covers fetched online](#covers-fetched-online)) are cached
 the same way.
@@ -27,11 +28,12 @@ WAL mode, so one connection can scan while others read. Open one `Library` per
 thread.
 
 Music files are only read, except by `Library::write_tags`, the tag editor's write
-path (see [Writing tags](#writing-tags)).
+path (see [Writing tags](#writing-tags)), and `Library::accept_change_set` (see
+[Change sets](#change-sets)), which writes through the same path.
 
 ## Schema
 
-Version 10, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 11, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 
 | Table | Holds |
@@ -50,6 +52,10 @@ migrations; a database from a newer build is refused instead of being altered.
 | `folder_art` | Each music folder's cover images (`cover.jpg` and the like) as a fingerprint of their names, sizes and modification times, so a scan notices one added, replaced or removed (version 7) |
 | `artist_photos` | The photo chosen for an artist: the file under `images/artists/`, the web address it came from (NULL for a file of the owner's) and when. Keyed by the artist's name, ignoring case, so it outlives artist rows a scan removes and adds (version 8) |
 | `track_tags` | Every text item of the tag VCMP reads from each track's file, by key, in order (version 10; see [All tags](#all-tags)) |
+| `change_sets` | Tag edits and playlist deletions agents asked for: who, what kind, status, the set an undo reverses, when made and finished (version 11; see [Change sets](#change-sets)) |
+| `change_files` | A tag set's files: track, path, the cover before and after (file names under `images/undo/`) and each file's result (version 11) |
+| `change_edits` | What a set asks for each file, by field name or `tag:` and a key, the values as a JSON array (version 11) |
+| `change_values` | The values of every tag a set may change in each file, as JSON arrays: before (when the set was made) and after (once written) (version 11) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -162,6 +168,10 @@ runs first, for every edit. An invalid edit (a control character, a year outside
 1 to 9999, a cover that isn't JPEG or PNG) fails the whole call before any file is
 touched. Values are trimmed, and an empty value clears the field.
 
+`TagEdit::other` edits any other tag by its [`track_tags` key](#all-tags): it
+replaces the tag's values with a list, written exactly as given, or removes the tag
+(`Clear`, or an empty list). See [Other tags](#other-tags).
+
 Each file is written through a verified copy:
 
 1. Follow a symlink to the real file. Refuse a read-only file, and read the tags the
@@ -179,9 +189,13 @@ Each file is written through a verified copy:
    no such tag, it is created with what the scan read from the file's other tags, so
    an MP3 with only ID3v1 loses no values.
 4. Read the copy back and compare:
-   - every item and picture of the written tag with what was meant to be written;
+   - every item, every `track_tags` entry and every picture of the written tag with
+     what was meant to be written;
    - the scan's reading of every field, MusicBrainz IDs included, with the old reading
      plus the edit;
+   - every other tag the edit names with the values asked for, and every tag it
+     doesn't touch with what the file held before, in the same order (skipped when
+     VCMP had to create the tag);
    - the file type and duration with the original's.
 5. Check that the original has not changed since it was copied (size and
    modification time), then rename the copy over it. The rename is atomic, so the
@@ -207,14 +221,100 @@ album artwork. Albums and artists match ignoring case, and a scan keeps the
 spelling it met first. A spelling the user typed in an edit replaces it, so
 "the wall" can be renamed to "The Wall".
 
+### Other tags
+
+`src/other_tags.rs`. The keys an agent reads from `track_tags` are the keys it
+writes with.
+
+- **A key means what it reads back as.** A common name becomes an ID3v2 frame in an
+  MP3 and a Vorbis field in a FLAC file, and some native keys have common names
+  (`id3:TCOM` and `vorbis:COMPOSER` are listed as `Composer`). So each key is
+  resolved per file by writing its first value into an empty tag of the file's kind
+  and reading it back with the scan's code; the key it reads back under is the one
+  the checks compare. The value itself is written because some tags take only
+  values of a form: lofty lists a rating as `email|stars|play count`
+  (`Popularimeter`, `Easy CD-DA Extractor|4|0`), and ID3v2 drops anything else.
+- **Refused before any file is touched** (`InvalidTagEdit`): a key that isn't one
+  (`UnknownKey`), a key of the nine fields under any name (`ShownField`: `TrackTitle`,
+  `id3:TIT2`, `vorbis:ALBUMARTIST`), a key no kind of tag VCMP writes holds
+  (`UnwritableKey`: `AppleXid`, or a native key whose frame VCMP can't build such as
+  `id3:POPM:<email>` and `id3:TIPL:<role>`; clearing those works), a value with a
+  control character other than a line break or tab or an empty value, a value that
+  isn't a whole number for a key lofty keeps as a number (`TrackTotal`,
+  `MovementNumber`), and a value neither ID3v2 nor Vorbis comments keep
+  (`BadValue`).
+- **Refused for one file** (`TagWriteError::UnsupportedKey`): a native key of the
+  other kind of tag (`id3:` in a FLAC file), a common name the format has no field
+  for (ID3v2 has no `Lyrics`, only `UnsyncLyrics`), a value only the other kind keeps
+  (a rating as free text is kept in a FLAC file, not in an MP3), and two keys of one
+  edit that name the same tag.
+- **ID3v2.** A native key replaces its frames (by frame ID and description) with one
+  new frame; several values are joined with NULs. A common name goes through lofty's
+  generic tag, but only for the frames holding that key: they are split into lofty's
+  generic form, edited and merged back, so a frame holding two keys keeps the one not
+  edited (`TRCK` holds `TrackNumber` and `TrackTotal`), and every other frame stays
+  as it was.
+- **Vorbis comments.** The fields of the key are removed (for a common name, every
+  field name lofty reads as it) and one field per value is added under the key's
+  name. lofty's own `remove` swaps the fields it keeps around, which could reverse
+  two values of one key (an `ORIGINALDATE` and an `ORIGINALYEAR` are both
+  `OriginalReleaseDate`), so every Vorbis edit, the nine fields' included, puts the
+  fields it keeps back in their original order.
+
 `examples/edit_check.rs` copies a sample of a real collection into
-`target/edit-check/`, then edits every copy twice: once setting every field and a
-cover, once restoring the fields and removing the cover. It prints every failure
-(the collection itself is only read):
+`target/edit-check/`, then edits every copy twice: once setting every field, a
+cover and other tags (a composer, a comment, a key of the format's own, and the
+first other tag the file has), once putting everything back and removing the cover.
+After the second edit every tag outside the nine fields must read as before. Then
+the first edit goes through a [change set](#change-sets), is accepted and undone, and
+every tag and the cover must be as before. It prints every failure (the collection
+itself is only read):
 
 ```bash
 cargo run --release -p vcmp-library --example edit_check -- /path/to/music 40
 ```
+
+## Change sets
+
+`src/changes.rs`. The tag edits and playlist deletions AI agents ask for (see the
+[MCP spec](specs/2026-10-19-mcp-library-server.md)) are recorded as change sets,
+which the owner reviews; nothing is written or deleted before a set is accepted.
+
+- **Submitting** (`Library::submit_tag_changes`) checks every edit (`TagEdit::validate`),
+  that every track is in the library and available and listed once, and that every
+  key of `TagEdit::other` fits its file's kind of tag. It records what each file
+  should get and, for every tag the edit may change, the values the database holds
+  now (`change_values.before`): the nine fields' keys it edits, the keys of its other
+  edits, and what the nine fields' writes remove on the way (album artists in user
+  text frames, ID3v2.3 date parts, a total cleared with its number). An edit of the
+  cover also keeps the file's current cover under `images/undo/`, named by its hash.
+- **Accepting** (`Library::accept_change_set`) writes each file through the tag
+  writer, which first checks that the file still holds the recorded values (and
+  cover). A file that doesn't is left alone and reported as a conflict, so an agent
+  can't overwrite what changed since it looked. Each file's result is `written`,
+  `conflict` or `failed`; the set is `accepted` when every file was written,
+  otherwise `partly_written`. What each written file reads back as is recorded
+  (`change_values.after`).
+- **Undo** (`Library::submit_undo`) is a new pending set, reviewed like any other. It
+  writes back the `before` values of every written file, raw: all values of a key
+  and in their form, so two `ARTIST` fields or a full `DATE` come back as they were
+  rather than as the nine fields' reading ("First, Second", the year). Only for undo,
+  the writer takes the nine fields' keys in `TagEdit::other`; it then checks them by
+  the entries and leaves the comparison of the scan's reading out, since that
+  follows from them. The files must still hold the `after` values, or they are
+  conflicts. Once every file is written, the first set is `undone`. A set is undone
+  at most once; a set with an undo pending can't get a second one.
+- **Playlist deletions** (`Library::submit_playlist_deletion`) wait for review too, and
+  can't be undone.
+- **Rejected and discarded.** `Library::reject_change_set` finishes a set unwritten.
+  `Library::discard_pending_change_sets` marks every set still pending as discarded,
+  for the app to call when it starts: VCMP keeps no set waiting across a restart.
+- **Retention.** A finished set is kept for 30 days (`CHANGE_SETS_KEPT`), with the
+  covers only it refers to: `Library::expire_change_sets` deletes older ones.
+  `Library::delete_finished_change_sets` deletes every finished set at once and
+  returns the bytes its covers took (`Library::finished_change_sets_size` tells
+  beforehand); the database rows are small next to them. Pending sets are never
+  deleted. A deleted set can't be undone.
 
 ## Covers fetched online
 
@@ -360,6 +460,22 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
 - Tag writing updates only the tag VCMP reads. An ID3v1 or APE tag in an MP3, or a
   RIFF INFO list in a WAV file, keeps its old values, and players that prefer those
   tags (Windows Explorer reads RIFF INFO in WAV files) show them.
+- A comment or lyrics frame VCMP writes gets the unknown language `XXX`, whatever
+  language the frame it replaces had.
+- When VCMP has to create the tag it writes (an MP3 with only ID3v1, a WAV with only
+  RIFF INFO), only the fields the scan reads go into it, and the check that
+  untouched tags keep their values is skipped for that file. From then on the
+  file's tags are listed from the new tag, some under other names: lofty reads
+  RIFF INFO's encoder as `EncoderSoftware` and the ID3v2 frame it writes for it
+  (`TSSE`) as `EncoderSettings`.
+- Some files hold values with control characters: 8 values on the owner's library,
+  URL frames from one store that start with a stray text-encoding byte. VCMP
+  writes the cleaned value but refuses to write such a value back. An undo, which
+  puts back what a file had, is the exception.
+- An undo puts the old cover back as the front cover. A file whose cover was a
+  leading picture without a type gets the same image, typed as the front cover.
+- An undo doesn't remove a tag VCMP created (the ID3v2 tag of an MP3 that had only
+  ID3v1); it puts the values back into it.
 - On Windows a file that another program holds open cannot be replaced, so the
   edit fails with `TagWriteError::Replace`. The tag editor holds back the edit of
   the file VCMP's own playback has open until the engine lets go of it (see

@@ -235,6 +235,65 @@ CREATE INDEX track_tags_key ON track_tags(key);
 -- file, as if it had changed.
 UPDATE tracks SET modified_ms = -1;
 "#,
+    r#"
+-- Change sets: tag edits and playlist deletions AI agents ask for. A set waits for
+-- the owner (pending), who accepts or rejects it; a pending set VCMP closed on is
+-- discarded. Accepted is every file written, partly_written that some were not. An
+-- undo is a set of its own (undoes); once it is written, the set it reverses is
+-- undone. Finished sets are kept for 30 days after finished_ms.
+CREATE TABLE change_sets (
+    id INTEGER PRIMARY KEY,
+    agent TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('tags', 'playlist_deletion')),
+    playlist_id INTEGER,
+    playlist_name TEXT,
+    status TEXT NOT NULL CHECK (status IN
+        ('pending', 'accepted', 'partly_written', 'rejected', 'discarded', 'undone')),
+    undoes INTEGER REFERENCES change_sets(id) ON DELETE SET NULL,
+    created_ms INTEGER NOT NULL,
+    finished_ms INTEGER
+) STRICT;
+
+-- The files of a tag set. result stays NULL until the set is accepted: written,
+-- conflict (the file no longer held what the set was made against) or failed, with
+-- detail saying why. The covers are file names under images/undo/ in the data
+-- directory, '' for no cover, NULL when the set leaves the cover alone: before is
+-- the file's when the set was made, after the one written.
+CREATE TABLE change_files (
+    id INTEGER PRIMARY KEY,
+    set_id INTEGER NOT NULL REFERENCES change_sets(id) ON DELETE CASCADE,
+    track_id INTEGER NOT NULL REFERENCES tracks(id),
+    path BLOB NOT NULL,
+    cover_before TEXT,
+    cover_after TEXT,
+    result TEXT CHECK (result IN ('written', 'conflict', 'failed')),
+    detail TEXT
+) STRICT;
+
+CREATE INDEX change_files_set ON change_files(set_id);
+
+-- What a set asks for each file: one of the nine fields by name ('title', 'artist',
+-- 'album', 'album_artist', 'track_number', 'disc_number', 'year', 'genre', 'cover')
+-- or 'tag:' and a track_tags key. vals is a JSON array of strings, NULL to remove;
+-- the cover's one value is a file name under images/undo/.
+CREATE TABLE change_edits (
+    file_id INTEGER NOT NULL REFERENCES change_files(id) ON DELETE CASCADE,
+    target TEXT NOT NULL,
+    vals TEXT,
+    PRIMARY KEY (file_id, target)
+) STRICT, WITHOUT ROWID;
+
+-- The values of every tag a set may change in a file, by track_tags key, as JSON
+-- arrays of strings: before as the database had them when the set was made, after
+-- as they read back once written (NULL until then).
+CREATE TABLE change_values (
+    file_id INTEGER NOT NULL REFERENCES change_files(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    before TEXT NOT NULL,
+    after TEXT,
+    PRIMARY KEY (file_id, key)
+) STRICT, WITHOUT ROWID;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

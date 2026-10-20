@@ -130,6 +130,10 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Edit the track that is playing.
 - [ ] Make a file read-only, then save: the editor names the file and the reason,
       and Try again works once it's writable.
+- [ ] On each platform, run `cargo run --release -p vcmp-library --example
+      edit_check -- <music dir> 40` against your collection. It edits copies only,
+      every other tag included, and should end with "0 failed edits"; each failure
+      it prints names the file and the tag.
 
 ### Playlists
 

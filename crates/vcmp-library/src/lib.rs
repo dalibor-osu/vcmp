@@ -2,15 +2,18 @@
 //! artwork caching. Must not depend on the UI crate.
 //!
 //! The database is a cache of the files' tags (the files are the source of truth) plus
-//! what only VCMP knows: source directories, settings and the plays waiting for
-//! Last.fm. Music files are written only by [`Library::write_tags`], through a
-//! verified copy.
+//! what only VCMP knows: source directories, settings, the plays waiting for Last.fm
+//! and the change sets AI agents asked for. Music files are written only by
+//! [`Library::write_tags`] and [`Library::accept_change_set`], through a verified
+//! copy.
 
 mod artist_photos;
 mod artwork;
+mod changes;
 mod edit;
 mod error;
 mod lookups;
+mod other_tags;
 mod path_codec;
 mod playlists;
 mod query;
@@ -26,6 +29,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use artwork::{Artwork, THUMBNAIL_SIZE};
+pub use changes::{
+    CHANGE_SETS_KEPT, ChangeKind, ChangeSet, ChangeSetId, ChangeSetSummary, ChangeStatus,
+    ChangedFile, FileResult, ValueChange,
+};
 pub use edit::{FieldEdit, InvalidTagEdit, TagEdit, TagField, TagWriteError};
 pub use error::{Error, Result};
 pub use lookups::{CoverArtId, CoverLookup};
@@ -312,7 +319,7 @@ impl Library {
             progress(done, edits.len());
             let row = self.track(track)?;
             let result = match &row {
-                Some(row) if row.available => edit::write(&row.path, edit),
+                Some(row) if row.available => edit::write(&row.path, edit, false, None),
                 _ => Err(TagWriteError::Unavailable),
             };
             match result {

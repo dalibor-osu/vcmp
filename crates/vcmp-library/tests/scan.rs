@@ -24,6 +24,11 @@ use vcmp_library::{
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
+/// Drops what the migrations after version 9 add, for tests that put a database back
+/// the way an older version left it.
+const TABLES_AFTER_VERSION_9: &str = "DROP TABLE change_values; DROP TABLE change_edits;
+    DROP TABLE change_files; DROP TABLE change_sets; DROP TABLE track_tags;";
+
 struct Setup {
     // Fields drop in order: the database closes before the directory is deleted,
     // which Windows requires.
@@ -1497,14 +1502,14 @@ fn the_schema_upgrade_puts_existing_tracks_into_unknown_albums() {
     // Back to the database as the previous version left it: no Unknown albums.
     let db = setup.base.join("data/library.sqlite3");
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute_batch(
+    conn.execute_batch(&format!(
         "UPDATE tracks SET album_id = NULL WHERE album IS NULL;
          DELETE FROM albums WHERE unknown = 1;
          DELETE FROM artists WHERE name = 'Owner';
          ALTER TABLE albums DROP COLUMN unknown;
-         DROP TABLE track_tags;
-         PRAGMA user_version = 8;",
-    )
+         {TABLES_AFTER_VERSION_9}
+         PRAGMA user_version = 8;"
+    ))
     .unwrap();
     drop(conn);
     setup.library = Library::open(&db, &setup.cache()).unwrap();
@@ -1673,8 +1678,10 @@ fn upgrading_rereads_every_file_once_to_store_its_tags() {
     // Back to the database as the previous version left it: no tag entries.
     let db = setup.base.join("data/library.sqlite3");
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute_batch("DROP TABLE track_tags; PRAGMA user_version = 9;")
-        .unwrap();
+    conn.execute_batch(&format!(
+        "{TABLES_AFTER_VERSION_9} PRAGMA user_version = 9;"
+    ))
+    .unwrap();
     drop(conn);
     setup.library = Library::open(&db, &setup.cache()).unwrap();
     assert!(entries(&setup.library, &a).is_empty());
