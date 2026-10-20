@@ -11,7 +11,9 @@ use std::time::Duration;
 use common::{Song, add};
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
 use slint::{ComponentHandle, LogicalSize, Model};
-use vcmp_app::agents::{AgentService, SETTING_ENABLED, SETTING_PORT};
+use vcmp_app::agents::{
+    AgentService, SETTING_ENABLED, SETTING_PORT, SETTING_TOKEN, relay_connection,
+};
 use vcmp_app::library_service::{Delivery, LibraryPaths};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::{
@@ -382,6 +384,9 @@ fn the_switch_starts_the_server_and_is_kept() {
         format!("http://127.0.0.1:{port}/mcp").as_str()
     );
     assert!(state.get_setup_command().contains(&token));
+    let desktop = state.get_desktop_config();
+    assert!(desktop.starts_with("\"vcmp\": {"), "{desktop}");
+    assert!(desktop.contains("\"args\":[\"mcp\"]"), "{desktop}");
     app.find(AccessibleRole::Button, "Copy the token");
     assert_eq!(
         app.library.setting(SETTING_ENABLED).unwrap().as_deref(),
@@ -437,6 +442,31 @@ fn the_switch_is_kept_and_waiting_changes_are_discarded_at_start() {
     assert!(app.state().get_enabled());
     assert_eq!(app.state().get_pending_count(), 0);
     assert_eq!(app.history(), [(ChangeKind::Tags, ChangeStatus::Discarded)]);
+}
+
+#[test]
+fn the_relay_reads_where_to_connect_or_says_why_it_cannot() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = LibraryPaths {
+        database: dir.path().join("library.sqlite3"),
+        cache: dir.path().join("cache"),
+    };
+    let missing = relay_connection(&paths).unwrap_err();
+    assert!(missing.contains("no library"), "{missing}");
+    assert!(!paths.database.exists(), "the relay makes no library");
+
+    let library = Library::open(&paths.database, &paths.cache).unwrap();
+    let off = relay_connection(&paths).unwrap_err();
+    assert!(off.contains("switch is off"), "{off}");
+
+    library.set_setting(SETTING_ENABLED, "true").unwrap();
+    library.set_setting(SETTING_TOKEN, "secret").unwrap();
+    library.set_setting(SETTING_PORT, "9123").unwrap();
+    let connection = relay_connection(&paths).unwrap();
+    assert_eq!(
+        (connection.port, connection.token.as_str()),
+        (9123, "secret")
+    );
 }
 
 fn png() -> Vec<u8> {

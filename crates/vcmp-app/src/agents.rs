@@ -452,6 +452,7 @@ impl AgentService {
         });
         state.set_address(vcmp_mcp::address(port).into());
         state.set_setup_command(vcmp_mcp::claude_code_command(port, &token).into());
+        state.set_desktop_config(desktop_config().into());
     }
 
     /// A port the owner typed: from 1024 to 65535, the ones a program may take
@@ -680,6 +681,47 @@ impl AgentService {
             }
         }
     }
+}
+
+/// Where `vcmp mcp` relays to: the port and token in the library's settings. Fails,
+/// saying why, when there is no library yet or the switch is off.
+pub fn relay_connection(paths: &LibraryPaths) -> Result<vcmp_mcp::relay::Connection, String> {
+    if !paths.database.exists() {
+        return Err(format!(
+            "VCMP has no library at {} yet: start VCMP and turn on Settings, AI agents.",
+            paths.database.display()
+        ));
+    }
+    let library = Library::open(&paths.database, &paths.cache)
+        .map_err(|error| format!("VCMP's library can't be read: {error}"))?;
+    let setting = |key| library.setting(key).ok().flatten();
+    if setting(SETTING_ENABLED).as_deref() != Some("true") {
+        return Err(
+            "VCMP's AI agents switch is off: turn on \"Let AI agents use your library\" in VCMP's Settings, under AI agents."
+                .into(),
+        );
+    }
+    // The server makes the token when it first starts.
+    let token = setting(SETTING_TOKEN)
+        .ok_or("VCMP hasn't started its server for AI agents yet: open VCMP.")?;
+    let port = setting(SETTING_PORT)
+        .and_then(|port| port.parse().ok())
+        .unwrap_or(vcmp_mcp::DEFAULT_PORT);
+    Ok(vcmp_mcp::relay::Connection { port, token })
+}
+
+/// The entry for Claude Desktop's `mcpServers`: this program with the argument `mcp`,
+/// and `VCMP_HOME` when it is set, so the relay reads the library this VCMP uses.
+fn desktop_config() -> String {
+    let program = std::env::current_exe()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "vcmp".into());
+    let mut server = serde_json::json!({ "command": program, "args": ["mcp"] });
+    if let Some(home) = std::env::var_os("VCMP_HOME") {
+        let home = std::fs::canonicalize(&home).unwrap_or_else(|_| PathBuf::from(home));
+        server["env"] = serde_json::json!({ "VCMP_HOME": home.to_string_lossy() });
+    }
+    format!("\"vcmp\": {server}")
 }
 
 /// What agents ask for, brought from the server's thread to the service on the UI

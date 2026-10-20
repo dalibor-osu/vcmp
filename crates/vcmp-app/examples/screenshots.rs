@@ -449,6 +449,8 @@ fn show_agents(window: &AppWindow, agents: Option<Agents>) {
         )
         .into(),
     );
+    state
+        .set_desktop_config("\"vcmp\": {\"args\":[\"mcp\"],\"command\":\"/opt/vcmp/vcmp\"}".into());
     state.set_backups_size("2.4 MB".into());
     state.set_has_finished(true);
     let entry = |id, kind, files, status, minutes_ago, can_undo| ChangeEntry {

@@ -67,19 +67,50 @@ posted to Slint's event loop with `invoke_from_event_loop`, runs on
 So a change set shows in the sidebar the moment it is recorded, and playlist edits
 show in the window at once. The crate itself never depends on Slint.
 
+## The stdio relay
+
+`vcmp mcp` (`vcmp_mcp::relay`, started from `main.rs` before any window) is for
+clients that only start local programs, such as Claude Desktop. It speaks MCP's
+stdio transport: a JSON-RPC message per line in, a message per line out. Each line
+is posted to the running VCMP's server, and every message of the answer, a JSON
+body or the data of each event of an event stream, goes out as one line. It keeps
+the session id from the handshake and sends the protocol version the handshake
+agreed. Requests are relayed one at a time, in order. At the end of its input it
+ends the session.
+
+- **Where to connect** comes from the library's settings, found the way VCMP finds
+  them (`VCMP_HOME`, else the platform's data directory): the port and the token.
+  So a client's configuration is just the program and `mcp`. Settings shows the
+  entry for Claude Desktop with the path of the VCMP that runs, and its `VCMP_HOME`
+  when set.
+- **When it can't get through**, it reads the settings again and tries once more:
+  the owner may have changed the port or made a new token. Failing still, a request
+  gets a JSON-RPC error answer (code -32000) whose message says why: VCMP isn't
+  open (nothing on the port), the switch is off, no library or token yet, the token
+  doesn't match (the relay reads another library than the VCMP that runs), or VCMP
+  was restarted (the session is gone; the client has to connect again). A
+  notification has no answer to carry the reason; the relay logs it to standard
+  error.
+- It never opens a window, creates no library where there is none, and writes
+  nothing but its output.
+
 ## Testing
 
 `crates/vcmp-mcp/tests/server.rs` starts the server on a free port with a stand-in
 for the app (`Changes` done at once on a test connection) and talks real HTTP to it:
 the token and Origin checks, the handshake, reading tags, change sets that wait, and
-playlist edits. `crates/vcmp-app/tests/agents.rs` covers the switch, the port and
-token, and the review in the window. A real client is in
-[manual-testing.md](manual-testing.md).
+playlist edits. The same file runs the relay over in-memory input and output against
+that server: a whole session, the answers when nothing listens or the switch is off,
+and a new token. `crates/vcmp-app/tests/agents.rs` covers the switch, the port and
+token, what the relay reads from the settings, and the review in the window. A real
+client is in [manual-testing.md](manual-testing.md).
 
 ## Known limits
 
-- Clients that only start local programs (Claude Desktop) can't connect: the stdio
-  relay (`vcmp mcp`, spec phase 6) isn't built yet.
+- The relay was run on Linux only. Release builds on Windows have no console
+  window (`windows_subsystem = "windows"`); a client that starts `vcmp.exe mcp`
+  with its standard input and output redirected still hands it those pipes, but that
+  is yet to be seen working.
 - Agents can't change covers.
 - A change waits for the window's event loop to take it; when that takes more than
   30 seconds, the agent is told that VCMP didn't answer in time.

@@ -12,6 +12,7 @@
 //! sets that wait for the owner's review, and playlist edits show in the window at
 //! once. See `docs/specs/2026-10-19-mcp-library-server.md`.
 
+pub mod relay;
 mod tools;
 
 use std::net::{Ipv4Addr, TcpListener};

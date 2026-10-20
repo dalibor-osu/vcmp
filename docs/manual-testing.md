@@ -221,6 +221,11 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tags.
 
+- [ ] Claude Desktop: copy the configuration entry from Settings into
+      `"mcpServers"` (Settings → Developer → Edit Config), restart Claude Desktop:
+      vcmp's tools are listed and answer. Close VCMP and ask again: Claude says
+      VCMP isn't open. **(never seen working with Claude Desktop; the relay was
+      run with piped requests)**
 - [ ] Settings → AI agents: turn it on. The address, token and the Claude Code
       command show; Copy puts each on the clipboard. Run the command in a
       terminal, then `claude mcp list` shows vcmp connected. **(never seen working
@@ -285,6 +290,8 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       doesn't release it. **(never seen working)**
 - [ ] An agent's change that includes the playing track: the review names the file
       and Write stays disabled until playback moves on. **(never seen working)**
+- [ ] The relay from a release build, which has no console window: Claude Desktop
+      with `vcmp.exe` and `mcp` lists vcmp's tools. **(never seen working)**
 - [ ] Last.fm keeps its key in Credential Manager across restarts.
 - [ ] Output device list shows the WASAPI device names.
 - [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without
@@ -300,6 +307,8 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Now Playing in Control Center and the media keys show the track and control
       it; the cover shows. **(never seen working)**
 - [ ] Cmd+click, Cmd+A and Cmd+F work where Ctrl does elsewhere.
+- [ ] Claude Desktop with the entry Settings shows (`VCMP.app/Contents/MacOS/...`
+      and `mcp`) lists vcmp's tools. **(never seen working)**
 - [ ] Last.fm keeps its key in the Keychain across restarts.
 - [ ] The `macos-arm64.zip` (or `macos-x64.zip`) unpacks to `VCMP.app`, which
       starts after System Settings → Privacy & Security → Open Anyway, and shows

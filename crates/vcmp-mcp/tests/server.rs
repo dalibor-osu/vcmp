@@ -11,7 +11,7 @@ use lofty::file::TaggedFileExt;
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
 use serde_json::{Value, json};
 use vcmp_library::{ChangeSetId, ChangeStatus, Library, PlaylistId, TagEdit, TrackId};
-use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig};
+use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig, relay};
 
 const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -408,4 +408,124 @@ fn playlists_change_at_once_but_deleting_waits() {
         .unwrap();
     assert_eq!(asked["status"], "pending");
     assert!(setup.library.playlist(PlaylistId(id)).unwrap().is_some());
+}
+
+/// Runs the relay over `lines`, with `settings`, and returns what it wrote, line by
+/// line.
+fn relay(settings: &relay::Settings<'_>, lines: &[Value]) -> Vec<Value> {
+    let input: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    let mut output = Vec::new();
+    relay::run(settings, input.as_bytes(), &mut output).unwrap();
+    String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+fn handshake_and_call(tool: &str, arguments: Value) -> Vec<Value> {
+    vec![
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": { "name": "relayed-agent", "version": "1.0" }
+            }
+        }),
+        json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": { "name": tool, "arguments": arguments }
+        }),
+    ]
+}
+
+#[test]
+fn the_relay_carries_a_session_over_standard_input_and_output() {
+    let setup = start();
+    let port = setup.server.port();
+    let settings = || {
+        Ok(relay::Connection {
+            port,
+            token: TOKEN.into(),
+        })
+    };
+    let a = id_of(&setup.library, "a.flac");
+    let answers = relay(
+        &settings,
+        &handshake_and_call("get_tracks", json!({ "track_ids": [a.0] })),
+    );
+    let ids: Vec<&Value> = answers.iter().map(|answer| &answer["id"]).collect();
+    assert_eq!(ids, [&json!(1), &json!(2), &json!(3)], "{answers:?}");
+    assert_eq!(answers[0]["result"]["serverInfo"]["name"], "vcmp");
+    assert!(answers[1]["result"]["tools"].as_array().unwrap().len() > 10);
+    let text = answers[2]["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("\"Writer\""), "{text}");
+
+    // A change through the relay is recorded under the relayed client's name.
+    let answers = relay(
+        &settings,
+        &handshake_and_call(
+            "propose_tag_changes",
+            json!({ "changes": [{ "track_id": a.0, "genre": "Relayed" }] }),
+        ),
+    );
+    let text = answers[2]["result"]["content"][0]["text"].as_str().unwrap();
+    let id: Value = serde_json::from_str(text).unwrap();
+    let set = setup
+        .library
+        .change_set(ChangeSetId(id["change_set_id"].as_i64().unwrap()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(set.summary.agent, "relayed-agent");
+}
+
+#[test]
+fn the_relay_says_why_it_reaches_no_vcmp() {
+    // A port nothing listens on: VCMP is closed.
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = free.local_addr().unwrap().port();
+    drop(free);
+    let closed = || {
+        Ok(relay::Connection {
+            port,
+            token: TOKEN.into(),
+        })
+    };
+    let answers = relay(&closed, &handshake_and_call("list_playlists", json!({})));
+    // The notification has no answer; each request gets the reason.
+    assert_eq!(answers.len(), 3, "{answers:?}");
+    let message = answers[0]["error"]["message"].as_str().unwrap();
+    assert!(message.contains("isn't open"), "{message}");
+    assert_eq!(answers[0]["id"], 1);
+
+    let off = || Err("VCMP's AI agents switch is off.".to_owned());
+    let answers = relay(&off, &handshake_and_call("list_playlists", json!({})));
+    assert_eq!(
+        answers[0]["error"]["message"],
+        "VCMP's AI agents switch is off."
+    );
+}
+
+#[test]
+fn the_relay_reads_the_settings_again_for_a_new_token() {
+    let setup = start();
+    let port = setup.server.port();
+    // The token the relay read first is old by the time it sends.
+    let reads = std::cell::Cell::new(0);
+    let settings = || {
+        reads.set(reads.get() + 1);
+        Ok(relay::Connection {
+            port,
+            token: if reads.get() == 1 { "old" } else { TOKEN }.into(),
+        })
+    };
+    let answers = relay(&settings, &handshake_and_call("list_playlists", json!({})));
+    assert!(
+        answers.iter().all(|answer| answer.get("error").is_none()),
+        "{answers:?}"
+    );
+    assert_eq!(reads.get(), 2);
 }

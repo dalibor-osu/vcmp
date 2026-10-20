@@ -143,7 +143,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 | Last.fm connects in the browser while the row waits, with Cancel | Last.fm's desktop sign-in happens on last.fm; asking every few seconds spares an "I've allowed it" button |
 | One Last.fm button whose text follows the state (Connect…, Cancel, Disconnect) | The focus stays on it while the state changes under it |
-| AI agents are a section of Settings, off by default | The owner's decision (MCP spec, 2026-10-19): the server runs only while VCMP is open and the switch is on. Its connection (address, token, port, the Claude Code command) shows only while it is on |
+| AI agents are a section of Settings, off by default | The owner's decision (MCP spec, 2026-10-19): the server runs only while VCMP is open and the switch is on. Its connection (address, token, port, the Claude Code command and the Claude Desktop entry for `vcmp mcp`) shows only while it is on. The Claude Desktop entry carries the path of the VCMP that runs, and its `VCMP_HOME` when set, so the relay reads the same library |
 | Values to copy are read-only fields with a Copy button | The token and command are too long to read out; a field shows they are text, selects like text, and Copy needs no clipboard library (`TextField.copy-all`). A long value scrolls inside its field, which clips it |
 | A waiting change is a note at the foot of the sidebar, above the update note | The owner chose a notice that doesn't interrupt (spec, "Notice, review when ready"). The sidebar is on every page, like the update note; the note is in text colour, not muted, because it asks for a decision. A dialog that opens by itself would interrupt listening and typing |
 | The review is a dialog like the tag editor's, focus on Decide later | The same `Modal` pattern. Three answers: write, reject, or leave it waiting; the focus starts on the one that changes nothing, so an Enter pressed by accident writes nothing. A click beside it does nothing, and Escape decides later |
@@ -894,15 +894,12 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - On Windows, a change an agent asked for can't be accepted while the player has
   one of its files open: the review says which file and keeps the change waiting
   until playback moves on. The tag editor instead writes the rest and holds that
-  one file back; a change set is written whole or not at all, so it waits. Tested
-  on Linux with the lock simulated.
+  one file back; a change set is accepted once, with a result per file, so it waits
+  rather than leave one file for later. Tested on Linux with the lock simulated.
 - The review lists each change's values, not the files it covers: a change to a
   few tracks of several albums reads as one row per value, with its count.
 - Agents can't change covers: the MCP tools take the other eight fields and any tag,
   but no image.
-- Clients that only start local commands (Claude Desktop) can't connect yet: the
-  stdio relay (`vcmp mcp`, spec phase 6) isn't built. Clients that speak HTTP
-  (Claude Code) can.
 
 - The history (back and forward) remembers sections and the album, artist and
   playlist pages, not a folder opened on the Folders page or the search typed, and

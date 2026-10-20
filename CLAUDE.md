@@ -57,6 +57,11 @@ instead of the platform data and cache directories. For example,
 `VCMP_HOME=target/scan-example cargo run -p vcmp-app` opens the library that
 `cargo run --example scan` built.
 
+`cargo run -p vcmp-app -- mcp` runs the stdio relay for MCP clients instead of the
+window: it relays standard input and output to a VCMP running with the same
+`VCMP_HOME` and its AI agents switch on ([docs/mcp.md](docs/mcp.md)). Accepting an
+agent's change writes tags, so try agents on a `VCMP_HOME` library of copied files.
+
 Last.fm exists only in builds made with VCMP's API key: set `VCMP_LASTFM_API_KEY`
 and `VCMP_LASTFM_SHARED_SECRET` when building (read with `option_env!`; without both
 the Settings row is hidden and nothing is sent). Never commit them; CI and the

@@ -90,8 +90,24 @@ like this, with your token:
 claude mcp add --transport http vcmp http://127.0.0.1:8267/mcp --header "Authorization: Bearer <token>"
 ```
 
-Other clients that speak MCP over HTTP need the same address and header. Claude
-Desktop, which only starts programs on your computer, can't connect yet.
+Other clients that speak MCP over HTTP need the same address and header.
+
+Claude Desktop starts a program instead: VCMP itself, as `vcmp mcp`, which passes
+everything on to the VCMP you have open and finds the token on its own. Settings
+shows the entry to copy, with the path to your VCMP. Open Claude Desktop's settings,
+then Developer, Edit Config, and put the entry inside `"mcpServers"`:
+
+```json
+{
+  "mcpServers": {
+    "vcmp": { "command": "/path/to/vcmp", "args": ["mcp"] }
+  }
+}
+```
+
+On macOS the path ends in `VCMP.app/Contents/MacOS/vcmp`. Restart Claude Desktop
+afterwards. VCMP has to be open with AI agents on while you use it; otherwise Claude
+says that VCMP isn't open.
 
 ## Build it yourself
 

@@ -59,6 +59,8 @@ export global AgentState {
     in property <string> port;
     // The command that adds VCMP to Claude Code.
     in property <string> setup-command;
+    // The entry that adds VCMP to Claude Desktop's mcpServers, through `vcmp mcp`.
+    in property <string> desktop-config;
     callback set-port(string);
     callback new-token();
 
@@ -287,6 +289,18 @@ export component AgentsSection inherits VerticalLayout {
                 label: @tr("Command for Claude Code");
                 text: AgentState.setup-command;
                 copy-label: @tr("Copy the command for Claude Code");
+            }
+            Text {
+                text: @tr("For Claude Desktop, which starts VCMP's relay itself, add this inside \"mcpServers\" in its configuration file:");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            CopyField {
+                label: @tr("Configuration for Claude Desktop");
+                text: AgentState.desktop-config;
+                copy-label: @tr("Copy the configuration for Claude Desktop");
             }
         }
 
