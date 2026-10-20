@@ -113,6 +113,10 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 ### Tag editor (copies only)
 
+- [ ] The editor opens as a dialog in the middle of the window, over the dimmed
+      sidebar and pages, in both themes. Tab and Shift+Tab go round its controls
+      and never reach the page behind; a click beside it does nothing. In the
+      smallest window the form scrolls and Save and Cancel stay in view.
 - [ ] Edit one track, a whole album and a selection of tracks; the subtitle says
       which. Only the fields you changed are written; other players and a rescan
       show the new tags.
@@ -150,6 +154,8 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 - [ ] An album without a cover: Find cover online shows choices, the one picked
       stays after a restart, and Find another cover and Remove cover work.
+- [ ] The cover and photo pickers are dialogs in the middle of the window that
+      don't change size as results arrive; a click beside one closes it.
 - [ ] Artist page: Choose photo… with your own picture and with a file that isn't
       a picture (it says so); Remove photo.
 - [ ] Find photo online (build with the fanart.tv key) for a well-known artist,
@@ -182,6 +188,8 @@ reading the code or with a simulated system, so they are the most likely to fail
       its sidebar entry: the section opens on its grid.
 - [ ] Make the window as short as it goes: the sidebar scrolls and the focused
       entry stays in view.
+- [ ] On a full screen, Settings and About sit in a column in the middle of the
+      page, and the column narrows with the window down to 720 px.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the
       tag editor's error messages, the empty library message in a narrow window.
 - [ ] Hovering an album, artist or playlist card puts a fill behind it. Opening an

@@ -3,14 +3,19 @@
 //!
 //! Latte's own pink is too pale to meet contrast requirements on its light
 //! backgrounds, so the light accent is a darker shade of the same hue. Latte's red
-//! reaches 4.5:1 only on base, which is where errors are written.
+//! reaches 4.5:1 only on base, which is where errors are written. The scrim behind a
+//! dialog is the palette's darkest colour, translucent.
 
 use slint::{Color, ComponentHandle};
 
 use crate::{AppWindow, Theme, ThemePalette};
 
 const fn rgb(hex: u32) -> Color {
-    Color::from_argb_u8(0xff, (hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
+    rgba(hex, 0xff)
+}
+
+const fn rgba(hex: u32, alpha: u8) -> Color {
+    Color::from_argb_u8(alpha, (hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
 }
 
 pub fn light() -> ThemePalette {
@@ -24,6 +29,7 @@ pub fn light() -> ThemePalette {
         accent: rgb(0xa1197d),
         on_accent: rgb(0xeff1f5),
         error: rgb(0xd20f39),
+        scrim: rgba(0x4c4f69, 0x73),
     }
 }
 
@@ -38,6 +44,7 @@ pub fn dark() -> ThemePalette {
         accent: rgb(0xf5c2e7),
         on_accent: rgb(0x11111b),
         error: rgb(0xf38ba8),
+        scrim: rgba(0x11111b, 0xb3),
     }
 }
 
