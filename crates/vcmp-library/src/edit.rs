@@ -6,9 +6,11 @@
 //!
 //! Only the tag VCMP reads is written: ID3v2 in MP3 and WAV files, Vorbis comments in
 //! FLAC and Ogg Vorbis files. It is edited in place, so frames and fields the editor
-//! does not know are kept as they are.
+//! does not know are kept as they are. Tags beyond the nine fields go through
+//! [`crate::other_tags`].
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Seek};
 use std::path::Path;
@@ -28,7 +30,8 @@ use lofty::picture::{MimeType, Picture, PictureInformation, PictureType};
 use lofty::tag::items::Timestamp;
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
 
-use crate::tags::{self, Format, TrackTags};
+use crate::other_tags::{self, KeyProblem, Resolved};
+use crate::tags::{self, Format, TagEntry, TrackTags};
 
 /// A change to one field.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -56,7 +59,7 @@ impl FieldEdit<String> {
 }
 
 impl<T> FieldEdit<T> {
-    fn is_keep(&self) -> bool {
+    pub(crate) fn is_keep(&self) -> bool {
         matches!(self, Self::Keep)
     }
 }
@@ -74,6 +77,11 @@ pub struct TagEdit {
     pub genre: FieldEdit<String>,
     /// The embedded front cover, as JPEG or PNG bytes.
     pub cover: FieldEdit<Vec<u8>>,
+    /// Every other tag, by the key [`crate::Library::track_tags`] lists it under:
+    /// replaced by the values given, in order, or removed. Values are written exactly
+    /// as given, untrimmed; an empty list removes the tag. The keys of the fields
+    /// above are refused here.
+    pub other: BTreeMap<String, FieldEdit<Vec<String>>>,
 }
 
 /// The fields a [`TagEdit`] can change.
@@ -99,6 +107,22 @@ pub enum InvalidTagEdit {
     YearOutOfRange,
     #[error("the cover must be a JPEG or PNG image")]
     CoverFormat,
+    #[error("{0:?} is not a tag key")]
+    UnknownKey(String),
+    #[error("{0:?} is one of the fields VCMP shows; edit it through that field")]
+    ShownField(String),
+    #[error("VCMP can't write values under {0:?}")]
+    UnwritableKey(String),
+    #[error("a value of {0:?} contains a control character other than a line break or tab")]
+    ValueCharacter(String),
+    #[error("a value of {0:?} is empty")]
+    EmptyValue(String),
+    #[error("{0:?} takes whole numbers")]
+    NotANumber(String),
+    /// lofty drops the value in every kind of tag: it lacks the form the key takes,
+    /// like a rating that isn't `email|stars|count`.
+    #[error("a value of {0:?} doesn't have the form the tag takes")]
+    BadValue(String),
 }
 
 impl TagEdit {
@@ -133,6 +157,34 @@ impl TagEdit {
         }
         if let FieldEdit::Set(data) = &self.cover {
             cover_mime_type(data).ok_or(InvalidTagEdit::CoverFormat)?;
+        }
+        for (key, edit) in &self.other {
+            let values = match edit {
+                FieldEdit::Set(values) => values.as_slice(),
+                _ => &[],
+            };
+            for value in values {
+                // Lyrics and notes span lines; a NUL would split an ID3v2 value.
+                if value
+                    .chars()
+                    .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                {
+                    return Err(InvalidTagEdit::ValueCharacter(key.clone()));
+                }
+                // lofty drops a total or movement number that isn't a whole number.
+                if other_tags::takes_number(key) && !value.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(InvalidTagEdit::NotANumber(key.clone()));
+                }
+                if value.is_empty() {
+                    return Err(InvalidTagEdit::EmptyValue(key.clone()));
+                }
+            }
+            other_tags::check_key(key, values).map_err(|problem| match problem {
+                KeyProblem::Unknown => InvalidTagEdit::UnknownKey(key.clone()),
+                KeyProblem::Shown => InvalidTagEdit::ShownField(key.clone()),
+                KeyProblem::Unwritable => InvalidTagEdit::UnwritableKey(key.clone()),
+                KeyProblem::BadValue => InvalidTagEdit::BadValue(key.clone()),
+            })?;
         }
         Ok(())
     }
@@ -185,10 +237,45 @@ pub enum TagWriteError {
     ChangedMeanwhile,
     #[error("the file could not be replaced: {0}")]
     Replace(String),
+    /// A key of [`TagEdit::other`] the file's kind of tag can't hold as given: an
+    /// ID3v2 key in a FLAC file, a common name the format has no field for, a value
+    /// the format takes only in another form (an ID3v2 rating that isn't
+    /// `email|stars|count`), or two keys naming the same tag.
+    #[error("the file's kind of tag can't hold {0:?} as given")]
+    UnsupportedKey(String),
+    /// A change set's file no longer holds what the set was made against, so it is
+    /// left alone rather than overwritten.
+    #[error("the file's tags changed since the change was asked for: {0}")]
+    Conflict(String),
+}
+
+/// What a change set was made against, which the file must still hold to be
+/// written: the values of every key the set may change, and the cover.
+#[derive(Debug, Default)]
+pub(crate) struct Expected {
+    pub values: BTreeMap<String, Vec<String>>,
+    /// [`cover_hash`] of the embedded cover, empty for none; None when the set leaves
+    /// the cover alone.
+    pub cover: Option<String>,
+}
+
+/// A hash naming a cover's bytes.
+pub(crate) fn cover_hash(data: &[u8]) -> String {
+    blake3::hash(data).to_hex().to_string()
 }
 
 /// Writes `edit` into the file at `path` through a verified copy.
-pub(crate) fn write(path: &Path, edit: &TagEdit) -> Result<(), TagWriteError> {
+///
+/// `raw` lets [`TagEdit::other`] name the keys of the nine fields, so an undo can put
+/// back the values a file had, all of them, instead of the scan's reading of them.
+/// With `expected`, a file that doesn't hold those values fails with
+/// [`TagWriteError::Conflict`] before anything is copied.
+pub(crate) fn write(
+    path: &Path,
+    edit: &TagEdit,
+    raw: bool,
+    expected: Option<&Expected>,
+) -> Result<(), TagWriteError> {
     // A symlink keeps pointing at the edited file instead of being replaced by it.
     let path = &dunce::canonicalize(path).map_err(|_| TagWriteError::Unavailable)?;
     let metadata = fs::metadata(path).map_err(|_| TagWriteError::Unavailable)?;
@@ -196,6 +283,11 @@ pub(crate) fn write(path: &Path, edit: &TagEdit) -> Result<(), TagWriteError> {
         return Err(TagWriteError::ReadOnly);
     }
     let current = tags::read(path, false).map_err(TagWriteError::Unreadable)?;
+    if let Some(expected) = expected {
+        check_expected(path, &current.entries, expected)?;
+    }
+    let other = other_tags::resolve(&edit.other, current.format, raw)
+        .map_err(TagWriteError::UnsupportedKey)?;
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(TagWriteError::Unavailable);
     };
@@ -221,8 +313,14 @@ pub(crate) fn write(path: &Path, edit: &TagEdit) -> Result<(), TagWriteError> {
         .map_err(write_error("copying permissions"))?;
     copy.rewind().map_err(write_error("copying the file"))?;
 
-    let expected = edit_tag(copy.as_file_mut(), current.format, edit, &current.tags)
-        .map_err(TagWriteError::Write)?;
+    let (expected, created) = edit_tag(
+        copy.as_file_mut(),
+        current.format,
+        edit,
+        &current.tags,
+        &other,
+    )
+    .map_err(TagWriteError::Write)?;
     copy.as_file()
         .sync_all()
         .map_err(write_error("saving the copy"))?;
@@ -244,18 +342,50 @@ pub(crate) fn write(path: &Path, edit: &TagEdit) -> Result<(), TagWriteError> {
             current.duration, reread.duration
         )));
     }
-    if reread.tags != wanted {
+    // Values written raw under the nine fields' keys are checked by the entries below;
+    // the scan's reading of them follows from those.
+    if !other_tags::names_shown(&other) && reread.tags != wanted {
         return Err(TagWriteError::Verify(format!(
             "expected {wanted:?}, read {:?}",
             reread.tags
         )));
     }
+    other_tags::check(&current.entries, &reread.entries, edit, &other, created)
+        .map_err(TagWriteError::Verify)?;
 
     let now = fs::metadata(path).map_err(|_| TagWriteError::Unavailable)?;
     if now.len() != metadata.len() || now.modified().ok() != metadata.modified().ok() {
         return Err(TagWriteError::ChangedMeanwhile);
     }
     replace(copy, path)?;
+    Ok(())
+}
+
+fn check_expected(
+    path: &Path,
+    entries: &[TagEntry],
+    expected: &Expected,
+) -> Result<(), TagWriteError> {
+    for (key, values) in &expected.values {
+        let found: Vec<&String> = entries
+            .iter()
+            .filter(|entry| entry.key == *key)
+            .map(|entry| &entry.value)
+            .collect();
+        if !found.iter().copied().eq(values.iter()) {
+            return Err(TagWriteError::Conflict(format!(
+                "{key} was {values:?}, is {found:?}"
+            )));
+        }
+    }
+    if let Some(cover) = &expected.cover {
+        let found = tags::embedded_cover(path)
+            .map(|data| cover_hash(&data))
+            .unwrap_or_default();
+        if found != *cover {
+            return Err(TagWriteError::Conflict("the cover changed".into()));
+        }
+    }
     Ok(())
 }
 
@@ -294,21 +424,50 @@ fn sync_dir(path: &Path) {
 }
 
 /// The parts of the written tag checked after writing, beyond what the scanner reads:
-/// every item of the tag and its pictures.
+/// every item of the tag, every entry the scan lists (the items lofty has no common
+/// name for included) and the pictures.
 #[derive(Debug, Default, PartialEq)]
 struct Snapshot {
     items: Vec<String>,
+    /// Values by entry key, in order.
+    entries: BTreeMap<String, Vec<String>>,
     /// Picture type and a hash of the image bytes.
     pictures: Vec<(u8, String)>,
 }
 
 impl Snapshot {
-    fn new(tag: Option<Tag>, extra_pictures: &[(Picture, PictureInformation)]) -> Self {
-        let Some(tag) = tag else {
-            return Self::default();
-        };
+    fn id3v2(tag: Option<&Id3v2Tag>) -> Self {
+        match tag {
+            Some(tag) => Self::new(tag.clone().into(), tags::id3v2_entries(tag), &[]),
+            None => Self::default(),
+        }
+    }
+
+    fn vorbis(
+        tag: Option<&VorbisComments>,
+        extra_pictures: &[(Picture, PictureInformation)],
+    ) -> Self {
+        match tag {
+            Some(tag) => Self::new(
+                tag.clone().into(),
+                tags::vorbis_entries(tag),
+                extra_pictures,
+            ),
+            None => Self::default(),
+        }
+    }
+
+    fn new(
+        tag: Tag,
+        tag_entries: Vec<TagEntry>,
+        extra_pictures: &[(Picture, PictureInformation)],
+    ) -> Self {
         let mut items: Vec<String> = tag.items().map(|item| format!("{item:?}")).collect();
         items.sort();
+        let mut entries: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for entry in tag_entries {
+            entries.entry(entry.key).or_default().push(entry.value);
+        }
         let mut pictures: Vec<(u8, String)> = tag
             .pictures()
             .iter()
@@ -321,7 +480,11 @@ impl Snapshot {
             })
             .collect();
         pictures.sort();
-        Self { items, pictures }
+        Self {
+            items,
+            entries,
+            pictures,
+        }
     }
 
     fn difference(&self, written: &Self) -> Option<String> {
@@ -329,6 +492,12 @@ impl Snapshot {
             return Some(format!(
                 "pictures: expected {:?}, read {:?}",
                 self.pictures, written.pictures
+            ));
+        }
+        if self.entries != written.entries {
+            return Some(format!(
+                "entries: expected {:?}, read {:?}",
+                self.entries, written.entries
             ));
         }
         let missing: Vec<&String> = self
@@ -347,13 +516,14 @@ impl Snapshot {
 }
 
 /// Edits the tag VCMP reads in `file` and saves it. Returns what the tag should read
-/// back as.
+/// back as, and whether the tag had to be created.
 fn edit_tag(
     file: &mut File,
     format: Format,
     edit: &TagEdit,
     current: &TrackTags,
-) -> Result<Snapshot, String> {
+    other: &[Resolved],
+) -> Result<(Snapshot, bool), String> {
     let options = ParseOptions::new();
     let read_error = failed("reading the tags");
     match format {
@@ -372,9 +542,11 @@ fn edit_tag(
             let was_id3v23 = existing
                 .as_ref()
                 .is_some_and(|tag| tag.original_version() != Id3v2Version::V4);
+            let created = existing.is_none();
             let mut tag = existing.unwrap_or_else(|| seeded(TagType::Id3v2, current).into());
             edit_id3v2(&mut tag, edit)?;
-            let expected = Snapshot::new(Some(tag.clone().into()), &[]);
+            other_tags::edit_id3v2(&mut tag, other)?;
+            let expected = Snapshot::id3v2(Some(&tag));
             let save = |file: &mut File, use_id3v23: bool| {
                 file.rewind().map_err(|error| error.to_string())?;
                 tag.save_to(file, WriteOptions::new().use_id3v23(use_id3v23))
@@ -387,29 +559,32 @@ fn edit_tag(
                 save(file, true)?;
                 file.rewind().map_err(|error| error.to_string())?;
                 if snapshot(file, format)?.difference(&expected).is_none() {
-                    return Ok(expected);
+                    return Ok((expected, created));
                 }
             }
             save(file, false)?;
-            Ok(expected)
+            Ok((expected, created))
         }
         Format::OggVorbis => {
             let ogg = VorbisFile::read_from(file, options).map_err(read_error)?;
             let mut tag = ogg.vorbis_comments().clone();
             edit_vorbis(&mut tag, edit);
+            other_tags::edit_vorbis(&mut tag, other)?;
             edit_pictures(&mut tag, &edit.cover)?;
             file.rewind().map_err(|error| error.to_string())?;
             tag.save_to(file, WriteOptions::new())
                 .map_err(failed("saving the tags"))?;
-            Ok(Snapshot::new(Some(tag.into()), &[]))
+            Ok((Snapshot::vorbis(Some(&tag), &[]), false))
         }
         Format::Flac => {
             let mut flac = FlacFile::read_from(file, options).map_err(read_error)?;
+            let created = flac.vorbis_comments().is_none();
             let mut tag = match flac.vorbis_comments() {
                 Some(tag) => tag.clone(),
                 None => seeded(TagType::VorbisComments, current).into(),
             };
             edit_vorbis(&mut tag, edit);
+            other_tags::edit_vorbis(&mut tag, other)?;
             // Pictures stored inside the comments are written back as picture blocks
             // anyway; keep them all in one list, in the order the scanner sees them.
             let mut pictures = tag.remove_pictures();
@@ -425,7 +600,7 @@ fn edit_tag(
             file.rewind().map_err(|error| error.to_string())?;
             flac.save_to(file, WriteOptions::new())
                 .map_err(failed("saving the tags"))?;
-            Ok(Snapshot::new(Some(tag.into()), flac.pictures()))
+            Ok((Snapshot::vorbis(Some(&tag), flac.pictures()), created))
         }
     }
 }
@@ -439,38 +614,27 @@ fn snapshot(file: &mut File, format: Format) -> Result<Snapshot, String> {
     let options = ParseOptions::new();
     let read_error = failed("reading the copy");
     Ok(match format {
-        Format::Mp3 => Snapshot::new(
+        Format::Mp3 => Snapshot::id3v2(
             MpegFile::read_from(file, options)
                 .map_err(read_error)?
-                .id3v2()
-                .cloned()
-                .map(Tag::from),
-            &[],
+                .id3v2(),
         ),
-        Format::Wav => Snapshot::new(
+        Format::Wav => Snapshot::id3v2(
             WavFile::read_from(file, options)
                 .map_err(read_error)?
-                .id3v2()
-                .cloned()
-                .map(Tag::from),
-            &[],
+                .id3v2(),
         ),
-        Format::OggVorbis => Snapshot::new(
+        Format::OggVorbis => Snapshot::vorbis(
             Some(
                 VorbisFile::read_from(file, options)
                     .map_err(read_error)?
-                    .vorbis_comments()
-                    .clone()
-                    .into(),
+                    .vorbis_comments(),
             ),
             &[],
         ),
         Format::Flac => {
             let flac = FlacFile::read_from(file, options).map_err(read_error)?;
-            Snapshot::new(
-                flac.vorbis_comments().cloned().map(Tag::from),
-                flac.pictures(),
-            )
+            Snapshot::vorbis(flac.vorbis_comments(), flac.pictures())
         }
     })
 }
@@ -610,6 +774,12 @@ fn edit_id3v2(tag: &mut Id3v2Tag, edit: &TagEdit) -> Result<(), String> {
 }
 
 fn edit_vorbis(tag: &mut VorbisComments, edit: &TagEdit) {
+    let original = other_tags::vorbis_fields(tag);
+    edit_vorbis_fields(tag, edit);
+    other_tags::keep_vorbis_order(tag, &original);
+}
+
+fn edit_vorbis_fields(tag: &mut VorbisComments, edit: &TagEdit) {
     match edit.title.normalized() {
         FieldEdit::Keep => {}
         FieldEdit::Set(value) => tag.set_title(value.to_owned()),
@@ -661,7 +831,7 @@ fn edit_vorbis(tag: &mut VorbisComments, edit: &TagEdit) {
     }
 }
 
-fn is_album_artist_key(key: &str) -> bool {
+pub(crate) fn is_album_artist_key(key: &str) -> bool {
     key.eq_ignore_ascii_case("ALBUMARTIST") || key.eq_ignore_ascii_case("ALBUM ARTIST")
 }
 

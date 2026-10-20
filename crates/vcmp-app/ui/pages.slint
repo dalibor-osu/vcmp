@@ -14,6 +14,7 @@ import { FolderBrowser, FolderRow } from "folders-page.slint";
 import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
 import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
 import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
+import { AgentsSection } from "agents.slint";
 
 // Shared frame of Settings and About: title plus content in a column in the middle of
 // the page, fading in when the page is opened. The column takes 60 % of a wide page,
@@ -181,6 +182,8 @@ export component SettingsPage inherits Page {
             }
         }
     }
+
+    AgentsSection { }
 
     UpdatesSection { }
 }

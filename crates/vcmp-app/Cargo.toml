@@ -24,6 +24,7 @@ serde_json = "1.0.154"
 slint = { workspace = true, features = ["unstable-winit-030"] }
 vcmp-integrations = { version = "26.10.0", path = "../vcmp-integrations" }
 vcmp-library = { version = "26.10.0", path = "../vcmp-library" }
+vcmp-mcp = { version = "26.10.0", path = "../vcmp-mcp" }
 vcmp-playback = { version = "26.10.0", path = "../vcmp-playback" }
 # Opens Last.fm's page where the user allows VCMP to scrobble.
 webbrowser = "1.2.4"

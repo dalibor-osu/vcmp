@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::ComponentHandle;
+use vcmp_app::agents::{self, AgentService};
 use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
@@ -22,6 +23,10 @@ use vcmp_playback::{Player, PlayerOptions};
 
 fn main() -> Result<(), slint::PlatformError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        relay();
+        return Ok(());
+    }
     let window = vcmp_app::create_window()?;
     vcmp_app::shortcuts::install(&window);
     vcmp_app::preferences::follow_system_motion(&window);
@@ -43,6 +48,13 @@ fn main() -> Result<(), slint::PlatformError> {
                         Credentials::built_in(),
                     );
                     let tag_editor = TagEditor::connect(
+                        &window,
+                        library.clone(),
+                        paths.clone(),
+                        view.clone(),
+                        Delivery::EventLoop,
+                    );
+                    let agents = AgentService::connect(
                         &window,
                         library.clone(),
                         paths.clone(),
@@ -131,9 +143,19 @@ fn main() -> Result<(), slint::PlatformError> {
                                 }
                             });
                             let editor = Rc::downgrade(&tag_editor);
+                            let reviews = Rc::downgrade(&agents);
                             service.on_open_file(move |path| {
                                 if let Some(editor) = editor.upgrade() {
                                     editor.set_playback_file(path);
+                                }
+                                if let Some(reviews) = reviews.upgrade() {
+                                    reviews.set_playback_file(path);
+                                }
+                            });
+                            let player = Rc::downgrade(&service);
+                            agents.on_written(move || {
+                                if let Some(player) = player.upgrade() {
+                                    player.tags_changed();
                                 }
                             });
                             Some(service)
@@ -149,7 +171,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         cover_fetch,
                         lastfm,
                         tag_editor,
-                        (artist_photos, History::connect(&window, view.clone())),
+                        (
+                            artist_photos,
+                            History::connect(&window, view.clone()),
+                            agents,
+                        ),
                     ));
                 }
                 Err(error) => {
@@ -179,6 +205,22 @@ fn main() -> Result<(), slint::PlatformError> {
         tag_editor.write_waiting();
     }
     result
+}
+
+/// `vcmp mcp`: relays an MCP client's standard input and output to the VCMP that runs,
+/// for clients that only start local programs (Claude Desktop). It opens no window;
+/// its log goes to standard error.
+fn relay() {
+    let paths = library_paths().map_err(|error| error.to_string());
+    let settings = || match &paths {
+        Ok(paths) => agents::relay_connection(paths),
+        Err(error) => Err(format!("VCMP's library can't be found: {error}")),
+    };
+    let result = vcmp_mcp::relay::run(&settings, std::io::stdin().lock(), std::io::stdout().lock());
+    if let Err(error) = result {
+        log::error!("the relay stopped: {error}");
+        std::process::exit(1);
+    }
 }
 
 /// The platform's data and cache directories, or `$VCMP_HOME` (holding

@@ -888,13 +888,14 @@ export component SearchField {
 }
 
 // A one-line field for a name. Enter keeps the text, Escape gives up; the owner
-// offers buttons for both too.
+// offers buttons for both too. Read-only, it shows text to select and copy.
 export component TextField {
     in property <string> label;
     in-out property <string> text;
     // Shown while the field is empty.
     in property <string> placeholder;
     in property <length> font-size: Theme.font-body;
+    in property <bool> read-only;
     callback accepted(string);
     callback cancelled();
 
@@ -902,6 +903,13 @@ export component TextField {
     public function focus-text() {
         input.focus();
         input.select-all();
+    }
+
+    // Puts the whole text on the clipboard, for a Copy button beside the field.
+    public function copy-all() {
+        input.select-all();
+        input.copy();
+        input.clear-selection();
     }
 
     min-height: Theme.target-height;
@@ -930,7 +938,12 @@ export component TextField {
             padding-left: Theme.space-m;
             padding-right: Theme.space-m;
 
+            // Text longer than the field scrolls inside it, never over its neighbours:
+            // without the minimum the input would widen the field to its whole text.
             Rectangle {
+                min-width: 0px;
+                clip: true;
+
                 if root.text == "": Text {
                     width: parent.width;
                     height: parent.height;
@@ -947,6 +960,7 @@ export component TextField {
                     height: parent.height;
                     text <=> root.text;
                     single-line: true;
+                    read-only: root.read-only;
                     color: Theme.colors.text;
                     font-size: root.font-size;
                     vertical-alignment: center;

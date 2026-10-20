@@ -2,15 +2,18 @@
 //! artwork caching. Must not depend on the UI crate.
 //!
 //! The database is a cache of the files' tags (the files are the source of truth) plus
-//! what only VCMP knows: source directories, settings and the plays waiting for
-//! Last.fm. Music files are written only by [`Library::write_tags`], through a
-//! verified copy.
+//! what only VCMP knows: source directories, settings, the plays waiting for Last.fm
+//! and the change sets AI agents asked for. Music files are written only by
+//! [`Library::write_tags`] and [`Library::accept_change_set`], through a verified
+//! copy.
 
 mod artist_photos;
 mod artwork;
+mod changes;
 mod edit;
 mod error;
 mod lookups;
+mod other_tags;
 mod path_codec;
 mod playlists;
 mod query;
@@ -26,6 +29,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub use artwork::{Artwork, THUMBNAIL_SIZE};
+pub use changes::{
+    CHANGE_SETS_KEPT, ChangeKind, ChangeSet, ChangeSetId, ChangeSetSummary, ChangeStatus,
+    ChangedFile, FileResult, ValueChange,
+};
 pub use edit::{FieldEdit, InvalidTagEdit, TagEdit, TagField, TagWriteError};
 pub use error::{Error, Result};
 pub use lookups::{CoverArtId, CoverLookup};
@@ -33,7 +40,7 @@ pub use playlists::{Playlist, PlaylistEntry, PlaylistId};
 pub use query::{Album, AlbumId, Artist, ArtistId, SearchResults, Track, TrackId};
 pub use scan::{ScanPhase, ScanProgress, ScanReport, SkippedFile};
 pub use scrobbles::{QueuedScrobble, Scrobble};
-pub use tags::Format;
+pub use tags::{Format, TagEntry};
 pub use watch::LibraryWatcher;
 
 use artwork::ArtworkStore;
@@ -264,6 +271,63 @@ impl Library {
         query::track(&self.conn, id)
     }
 
+    /// Every text item of the tag VCMP reads from the track's file, as the last scan
+    /// found it: the fields [`Track`] shows and all the others. Empty for a track not
+    /// read since the database gained these (the next scan reads it).
+    pub fn track_tags(&self, id: TrackId) -> Result<Vec<TagEntry>> {
+        let mut statement = self.conn.prepare_cached(
+            "SELECT key, value FROM track_tags WHERE track_id = ?1 ORDER BY position",
+        )?;
+        let entries = statement
+            .query_map([id.0], |row| {
+                Ok(TagEntry {
+                    key: row.get(0)?,
+                    value: row.get(1)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(entries)
+    }
+
+    /// Every key `track_tags` holds, with how many tracks hold it, the most common
+    /// first.
+    pub fn tag_keys(&self) -> Result<Vec<(String, usize)>> {
+        let mut statement = self.conn.prepare(
+            "SELECT key, COUNT(DISTINCT track_id) AS tracks FROM track_tags
+             GROUP BY key ORDER BY tracks DESC, key",
+        )?;
+        let keys = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as usize)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(keys)
+    }
+
+    /// The available tracks that hold `key` (with `value` among its values, when
+    /// given), or with `missing` those that don't hold it at all; by id, `limit` of
+    /// them from `offset`.
+    pub fn tracks_by_tag(
+        &self,
+        key: &str,
+        value: Option<&str>,
+        missing: bool,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<TrackId>> {
+        let holds = "EXISTS (SELECT 1 FROM track_tags g WHERE g.track_id = t.id AND g.key = ?1
+                     AND (?2 IS NULL OR g.value = ?2))";
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT t.id FROM tracks t WHERE t.available = 1 AND {} {holds}
+             ORDER BY t.id LIMIT ?3 OFFSET ?4",
+            if missing { "NOT" } else { "" }
+        ))?;
+        let ids = statement
+            .query_map(params![key, value, limit as i64, offset as i64], |row| {
+                Ok(TrackId(row.get(0)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(ids)
+    }
+
     /// Writes tag edits into the tracks' files, then re-reads them into the database
     /// as a scan would. Each file is written through a copy that is read back and
     /// checked before it atomically replaces the original, so a failure leaves the
@@ -294,7 +358,7 @@ impl Library {
             progress(done, edits.len());
             let row = self.track(track)?;
             let result = match &row {
-                Some(row) if row.available => edit::write(&row.path, edit),
+                Some(row) if row.available => edit::write(&row.path, edit, false, None),
                 _ => Err(TagWriteError::Unavailable),
             };
             match result {
