@@ -1,0 +1,411 @@
+//! The server over real HTTP on a free port, with changes made straight on a library
+//! connection of the test's own: the token and Origin checks, the handshake, reading
+//! tags, and changes that wait for review. Files are copies in a temporary directory.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+
+use lofty::config::WriteOptions;
+use lofty::file::TaggedFileExt;
+use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
+use serde_json::{Value, json};
+use vcmp_library::{ChangeSetId, ChangeStatus, Library, PlaylistId, TagEdit, TrackId};
+use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig};
+
+const FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../vcmp-library/tests/fixtures/silence.flac"
+);
+const TOKEN: &str = "test-token";
+
+/// The app's part, done at once on a connection of the test's own.
+struct Direct(Mutex<Library>);
+
+impl Changes for Direct {
+    fn submit_tags(
+        &self,
+        agent: &str,
+        edits: Vec<(TrackId, TagEdit)>,
+    ) -> Result<ChangeSetId, String> {
+        let library = self.0.lock().unwrap();
+        library
+            .submit_tag_changes(agent, &edits)
+            .map_err(|error| error.to_string())
+    }
+
+    fn submit_playlist_deletion(
+        &self,
+        agent: &str,
+        playlist: PlaylistId,
+    ) -> Result<ChangeSetId, String> {
+        let library = self.0.lock().unwrap();
+        library
+            .submit_playlist_deletion(agent, playlist)
+            .map_err(|error| error.to_string())
+    }
+
+    fn submit_undo(&self, agent: &str, change: ChangeSetId) -> Result<ChangeSetId, String> {
+        let library = self.0.lock().unwrap();
+        library
+            .submit_undo(change, agent)
+            .map_err(|error| error.to_string())
+    }
+
+    fn edit_playlist(&self, edit: PlaylistEdit) -> Result<Option<PlaylistId>, String> {
+        let library = self.0.lock().unwrap();
+        let result = match edit {
+            PlaylistEdit::Create(name) => library.create_playlist(&name).map(Some),
+            PlaylistEdit::Rename(id, name) => library.rename_playlist(id, &name).map(|()| None),
+            PlaylistEdit::Add(id, tracks) => library.add_to_playlist(id, &tracks).map(|()| None),
+            PlaylistEdit::Remove(id, positions) => {
+                library.remove_from_playlist(id, &positions).map(|()| None)
+            }
+            PlaylistEdit::Move(id, from, to) => {
+                library.move_in_playlist(id, from, to).map(|()| None)
+            }
+        };
+        result.map_err(|error| error.to_string())
+    }
+}
+
+struct Setup {
+    // Dropped first: the server's thread stops before the directory goes.
+    server: Server,
+    library: Library,
+    http: ureq::Agent,
+    _dir: tempfile::TempDir,
+}
+
+/// Two tagged files, one with a composer, scanned.
+fn start() -> Setup {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dunce::canonicalize(dir.path()).unwrap();
+    let music = base.join("music");
+    std::fs::create_dir_all(&music).unwrap();
+    tagged(&music.join("a.flac"), "A", Some("Writer"));
+    tagged(&music.join("b.flac"), "B", None);
+    let database = base.join("library.sqlite3");
+    let cache = base.join("cache");
+    let mut library = Library::open(&database, &cache).unwrap();
+    library.add_source(&music, true).unwrap();
+    library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+
+    let changes = Arc::new(Direct(Mutex::new(
+        Library::open(&database, &cache).unwrap(),
+    )));
+    let server = Server::start(
+        ServerConfig {
+            port: 0,
+            token: TOKEN.into(),
+            database,
+            cache,
+        },
+        changes,
+    )
+    .unwrap();
+    let http = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into();
+    Setup {
+        server,
+        library,
+        http,
+        _dir: dir,
+    }
+}
+
+fn tagged(path: &PathBuf, title: &str, composer: Option<&str>) {
+    std::fs::copy(FIXTURE, path).unwrap();
+    let file = lofty::read_from_path(path).unwrap();
+    let mut tag = Tag::new(file.primary_tag_type());
+    tag.set_title(title.into());
+    tag.set_artist("Artist".into());
+    tag.set_album("Album".into());
+    if let Some(composer) = composer {
+        tag.insert_text(ItemKey::Composer, composer.into());
+    }
+    tag.save_to_path(path, WriteOptions::default()).unwrap();
+}
+
+/// A JSON-RPC answer, from a JSON body or an event stream's data lines.
+fn answer(body: &str) -> Value {
+    if let Ok(value) = serde_json::from_str::<Value>(body) {
+        return value;
+    }
+    body.lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .filter_map(|data| serde_json::from_str::<Value>(data.trim()).ok())
+        .find(|value| value.get("id").is_some())
+        .unwrap_or_else(|| panic!("no answer in {body:?}"))
+}
+
+/// An MCP session: the handshake done, ready for tool calls.
+struct Session<'a> {
+    setup: &'a Setup,
+    id: String,
+    next: u64,
+}
+
+impl Setup {
+    fn post(
+        &self,
+        body: &Value,
+        session: Option<&str>,
+        token: Option<&str>,
+        origin: Option<&str>,
+    ) -> (u16, String, Option<String>) {
+        let mut request = self
+            .http
+            .post(self.server.address())
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream");
+        if let Some(session) = session {
+            request = request.header("Mcp-Session-Id", session);
+        }
+        if let Some(token) = token {
+            request = request.header("Authorization", &format!("Bearer {token}"));
+        }
+        if let Some(origin) = origin {
+            request = request.header("Origin", origin);
+        }
+        let mut response = request.send(body.to_string()).unwrap();
+        let status = response.status().as_u16();
+        let session = response
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let text = response.body_mut().read_to_string().unwrap_or_default();
+        (status, text, session)
+    }
+
+    fn session(&self) -> Session<'_> {
+        let (status, body, session) = self.post(
+            &json!({
+                "jsonrpc": "2.0", "id": 0, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": { "name": "test-agent", "version": "1.0" }
+                }
+            }),
+            None,
+            Some(TOKEN),
+            None,
+        );
+        assert_eq!(status, 200, "{body}");
+        let id = session.expect("a session id");
+        let instructions = answer(&body)["result"]["instructions"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(instructions.contains("album_artist"), "{instructions}");
+        assert_eq!(answer(&body)["result"]["serverInfo"]["name"], "vcmp");
+        self.post(
+            &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            Some(&id),
+            Some(TOKEN),
+            None,
+        );
+        Session {
+            setup: self,
+            id,
+            next: 1,
+        }
+    }
+}
+
+impl Session<'_> {
+    fn request(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        let (status, body, _) = self.setup.post(
+            &json!({ "jsonrpc": "2.0", "id": self.next, "method": method, "params": params }),
+            Some(&self.id),
+            Some(TOKEN),
+            None,
+        );
+        assert_eq!(status, 200, "{body}");
+        answer(&body)
+    }
+
+    /// Calls a tool; its JSON answer, or the error text.
+    fn call(&mut self, tool: &str, arguments: Value) -> Result<Value, String> {
+        let result = self.request(
+            "tools/call",
+            json!({ "name": tool, "arguments": arguments }),
+        )["result"]
+            .clone();
+        let text = result["content"][0]["text"].as_str().unwrap_or_default();
+        if result["isError"] == json!(true) {
+            return Err(text.to_owned());
+        }
+        Ok(serde_json::from_str(text).unwrap_or(Value::String(text.to_owned())))
+    }
+}
+
+fn id_of(library: &Library, path_end: &str) -> TrackId {
+    library
+        .tracks()
+        .unwrap()
+        .into_iter()
+        .find(|track| track.path.ends_with(Path::new(path_end)))
+        .unwrap()
+        .id
+}
+
+#[test]
+fn only_requests_with_the_token_and_without_a_browser_origin_get_in() {
+    let setup = start();
+    let initialize = json!({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": { "name": "test", "version": "1.0" }
+        }
+    });
+    let (status, _, _) = setup.post(&initialize, None, None, None);
+    assert_eq!(status, 401);
+    let (status, _, _) = setup.post(&initialize, None, Some("wrong"), None);
+    assert_eq!(status, 401);
+    let (status, _, _) = setup.post(&initialize, None, Some(TOKEN), Some("https://example.com"));
+    assert_eq!(status, 403);
+    let (status, _, _) = setup.post(&initialize, None, Some(TOKEN), None);
+    assert_eq!(status, 200);
+}
+
+#[test]
+fn agents_read_every_tag_and_find_tracks_by_tag() {
+    let setup = start();
+    let mut session = setup.session();
+    let tools = session.request("tools/list", json!({}))["result"]["tools"].clone();
+    let names: Vec<&str> = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    for expected in [
+        "search",
+        "get_tracks",
+        "propose_tag_changes",
+        "propose_playlist_deletion",
+    ] {
+        assert!(names.contains(&expected), "{names:?}");
+    }
+
+    let a = id_of(&setup.library, "a.flac");
+    let tracks = session
+        .call("get_tracks", json!({ "track_ids": [a.0] }))
+        .unwrap();
+    assert_eq!(tracks[0]["title"], "A");
+    assert_eq!(tracks[0]["tags"]["Composer"], json!(["Writer"]));
+
+    let missing = session
+        .call(
+            "find_tracks_by_tag",
+            json!({ "key": "Composer", "missing": true }),
+        )
+        .unwrap();
+    assert_eq!(missing.as_array().unwrap().len(), 1);
+    assert_eq!(missing[0]["title"], "B");
+    assert_eq!(
+        session
+            .call("get_tracks", json!({ "track_ids": [999] }))
+            .unwrap_err(),
+        "there is no track 999"
+    );
+}
+
+#[test]
+fn tag_changes_wait_for_review_under_the_agents_name() {
+    let setup = start();
+    let mut session = setup.session();
+    let a = id_of(&setup.library, "a.flac");
+    let before = std::fs::read(setup.library.track(a).unwrap().unwrap().path).unwrap();
+
+    let answer = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [{
+                "track_id": a.0,
+                "album_artist": "Artist",
+                "remove": ["genre"],
+                "tags": { "Composer": ["Someone"], "Label": [] }
+            }] }),
+        )
+        .unwrap();
+    assert_eq!(answer["status"], "pending");
+    let id = ChangeSetId(answer["change_set_id"].as_i64().unwrap());
+    let set = setup.library.change_set(id).unwrap().unwrap();
+    assert_eq!(set.summary.status, ChangeStatus::Pending);
+    assert_eq!(set.summary.agent, "test-agent");
+    assert_eq!(
+        std::fs::read(setup.library.track(a).unwrap().unwrap().path).unwrap(),
+        before,
+        "nothing is written"
+    );
+    let status = session
+        .call("get_change_set", json!({ "change_set_id": id.0 }))
+        .unwrap();
+    assert_eq!(status["status"], "pending");
+
+    let refused = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [{ "track_id": a.0, "tags": { "TrackTitle": ["X"] } }] }),
+        )
+        .unwrap_err();
+    assert!(refused.contains("TrackTitle"), "{refused}");
+    let both = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [{ "track_id": a.0, "genre": "Jazz", "remove": ["genre"] }] }),
+        )
+        .unwrap_err();
+    assert!(both.contains("both set and removed"), "{both}");
+}
+
+#[test]
+fn playlists_change_at_once_but_deleting_waits() {
+    let setup = start();
+    let mut session = setup.session();
+    let a = id_of(&setup.library, "a.flac");
+    let b = id_of(&setup.library, "b.flac");
+
+    let created = session
+        .call("create_playlist", json!({ "name": "Mix" }))
+        .unwrap();
+    let id = created["playlist_id"].as_i64().unwrap();
+    session
+        .call(
+            "add_to_playlist",
+            json!({ "playlist_id": id, "track_ids": [a.0, b.0] }),
+        )
+        .unwrap();
+    session
+        .call(
+            "move_in_playlist",
+            json!({ "playlist_id": id, "from": 1, "to": 0 }),
+        )
+        .unwrap();
+    session
+        .call(
+            "rename_playlist",
+            json!({ "playlist_id": id, "name": "Better mix" }),
+        )
+        .unwrap();
+    let playlist = session
+        .call("get_playlist", json!({ "playlist_id": id }))
+        .unwrap();
+    assert_eq!(playlist["playlist"]["name"], "Better mix");
+    assert_eq!(playlist["entries"][0]["track"]["title"], "B");
+
+    let asked = session
+        .call("propose_playlist_deletion", json!({ "playlist_id": id }))
+        .unwrap();
+    assert_eq!(asked["status"], "pending");
+    assert!(setup.library.playlist(PlaylistId(id)).unwrap().is_some());
+}

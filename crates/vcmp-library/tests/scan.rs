@@ -1694,3 +1694,43 @@ fn upgrading_rereads_every_file_once_to_store_its_tags() {
     let report = setup.scan();
     assert_eq!((report.updated, report.unchanged), (0, 2));
 }
+
+#[test]
+fn tracks_are_found_by_a_tag_they_hold_or_lack() {
+    let mut setup = Setup::new();
+    let music = setup.music();
+    let a = add_file(&music, "a.flac", "silence.flac", song("A", "Artist", "One"));
+    let b = add_file(&music, "b.flac", "silence.flac", song("B", "Artist", "Two"));
+    let c = add_file(&music, "c.flac", "silence.flac", song("C", "Other", "Two"));
+    setup.add_music_source();
+    setup.scan();
+    let id = |path: &Path| setup.library.track_id_for_path(path).unwrap().unwrap();
+    let (a, b, c) = (id(&a), id(&b), id(&c));
+
+    let keys = setup.library.tag_keys().unwrap();
+    assert!(keys.contains(&("TrackArtist".to_owned(), 3)), "{keys:?}");
+
+    let library = &setup.library;
+    assert_eq!(
+        library
+            .tracks_by_tag("TrackArtist", Some("Artist"), false, 0, 10)
+            .unwrap(),
+        [a, b]
+    );
+    assert_eq!(
+        library
+            .tracks_by_tag("AlbumTitle", Some("Two"), false, 1, 10)
+            .unwrap(),
+        [c]
+    );
+    assert_eq!(
+        library.tracks_by_tag("Composer", None, true, 0, 2).unwrap(),
+        [a, b]
+    );
+    assert!(
+        library
+            .tracks_by_tag("TrackTitle", None, true, 0, 10)
+            .unwrap()
+            .is_empty()
+    );
+}

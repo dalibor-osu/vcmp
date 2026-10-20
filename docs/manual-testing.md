@@ -217,6 +217,35 @@ reading the code or with a simulated system, so they are the most likely to fail
       page; turning the setting off hides it. While the repository is private the
       check gets 404 and shows nothing.
 
+### AI agents (copies of your music, or a VCMP_HOME library)
+
+Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tags.
+
+- [ ] Settings → AI agents: turn it on. The address, token and the Claude Code
+      command show; Copy puts each on the clipboard. Run the command in a
+      terminal, then `claude mcp list` shows vcmp connected. **(never seen working
+      with a real client)**
+- [ ] Ask Claude Code to list your albums, to show every tag of a track, and to
+      find tracks without a MusicBrainz release ID. The answers match the library.
+- [ ] Ask it to fix something across an album (the album artist, the genre). The
+      sidebar says a change waits. Review shows each tag before and after, the same
+      change in several files once with their count. Decide later and Escape leave
+      it waiting; Write writes it, the album and the player show the new tags, and
+      Claude Code's get_change_set says accepted.
+- [ ] Ask for another change, then edit one of its files in the tag editor before
+      accepting: that file is left as it was and named in the result.
+- [ ] Settings → Changes by agents → Undo… opens a review of the undo; writing it
+      puts every value back, a file with two artists too.
+- [ ] Ask it to make a playlist and fill it: it appears at once. Ask it to delete
+      one: the review warns that it can't be undone; Delete playlist deletes it.
+      The playlist page's own Delete says the same.
+- [ ] Close VCMP with a change waiting, start it again: the change shows as not
+      reviewed before VCMP closed.
+- [ ] Start a second program on the port (`python3 -m http.server 8267`), turn the
+      switch off and on: Settings says the port is in use; another port in Port
+      works. New token: the old one gets "401" (Claude Code fails to connect).
+- [ ] Delete backups… asks first, then empties the list of finished changes.
+
 ## Linux
 
 - [ ] With the VCMP window focused, the keyboard's play/pause, next and previous
@@ -254,6 +283,8 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Edit the tags of the playing track: the editor says it waits, the write
       happens when playback stops or moves to the next track, and pause alone
       doesn't release it. **(never seen working)**
+- [ ] An agent's change that includes the playing track: the review names the file
+      and Write stays disabled until playback moves on. **(never seen working)**
 - [ ] Last.fm keeps its key in Credential Manager across restarts.
 - [ ] Output device list shows the WASAPI device names.
 - [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without

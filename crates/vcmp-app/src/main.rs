@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use slint::ComponentHandle;
+use vcmp_app::agents::AgentService;
 use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::cover_fetch::CoverFetch;
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
@@ -43,6 +44,13 @@ fn main() -> Result<(), slint::PlatformError> {
                         Credentials::built_in(),
                     );
                     let tag_editor = TagEditor::connect(
+                        &window,
+                        library.clone(),
+                        paths.clone(),
+                        view.clone(),
+                        Delivery::EventLoop,
+                    );
+                    let agents = AgentService::connect(
                         &window,
                         library.clone(),
                         paths.clone(),
@@ -131,9 +139,19 @@ fn main() -> Result<(), slint::PlatformError> {
                                 }
                             });
                             let editor = Rc::downgrade(&tag_editor);
+                            let reviews = Rc::downgrade(&agents);
                             service.on_open_file(move |path| {
                                 if let Some(editor) = editor.upgrade() {
                                     editor.set_playback_file(path);
+                                }
+                                if let Some(reviews) = reviews.upgrade() {
+                                    reviews.set_playback_file(path);
+                                }
+                            });
+                            let player = Rc::downgrade(&service);
+                            agents.on_written(move || {
+                                if let Some(player) = player.upgrade() {
+                                    player.tags_changed();
                                 }
                             });
                             Some(service)
@@ -149,7 +167,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         cover_fetch,
                         lastfm,
                         tag_editor,
-                        (artist_photos, History::connect(&window, view.clone())),
+                        (
+                            artist_photos,
+                            History::connect(&window, view.clone()),
+                            agents,
+                        ),
                     ));
                 }
                 Err(error) => {

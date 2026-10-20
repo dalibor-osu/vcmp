@@ -7,7 +7,8 @@
 //!
 //! With `VCMP_HOME` pointing at a library (for example `target/scan-example`), the
 //! shots show that library and its music folders; point it at an empty directory to
-//! see the empty states.
+//! see the empty states. `VCMP_SHOT_ONLY=review` takes only the shots whose names hold
+//! that text.
 
 use std::cell::Cell;
 use std::fs::File;
@@ -18,8 +19,8 @@ use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::{
-    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer,
-    TimerMode, VecModel,
+    ComponentHandle, Image, LogicalPosition, LogicalSize, Model, ModelRc, Rgba8Pixel,
+    SharedPixelBuffer, SharedString, Timer, TimerMode, VecModel,
 };
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
@@ -27,10 +28,11 @@ use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presen
 use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
-    AlbumTile, AppWindow, ArtworkState, CoverSearch as CoverPicker, CoverSearchStatus, LastfmState,
-    LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, SelectionChange,
-    TagChange, TagEditorState, TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection,
-    UpdateState,
+    AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeKind,
+    ChangeProblem, ChangeRow, ChangeStatus, CoverSearch as CoverPicker, CoverSearchStatus,
+    LastfmState, LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion,
+    ReviewStatus, SelectionChange, ServerStatus, TagChange, TagEditorState, TagEditorStatus,
+    TagField, Theme, ThemeMode, TrackSelection, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -68,6 +70,18 @@ struct Shot {
     photo_picker: bool,
     // Two of the album's tracks are selected.
     selection: bool,
+    // AI agents: Settings with the server on and a few changes, or a change in review.
+    agents: Option<Agents>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Agents {
+    Settings,
+    // Settings scrolled down to the changes and the backups.
+    History,
+    Review,
+    ReviewDone,
+    PlaylistDeletion,
 }
 
 const fn shot(
@@ -92,6 +106,26 @@ const fn shot(
         tags_confirm: false,
         photo_picker: false,
         selection: false,
+        agents: None,
+    }
+}
+
+/// Settings opens on its top; the AI agents section shows in the taller window these
+/// shots ask for.
+const fn agents(name: &'static str, mode: ThemeMode, agents: Agents) -> Shot {
+    Shot {
+        agents: Some(agents),
+        ..shot(
+            name,
+            mode,
+            if matches!(agents, Agents::Settings | Agents::History) {
+                6
+            } else {
+                1
+            },
+            None,
+            0,
+        )
     }
 }
 
@@ -216,6 +250,18 @@ const SHOTS: &[Shot] = &[
     shot("focus-nav-light", ThemeMode::Light, 6, None, 1),
     shot("focus-theme-dark", ThemeMode::Dark, 6, None, 3),
     shot("focus-switch-light", ThemeMode::Light, 6, None, 1),
+    agents("agents-light", ThemeMode::Light, Agents::Settings),
+    agents("agents-dark", ThemeMode::Dark, Agents::Settings),
+    agents("agents-history-light", ThemeMode::Light, Agents::History),
+    agents("agents-history-dark", ThemeMode::Dark, Agents::History),
+    agents("review-light", ThemeMode::Light, Agents::Review),
+    agents("review-dark", ThemeMode::Dark, Agents::Review),
+    agents("review-done-light", ThemeMode::Light, Agents::ReviewDone),
+    agents(
+        "review-playlist-dark",
+        ThemeMode::Dark,
+        Agents::PlaylistDeletion,
+    ),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -370,8 +416,156 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     }
     // The album shots show the queue panel too.
     window.set_queue_open(shot.album.is_some() && !shot.tags);
+    show_agents(window, shot.agents);
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
+    }
+}
+
+/// Sets `AgentState` directly: the shots run no server and write nothing.
+fn show_agents(window: &AppWindow, agents: Option<Agents>) {
+    let state = window.global::<AgentState>();
+    let size = match agents {
+        Some(Agents::Settings | Agents::History) => LogicalSize::new(1100.0, 2600.0),
+        _ => LogicalSize::new(1100.0, 720.0),
+    };
+    window.window().set_size(size);
+    let Some(agents) = agents else {
+        state.set_enabled(false);
+        state.set_pending_count(0);
+        state.set_history(ModelRc::default());
+        state.set_review_open(false);
+        return;
+    };
+    state.set_enabled(true);
+    state.set_status(ServerStatus::Running);
+    state.set_port("8267".into());
+    state.set_address("http://127.0.0.1:8267/mcp".into());
+    let token = "3f9c2a7e5b1d48f0a6c3e9b27d5f1a8c4e0b6d2f9a7c3e1b5d8f2a6c0e4b7d93";
+    state.set_token(token.into());
+    state.set_setup_command(
+        format!(
+            "claude mcp add --transport http vcmp http://127.0.0.1:8267/mcp --header \"Authorization: Bearer {token}\""
+        )
+        .into(),
+    );
+    state.set_backups_size("2.4 MB".into());
+    state.set_has_finished(true);
+    let entry = |id, kind, files, status, minutes_ago, can_undo| ChangeEntry {
+        id,
+        kind,
+        files,
+        playlist: if kind == ChangeKind::Playlist {
+            "Road trip".into()
+        } else {
+            SharedString::default()
+        },
+        agent: "Claude Code".into(),
+        minutes_ago,
+        status,
+        can_undo,
+    };
+    state.set_history(ModelRc::new(VecModel::from(vec![
+        entry(4, ChangeKind::Tags, 12, ChangeStatus::Pending, 2, false),
+        entry(
+            3,
+            ChangeKind::Playlist,
+            0,
+            ChangeStatus::Rejected,
+            95,
+            false,
+        ),
+        entry(
+            2,
+            ChangeKind::Tags,
+            3,
+            ChangeStatus::PartlyWritten,
+            1600,
+            true,
+        ),
+        entry(1, ChangeKind::Tags, 40, ChangeStatus::Undone, 5000, false),
+    ])));
+    state.set_pending_count(1);
+
+    let row = |field, key: &str, before: &str, after: &str, files| ChangeRow {
+        field,
+        key: key.into(),
+        before: before.into(),
+        after: after.into(),
+        files,
+    };
+    state.set_review_agent("Claude Code".into());
+    state.set_review_playing(SharedString::default());
+    state.set_review_failed(false);
+    match agents {
+        Agents::Settings => state.set_review_open(false),
+        Agents::History => {
+            state.set_review_open(false);
+            // The wheel over the page, as far down as it goes.
+            window
+                .window()
+                .dispatch_event(WindowEvent::PointerScrolled {
+                    position: LogicalPosition::new(700.0, 400.0),
+                    delta_x: 0.0,
+                    delta_y: -4000.0,
+                });
+        }
+        Agents::Review => {
+            state.set_review_kind(ChangeKind::Tags);
+            state.set_review_files(12);
+            state.set_review_rows(ModelRc::new(VecModel::from(vec![
+                row(
+                    ChangeField::AlbumArtist,
+                    "AlbumArtist",
+                    "",
+                    "Pink Floyd",
+                    12,
+                ),
+                row(ChangeField::Year, "RecordingDate", "1979-11-30", "1979", 12),
+                row(
+                    ChangeField::Genre,
+                    "Genre",
+                    "Rock; Progressive",
+                    "Progressive rock",
+                    12,
+                ),
+                row(ChangeField::Other, "Composer", "", "Roger Waters", 9),
+                row(
+                    ChangeField::Other,
+                    "id3:COMM:iTunNORM",
+                    " 00000A5C 00000B21",
+                    "",
+                    4,
+                ),
+            ])));
+            state.set_review_status(ReviewStatus::Waiting);
+            state.set_review_open(true);
+        }
+        Agents::ReviewDone => {
+            state.set_review_kind(ChangeKind::Tags);
+            state.set_review_files(12);
+            state.set_review_status(ReviewStatus::Done);
+            state.set_review_written(10);
+            state.set_review_problems(ModelRc::new(VecModel::from(vec![
+                ChangeProblem {
+                    file: "04 - Mother.flac".into(),
+                    conflict: true,
+                },
+                ChangeProblem {
+                    file: "07 - Young Lust.flac".into(),
+                    conflict: false,
+                },
+            ])));
+            state.set_review_open(true);
+        }
+        Agents::PlaylistDeletion => {
+            state.set_review_kind(ChangeKind::Playlist);
+            state.set_review_playlist("Road trip".into());
+            state.set_review_files(0);
+            state.set_review_rows(ModelRc::default());
+            state.set_review_status(ReviewStatus::Waiting);
+            state.set_review_open(true);
+        }
     }
 }
 
@@ -513,6 +707,11 @@ fn main() -> Result<(), slint::PlatformError> {
     // Frames are taken without waiting for transitions to finish.
     window.global::<Theme>().set_motion_choice(ReduceMotion::On);
 
+    let only = std::env::var("VCMP_SHOT_ONLY").unwrap_or_default();
+    let shots: Vec<&Shot> = SHOTS
+        .iter()
+        .filter(|shot| shot.name.contains(only.as_str()))
+        .collect();
     let step = Rc::new(Cell::new(0usize));
     let timer = Timer::default();
     let weak = window.as_weak();
@@ -522,7 +721,7 @@ fn main() -> Result<(), slint::PlatformError> {
         step.set(index + 1);
         // Even steps set the scene, odd steps capture it after it has been drawn.
         let shot_index = index / 2;
-        match SHOTS.get(shot_index) {
+        match shots.get(shot_index).copied() {
             Some(shot) if index.is_multiple_of(2) => prepare(&window, shot),
             Some(shot) => {
                 let path = out_dir.join(format!("{}.png", shot.name));

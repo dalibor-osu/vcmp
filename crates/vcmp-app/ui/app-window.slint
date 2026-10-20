@@ -24,7 +24,9 @@ import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint"
 import { PhotoPicker, PhotoSearch, PhotoSearchStatus } from "photo-picker.slint";
 import { TagChange, TagEditorState, TagEditorStatus, TagEditorView, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues } from "tag-editor.slint";
 import { ColumnWidths } from "columns.slint";
+import { AgentState, ChangeEntry, ChangeField, ChangeKind, ChangeProblem, ChangeReview, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus, SidebarReviewNote } from "agents.slint";
 
+export { AgentState, ChangeEntry, ChangeField, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
 export { LastfmProblem, LastfmState, LastfmStatus }
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
 export { CoverSearch, CoverSearchStatus, PhotoSearch, PhotoSearchStatus }
@@ -478,6 +480,10 @@ export component AppWindow inherits Window {
                                 }
                             }
 
+                            // A change an agent asked for waits for review: shown on
+                            // every page, above the update note, until it is decided.
+                            if AgentState.pending-count > 0: SidebarReviewNote { }
+
                             // A newer VCMP is out: shown where the scan status goes,
                             // which has the place while a scan runs. About shows it too.
                             if UpdateState.available && !LibraryState.scanning: SidebarUpdateNote { }
@@ -779,6 +785,12 @@ export component AppWindow inherits Window {
 
                 // The tag editor, the same way.
                 if TagEditorState.open: TagEditorView {
+                    width: parent.width;
+                    height: parent.height;
+                }
+
+                // The review of a change an agent asked for, the same way.
+                if AgentState.review-open: ChangeReview {
                     width: parent.width;
                     height: parent.height;
                 }

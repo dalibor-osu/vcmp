@@ -52,6 +52,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | `src/lastfm_service.rs` | `LastfmService`: the Last.fm row, the account, and plays into the scrobble queue |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note and the Updates section of Settings |
+| `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, changes by agents, backups), the sidebar's review note and `ChangeReview`, the dialog that reviews a change |
+| `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread |
 | `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
 
@@ -120,7 +122,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | An artist's picture is their photo, or without one their newest album's cover | A grid of identical initials said nothing; the cover is theirs and recognisable. Credit-only artists without a photo keep the initial |
 | Album artists by default, everyone behind a switch | The owner's choice: 391 of 532 artists in their library are only credited on others' albums, and would crowd the grid |
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
-| Accent-filled button only for "Add music folder…" on the empty library pages (Albums, Artists, Songs, Folders) | The single action those empty screens exist for; every other button is outlined. Not yet true: Play and the tag editor's save buttons are filled too, which audit 001 (finding 5) leaves open with the accent's jobs (finding 3) |
+| Accent-filled button only for "Add music folder…" on the empty library pages (Albums, Artists, Songs, Folders) | The single action those empty screens exist for; every other button is outlined. Not yet true: Play, the tag editor's save buttons and the review's Write button are filled too, which audit 001 (finding 5) leaves open with the accent's jobs (finding 3) |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
 | The sidebar's sections and playlists scroll as one, above its foot | Eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
 | A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
@@ -141,6 +143,15 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 | Last.fm connects in the browser while the row waits, with Cancel | Last.fm's desktop sign-in happens on last.fm; asking every few seconds spares an "I've allowed it" button |
 | One Last.fm button whose text follows the state (Connect…, Cancel, Disconnect) | The focus stays on it while the state changes under it |
+| AI agents are a section of Settings, off by default | The owner's decision (MCP spec, 2026-10-19): the server runs only while VCMP is open and the switch is on. Its connection (address, token, port, the Claude Code command) shows only while it is on |
+| Values to copy are read-only fields with a Copy button | The token and command are too long to read out; a field shows they are text, selects like text, and Copy needs no clipboard library (`TextField.copy-all`). A long value scrolls inside its field, which clips it |
+| A waiting change is a note at the foot of the sidebar, above the update note | The owner chose a notice that doesn't interrupt (spec, "Notice, review when ready"). The sidebar is on every page, like the update note; the note is in text colour, not muted, because it asks for a decision. A dialog that opens by itself would interrupt listening and typing |
+| The review is a dialog like the tag editor's, focus on Decide later | The same `Modal` pattern. Three answers: write, reject, or leave it waiting; the focus starts on the one that changes nothing, so an Enter pressed by accident writes nothing. A click beside it does nothing, and Escape decides later |
+| The review groups the same change in several files into one row with the count | A change to a whole album would otherwise list the same values twelve times; the spec's risk was an owner who accepts what is too long to read |
+| Before in muted text, after in text colour | The new value is what the owner decides on; the old one is context |
+| Writing tags is the filled button; deleting a playlist is not | Written tags can be undone for 30 days, so filling the button that writes them doesn't push a risk. A deleted playlist can't come back, so its button stays outlined, under the warning |
+| Deleting a playlist warns that it can't be undone, whoever asks | The owner's decision (2026-10-20): the playlist page's own Delete question says it too |
+| The changes by agents list newest first, with Review or Undo where they apply | The decision is about the latest change; older ones are history. An undo is itself a change, so it can be undone (it writes the agent's tags again) |
 
 ## Album grid
 
@@ -880,6 +891,18 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   (`set_open_files_locked`). On Windows they are built but not yet seen working.
 - A play that started before its tags were edited is scrobbled to Last.fm with the
   tags it started with.
+- On Windows, a change an agent asked for can't be accepted while the player has
+  one of its files open: the review says which file and keeps the change waiting
+  until playback moves on. The tag editor instead writes the rest and holds that
+  one file back; a change set is written whole or not at all, so it waits. Tested
+  on Linux with the lock simulated.
+- The review lists each change's values, not the files it covers: a change to a
+  few tracks of several albums reads as one row per value, with its count.
+- Agents can't change covers: the MCP tools take the other eight fields and any tag,
+  but no image.
+- Clients that only start local commands (Claude Desktop) can't connect yet: the
+  stdio relay (`vcmp mcp`, spec phase 6) isn't built. Clients that speak HTTP
+  (Claude Code) can.
 
 - The history (back and forward) remembers sections and the album, artist and
   playlist pages, not a folder opened on the Folders page or the search typed, and

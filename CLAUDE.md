@@ -28,6 +28,7 @@ Read it before changing anything structural.
 | OS media controls | playwire 2 (MPRIS, SMTC, Now Playing) |
 | OS reduce-motion setting | zbus to the XDG settings portal (Linux), windows-sys (Windows), objc2-app-kit, objc2-foundation and block2 (macOS); all already come with Slint |
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus) |
+| AI agents (MCP) | rmcp 3.6 (the official Rust SDK) serving Streamable HTTP through axum 0.8 on 127.0.0.1, on a tokio runtime of its own; getrandom for the token |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
 | Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`; while that can't run, `packaging/release-local.sh` builds the Windows and Linux ones locally in Docker (docs/development.md, "Building the archives locally"). Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
@@ -41,6 +42,7 @@ Workspace layout:
 | `crates/vcmp-library` | Source directories, scanning, tags (reading every tag, writing any), SQLite database, artwork cache, search, playlists, change sets agents ask for (review, undo, retention), watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
 | `crates/vcmp-integrations` | OS media controls, the OS reduce-motion setting, Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online", artist photos from fanart.tv, the update check, Last.fm scrobbling |
+| `crates/vcmp-mcp` | The MCP server AI agents connect to: its tools, the token and Origin checks; changes go to the app through its `Changes` trait |
 
 The core crates must never depend on `vcmp-app` or Slint.
 
@@ -94,7 +96,8 @@ cargo run -p vcmp-app --example screenshots
 ```
 
 The PNGs land in `target/screenshots/`. Set `VCMP_HOME` to show a real library in
-the album shots. `--example grid_benchmark` scrolls the album grid through thousands
+the album shots, and `VCMP_SHOT_ONLY=review` to take only the shots whose names hold
+that text. `--example grid_benchmark` scrolls the album grid through thousands
 of synthetic albums and reports render times and memory (see
 [docs/ui.md](docs/ui.md#album-grid)). `--example album_page_benchmark` (with
 `VCMP_HOME`) opens the library's longest album and scrolls its page.
@@ -155,6 +158,7 @@ cargo run -p vcmp-playback --example play -- path/to/album
 | `docs/ui.md` | UI structure, tokens, design reasons, known limits |
 | `docs/library.md` | Library storage, schema, scan and re-link rules, search, known limits |
 | `docs/playback.md` | Playback engine: threads, data path, queue and shuffle rules, known limits |
+| `docs/mcp.md` | The MCP server for AI agents: running, security, tools, how changes reach the app, known limits |
 | `docs/manual-testing.md` | What only a person can check: real devices, online services, Windows and macOS |
 | `ideas.md` | The owner's original idea list |
 

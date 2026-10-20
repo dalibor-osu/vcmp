@@ -28,6 +28,8 @@ macOS.
   Discord and scrobbles to Last.fm.
 - Has light and dark themes, and uses less motion when your system asks for it.
 - Tells you when a new version is out, unless you turn that off in Settings.
+- Lets AI agents such as Claude Code look through your library, suggest fixes to its
+  tags and build playlists, if you turn it on. Tag changes wait for your review.
 
 ## Download
 
@@ -64,6 +66,32 @@ A version is the date of its release: 26.10.0 is the first release of October 20
 26.10.1 a fix later that month and 26.11.0 the release in November. Releases marked
 as pre-releases on ShitHub are for trying out, and VCMP's update check doesn't
 offer them.
+
+## AI agents
+
+VCMP can let AI agents that speak MCP, such as Claude Code, work with your library.
+It is off until you turn on "Let AI agents use your library" in Settings, under AI
+agents, and it works only while VCMP is open.
+
+- An agent reads your library and every tag of your files, and makes and edits
+  playlists right away.
+- Changing tags, undoing such a change and deleting a playlist wait for you. The
+  sidebar says when something waits; you see every value before and after, then
+  write the change or reject it. A file that changed meanwhile is left alone, and a
+  written change can be undone for 30 days.
+- Agents connect to an address on your own computer and need the token Settings
+  shows. Anyone with the token can read your library while VCMP is open, so keep it
+  to yourself; New token replaces it.
+
+To add VCMP to Claude Code, copy the command Settings shows and run it. It looks
+like this, with your token:
+
+```bash
+claude mcp add --transport http vcmp http://127.0.0.1:8267/mcp --header "Authorization: Bearer <token>"
+```
+
+Other clients that speak MCP over HTTP need the same address and header. Claude
+Desktop, which only starts programs on your computer, can't connect yet.
 
 ## Build it yourself
 

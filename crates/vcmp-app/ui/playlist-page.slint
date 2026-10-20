@@ -299,12 +299,14 @@ export component PlaylistView {
                             }
                         }
 
-                        // Asks before deleting; the tracks stay in the library.
+                        // Asks before deleting, with the same warning an agent's request
+                        // to delete shows: there is no undo. The tracks stay in the
+                        // library.
                         if root.confirming-delete: VerticalLayout {
                             spacing: Theme.space-m;
 
                             Text {
-                                text: @tr("Delete “{}”? Its tracks stay in your library.", root.playlist.name);
+                                text: @tr("Delete “{}”? This can't be undone. Its tracks stay in your library.", root.playlist.name);
                                 color: Theme.colors.text;
                                 font-size: Theme.font-body;
                                 wrap: word-wrap;

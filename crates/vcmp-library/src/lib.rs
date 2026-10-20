@@ -289,6 +289,45 @@ impl Library {
         Ok(entries)
     }
 
+    /// Every key `track_tags` holds, with how many tracks hold it, the most common
+    /// first.
+    pub fn tag_keys(&self) -> Result<Vec<(String, usize)>> {
+        let mut statement = self.conn.prepare(
+            "SELECT key, COUNT(DISTINCT track_id) AS tracks FROM track_tags
+             GROUP BY key ORDER BY tracks DESC, key",
+        )?;
+        let keys = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get::<_, i64>(1)? as usize)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(keys)
+    }
+
+    /// The available tracks that hold `key` (with `value` among its values, when
+    /// given), or with `missing` those that don't hold it at all; by id, `limit` of
+    /// them from `offset`.
+    pub fn tracks_by_tag(
+        &self,
+        key: &str,
+        value: Option<&str>,
+        missing: bool,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<TrackId>> {
+        let holds = "EXISTS (SELECT 1 FROM track_tags g WHERE g.track_id = t.id AND g.key = ?1
+                     AND (?2 IS NULL OR g.value = ?2))";
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT t.id FROM tracks t WHERE t.available = 1 AND {} {holds}
+             ORDER BY t.id LIMIT ?3 OFFSET ?4",
+            if missing { "NOT" } else { "" }
+        ))?;
+        let ids = statement
+            .query_map(params![key, value, limit as i64, offset as i64], |row| {
+                Ok(TrackId(row.get(0)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(ids)
+    }
+
     /// Writes tag edits into the tracks' files, then re-reads them into the database
     /// as a scan would. Each file is written through a copy that is read back and
     /// checked before it atomically replaces the original, so a failure leaves the

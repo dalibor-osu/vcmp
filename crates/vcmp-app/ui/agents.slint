@@ -1,0 +1,686 @@
+// AI agents through MCP: the switch and the connection in Settings, the changes they
+// asked for with Undo, the note in the sidebar while one waits, and the dialog that
+// reviews one. Rust keeps `AgentState` current and implements its callbacks
+// (src/agents.rs).
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Button, Modal, ProgressBar, SectionHeading, SettingRow, TextField, TextLink, Toggle } from "components.slint";
+
+export enum ServerStatus { off, running, failed }
+export enum ChangeKind { tags, undo, playlist }
+export enum ChangeStatus { pending, accepted, partly-written, rejected, discarded, undone }
+
+// One change an agent asked for, as the history lists it.
+export struct ChangeEntry {
+    id: int,
+    kind: ChangeKind,
+    // The files a change of tags covers.
+    files: int,
+    // The playlist a deletion names.
+    playlist: string,
+    // Who asked: the agent's own name, empty for the owner's undo.
+    agent: string,
+    minutes-ago: int,
+    status: ChangeStatus,
+    can-undo: bool,
+}
+
+export enum ChangeField { title, artist, album, album-artist, track, disc, year, genre, cover, other }
+
+// One change the review lists: a tag, its values before and after, and how many files
+// change that way.
+export struct ChangeRow {
+    field: ChangeField,
+    // The tag's key, for a tag other than the nine fields.
+    key: string,
+    // Values joined by semicolons; empty for none.
+    before: string,
+    after: string,
+    files: int,
+}
+
+export enum ReviewStatus { waiting, writing, done }
+
+// A file the accepted change left as it was.
+export struct ChangeProblem {
+    file: string,
+    // Its tags changed since the change was asked for; otherwise writing failed.
+    conflict: bool,
+}
+
+export global AgentState {
+    // Agents may connect while VCMP is open.
+    in property <bool> enabled;
+    callback set-enabled(bool);
+    in property <ServerStatus> status;
+    in property <string> address;
+    in property <string> token;
+    in property <string> port;
+    // The command that adds VCMP to Claude Code.
+    in property <string> setup-command;
+    callback set-port(string);
+    callback new-token();
+
+    // Newest first.
+    in property <[ChangeEntry]> history;
+    callback review(int);
+    callback undo(int);
+    // The covers kept for finished changes ("2.4 MB"), empty when none are kept.
+    in property <string> backups-size;
+    in property <bool> has-finished;
+    callback delete-backups();
+
+    // Changes waiting for review; the sidebar note opens the oldest.
+    in property <int> pending-count;
+    callback review-next();
+
+    // The review dialog.
+    in property <bool> review-open;
+    in property <ChangeKind> review-kind;
+    in property <string> review-agent;
+    in property <int> review-files;
+    in property <string> review-playlist;
+    in property <[ChangeRow]> review-rows;
+    in property <ReviewStatus> review-status;
+    in property <int> review-done;
+    in property <int> review-written;
+    in property <[ChangeProblem]> review-problems;
+    // On Windows: the file playback has open, when the change would rewrite it.
+    in property <string> review-playing;
+    // The library could not be read or written.
+    in property <bool> review-failed;
+    callback accept();
+    callback reject();
+    callback close-review();
+}
+
+// "2 changes by agents wait for your review" at the foot of the sidebar, like the
+// update note: on screen on every page, opening the oldest change.
+export component SidebarReviewNote inherits VerticalLayout {
+    padding: Theme.space-l;
+    padding-left: 2 * Theme.space-l;
+
+    TextLink {
+        text: @tr("{n} change by an agent waits for your review" | "{n} changes by agents wait for your review" % AgentState.pending-count);
+        label: @tr("{n} change by an agent waits for your review, opens it" | "{n} changes by agents wait for your review, opens the oldest" % AgentState.pending-count);
+        font-size: Theme.font-small;
+        wrap: true;
+        clicked => {
+            AgentState.review-next();
+        }
+    }
+}
+
+// A value to copy, with its Copy button.
+component CopyField inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> text;
+    in property <string> copy-label;
+
+    spacing: Theme.space-m;
+
+    // A long value (the token, the command) scrolls inside the field rather than
+    // widening the column.
+    field := TextField {
+        horizontal-stretch: 1;
+        min-width: 96px;
+        preferred-width: 96px;
+        label: root.label;
+        text: root.text;
+        read-only: true;
+    }
+    Button {
+        text: @tr("Copy");
+        label: root.copy-label;
+        clicked => {
+            field.copy-all();
+        }
+    }
+}
+
+// How the history and the review word what they list.
+global AgentWords {
+    // A field's name as the tag editor labels it, or the key of another tag.
+    public pure function field-name(row: ChangeRow) -> string {
+        if row.field == ChangeField.title {
+            return @tr("Title");
+        }
+        if row.field == ChangeField.artist {
+            return @tr("Artist");
+        }
+        if row.field == ChangeField.album {
+            return @tr("Album");
+        }
+        if row.field == ChangeField.album-artist {
+            return @tr("Album artist");
+        }
+        if row.field == ChangeField.track {
+            return @tr("Track");
+        }
+        if row.field == ChangeField.disc {
+            return @tr("Disc");
+        }
+        if row.field == ChangeField.year {
+            return @tr("Year");
+        }
+        if row.field == ChangeField.genre {
+            return @tr("Genre");
+        }
+        if row.field == ChangeField.cover {
+            return @tr("Cover");
+        }
+        row.key
+    }
+
+    public pure function age(minutes: int) -> string {
+        if minutes < 1 {
+            return @tr("just now");
+        }
+        if minutes < 60 {
+            return @tr("{n} minute ago" | "{n} minutes ago" % minutes);
+        }
+        if minutes < 24 * 60 {
+            return @tr("{n} hour ago" | "{n} hours ago" % floor(minutes / 60));
+        }
+        @tr("{n} day ago" | "{n} days ago" % floor(minutes / (24 * 60)))
+    }
+
+    public pure function status-text(status: ChangeStatus) -> string {
+        if status == ChangeStatus.pending {
+            return @tr("waiting for your review");
+        }
+        if status == ChangeStatus.accepted {
+            return @tr("written");
+        }
+        if status == ChangeStatus.partly-written {
+            return @tr("partly written");
+        }
+        if status == ChangeStatus.rejected {
+            return @tr("rejected");
+        }
+        if status == ChangeStatus.discarded {
+            return @tr("not reviewed before VCMP closed");
+        }
+        @tr("undone")
+    }
+
+    public pure function asked-by(agent: string) -> string {
+        agent == "" ? @tr("you") : agent
+    }
+}
+
+// The AI agents section of Settings: the switch, how to connect while it is on, the
+// changes agents asked for, and the backups that keep them undoable.
+export component AgentsSection inherits VerticalLayout {
+    private property <bool> confirming-delete;
+
+    spacing: Theme.space-xs;
+
+    SectionHeading {
+        text: @tr("AI agents");
+    }
+
+    SettingRow {
+        title: @tr("Let AI agents use your library");
+        description: @tr("While VCMP is open, agents that speak MCP, such as Claude, can read your library and edit playlists. Changes to tags and deleting a playlist wait here for your review.");
+
+        Toggle {
+            label: @tr("Let AI agents use your library");
+            checked: AgentState.enabled;
+            toggled(on) => {
+                AgentState.set-enabled(on);
+            }
+        }
+    }
+
+    // How an agent connects, while the switch is on.
+    if AgentState.enabled: VerticalLayout {
+        spacing: Theme.space-m;
+        padding-top: Theme.space-s;
+        padding-bottom: Theme.space-m;
+
+        Text {
+            text: AgentState.status == ServerStatus.failed ? @tr("Port {} is in use by another program, so agents can't connect. Choose another port below.", AgentState.port)
+                : @tr("Agents connect to this address with the token. Anyone with the token can read your library and edit your playlists while VCMP is open, so keep it to yourself.");
+            color: AgentState.status == ServerStatus.failed ? Theme.colors.error : Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        if AgentState.status == ServerStatus.running: CopyField {
+            label: @tr("Address");
+            text: AgentState.address;
+            copy-label: @tr("Copy the address");
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-m;
+
+            CopyField {
+                horizontal-stretch: 1;
+                label: @tr("Token");
+                text: AgentState.token;
+                copy-label: @tr("Copy the token");
+            }
+            Button {
+                text: @tr("New token");
+                label: @tr("Make a new token; agents with the old one can't connect any more");
+                clicked => {
+                    AgentState.new-token();
+                }
+            }
+        }
+
+        if AgentState.status == ServerStatus.running: VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: @tr("To add VCMP to Claude Code, run:");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            CopyField {
+                label: @tr("Command for Claude Code");
+                text: AgentState.setup-command;
+                copy-label: @tr("Copy the command for Claude Code");
+            }
+        }
+
+        SettingRow {
+            title: @tr("Port");
+            description: @tr("The port on this computer agents connect to. Change it if another program uses it.");
+
+            TextField {
+                width: 96px;
+                label: @tr("Port");
+                text: AgentState.port;
+                accepted(text) => {
+                    AgentState.set-port(text);
+                }
+            }
+        }
+    }
+
+    // The changes agents asked for, newest first, each with what can still be done.
+    VerticalLayout {
+        spacing: Theme.space-xs;
+        padding-top: Theme.space-m;
+
+        Text {
+            text: @tr("Changes by agents");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            font-weight: Theme.weight-strong;
+        }
+
+        if AgentState.history.length == 0: Text {
+            text: @tr("Changes agents ask for appear here, newest first. A written change can be undone for 30 days.");
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        for entry in AgentState.history: HorizontalLayout {
+            spacing: Theme.space-xl;
+            padding-top: Theme.space-s;
+            padding-bottom: Theme.space-s;
+
+            VerticalLayout {
+                spacing: Theme.space-xs;
+                alignment: center;
+                horizontal-stretch: 1;
+
+                Text {
+                    text: entry.kind == ChangeKind.playlist ? @tr("Delete the playlist “{}”", entry.playlist)
+                        : entry.kind == ChangeKind.undo ? @tr("Undo tags in {n} file" | "Undo tags in {n} files" % entry.files)
+                        : @tr("Tags of {n} file" | "Tags of {n} files" % entry.files);
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                Text {
+                    text: @tr("Asked by {0} {1}, {2}", AgentWords.asked-by(entry.agent), AgentWords.age(entry.minutes-ago), AgentWords.status-text(entry.status));
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+            }
+
+            if entry.status == ChangeStatus.pending: VerticalLayout {
+                alignment: center;
+
+                Button {
+                    text: @tr("Review");
+                    label: @tr("Review the change asked by {}", AgentWords.asked-by(entry.agent));
+                    clicked => {
+                        AgentState.review(entry.id);
+                    }
+                }
+            }
+            if entry.can-undo: VerticalLayout {
+                alignment: center;
+
+                Button {
+                    text: @tr("Undo…");
+                    label: @tr("Undo the change asked by {}", AgentWords.asked-by(entry.agent));
+                    clicked => {
+                        AgentState.undo(entry.id);
+                    }
+                }
+            }
+        }
+    }
+
+    SettingRow {
+        title: @tr("Backups for undo");
+        description: AgentState.backups-size == "" ? @tr("A written change can be undone for 30 days, with the covers it replaced. Deleting the backups frees their room, and those changes can't be undone after.")
+            : @tr("A written change can be undone for 30 days, with the covers it replaced. The covers kept now take {}. Deleting the backups frees that room, and those changes can't be undone after.", AgentState.backups-size);
+
+        Button {
+            text: @tr("Delete backups…");
+            enabled: AgentState.has-finished && !root.confirming-delete;
+            clicked => {
+                root.confirming-delete = true;
+            }
+        }
+    }
+
+    // Asks first, with the focus on Cancel.
+    if root.confirming-delete: VerticalLayout {
+        spacing: Theme.space-m;
+        padding-bottom: Theme.space-m;
+
+        Text {
+            text: @tr("Delete the backups of every finished change? None of them can be undone afterwards. Changes waiting for review stay.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-m;
+            alignment: start;
+
+            Button {
+                text: @tr("Delete backups");
+                clicked => {
+                    root.confirming-delete = false;
+                    AgentState.delete-backups();
+                }
+            }
+            Button {
+                text: @tr("Cancel");
+                label: @tr("Keep the backups");
+                init => {
+                    self.focus();
+                }
+                clicked => {
+                    root.confirming-delete = false;
+                }
+            }
+        }
+    }
+}
+
+// The review of one change, a dialog like the tag editor: what the agent asks, then
+// Accept, Reject, or Decide later, which leaves the change waiting. The focus starts
+// on Decide later, so an Enter pressed by accident writes nothing. While the files
+// are written only the progress shows; afterwards, what was left as it was.
+export component ChangeReview inherits Modal {
+    private property <bool> waiting: AgentState.review-status == ReviewStatus.waiting;
+    private property <bool> writing: AgentState.review-status == ReviewStatus.writing;
+    private property <bool> done: AgentState.review-status == ReviewStatus.done;
+    private property <bool> blocked: AgentState.review-playing != "";
+    private property <ChangeKind> kind: AgentState.review-kind;
+    // Tab went past the last control, or Shift+Tab before the first.
+    private property <int> wrap-first;
+    private property <int> wrap-last;
+    private property <string> title-text: root.kind == ChangeKind.playlist ? @tr("Delete a playlist?")
+        : root.kind == ChangeKind.undo ? @tr("Review an undo") : @tr("Review tag changes");
+
+    label: root.title-text;
+    card-width: Theme.dialog-width;
+    // A click beside the dialog does nothing, as beside the tag editor.
+    escape => {
+        if !root.writing {
+            AgentState.close-review();
+        }
+    }
+    focus-first => {
+        root.wrap-first += 1;
+    }
+    focus-last => {
+        root.wrap-last += 1;
+    }
+
+    scroll := ScrollView {
+        vertical-stretch: 1;
+        preferred-height: body.preferred-height;
+
+        body := VerticalLayout {
+            padding: Theme.space-xl;
+            padding-bottom: Theme.space-s;
+            spacing: Theme.space-xl;
+            alignment: start;
+
+            VerticalLayout {
+                spacing: Theme.space-s;
+
+                Text {
+                    text: root.title-text;
+                    color: Theme.colors.text;
+                    font-size: Theme.font-title;
+                    font-weight: Theme.weight-strong;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                Text {
+                    text: @tr("Asked by {}", AgentWords.asked-by(AgentState.review-agent));
+                    color: Theme.colors.text;
+                    font-size: Theme.font-heading;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                if !root.done: Text {
+                    text: root.kind == ChangeKind.playlist ? @tr("The playlist “{}” would be deleted. Its tracks stay in your library.", AgentState.review-playlist)
+                        : root.kind == ChangeKind.undo ? @tr("The tags below are put back into {n} file. A file whose tags changed since is left as it was." | "The tags below are put back into {n} files. A file whose tags changed since is left as it was." % AgentState.review-files)
+                        : @tr("The tags below would be written into {n} file. A file whose tags changed since the agent looked is left as it was, and a written change can be undone for 30 days." | "The tags below would be written into {n} files. A file whose tags changed since the agent looked is left as it was, and a written change can be undone for 30 days." % AgentState.review-files);
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                // The warning the owner asked for: said plainly, before the button.
+                if root.kind == ChangeKind.playlist && !root.done: Text {
+                    text: @tr("Deleting a playlist can't be undone.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    font-weight: Theme.weight-strong;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+            }
+
+            // Each change, with its value before and after.
+            if root.kind != ChangeKind.playlist && !root.done: VerticalLayout {
+                spacing: Theme.space-l;
+
+                for row in AgentState.review-rows: VerticalLayout {
+                    spacing: Theme.space-xs;
+
+                    Text {
+                        text: row.files > 1 ? @tr("{0}, in {1} files", AgentWords.field-name(row), row.files) : AgentWords.field-name(row);
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                    Text {
+                        text: row.field == ChangeField.cover ? (row.before == "" ? @tr("Before: no cover") : @tr("Before: a cover"))
+                            : row.before == "" ? @tr("Before: not set") : @tr("Before: {}", row.before);
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                    Text {
+                        text: row.field == ChangeField.cover ? (row.after == "" ? @tr("After: no cover") : @tr("After: a new cover"))
+                            : row.after == "" ? @tr("After: removed") : @tr("After: {}", row.after);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                }
+            }
+
+            // What the accepted change did.
+            if root.done: VerticalLayout {
+                spacing: Theme.space-s;
+
+                Text {
+                    text: AgentState.review-failed ? @tr("The library could not be read or written, so nothing was changed.")
+                        : root.kind == ChangeKind.playlist ? @tr("The playlist is deleted.")
+                        : AgentState.review-problems.length == 0 ? @tr("Written into {n} file." | "Written into {n} files." % AgentState.review-written)
+                        : @tr("Written into {n} file. These files were left as they were:" | "Written into {n} files. These files were left as they were:" % AgentState.review-written);
+                    color: AgentState.review-failed ? Theme.colors.error : Theme.colors.text;
+                    font-size: Theme.font-body;
+                    font-weight: Theme.weight-strong;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                for problem in AgentState.review-problems: VerticalLayout {
+                    Text {
+                        text: problem.file;
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: problem.conflict ? @tr("Its tags changed since the change was asked for.") : @tr("Its tags could not be written.");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                }
+            }
+        }
+    }
+
+    // Marks where the list scrolls under the foot, when it doesn't fit.
+    Rectangle {
+        height: 1px;
+
+        Rectangle {
+            visible: scroll.content-height > scroll.visible-height;
+            background: Theme.colors.surface;
+        }
+    }
+
+    VerticalLayout {
+        padding: Theme.space-xl;
+        padding-top: Theme.space-l;
+        spacing: Theme.space-l;
+
+        if root.writing: VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: @tr("Writing tags: {0} of {1} files", AgentState.review-done, AgentState.review-files);
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+            }
+            ProgressBar {
+                progress: AgentState.review-files > 0 ? AgentState.review-done / AgentState.review-files : 0;
+                label: @tr("Writing tags");
+            }
+        }
+
+        // Always in the layout, collapsed while nothing plays: a wrapped text an `if`
+        // creates lost its last line.
+        Text {
+            visible: root.waiting && root.blocked;
+            height: self.visible ? self.preferred-height : 0px;
+            text: !self.visible ? "" : @tr("{} is playing, and Windows doesn't let VCMP rewrite a file in use. Stop playback or play another track, then accept.", AgentState.review-playing);
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+        }
+
+        if !root.done: HorizontalLayout {
+            spacing: Theme.space-m;
+            alignment: start;
+
+            Button {
+                property <int> wrap: root.wrap-first;
+                changed wrap => {
+                    self.focus();
+                }
+                text: root.kind == ChangeKind.playlist ? @tr("Delete playlist")
+                    : root.kind == ChangeKind.undo ? @tr("Undo in {n} file" | "Undo in {n} files" % AgentState.review-files)
+                    : @tr("Write {n} file" | "Write {n} files" % AgentState.review-files);
+                // Filled for writing tags, which can be undone; not for deleting a
+                // playlist, which can't.
+                primary: root.kind != ChangeKind.playlist;
+                enabled: root.waiting && !root.blocked;
+                clicked => {
+                    AgentState.accept();
+                }
+            }
+            Button {
+                text: @tr("Reject");
+                label: @tr("Reject the change; nothing is written");
+                enabled: root.waiting;
+                clicked => {
+                    AgentState.reject();
+                }
+            }
+            Button {
+                property <int> wrap: root.wrap-last;
+                changed wrap => {
+                    self.focus();
+                }
+                text: @tr("Decide later");
+                label: @tr("Close; the change keeps waiting for your review");
+                enabled: root.waiting;
+                init => {
+                    self.focus();
+                }
+                clicked => {
+                    AgentState.close-review();
+                }
+            }
+        }
+
+        if root.done: HorizontalLayout {
+            alignment: start;
+
+            Button {
+                property <int> first: root.wrap-first;
+                property <int> last: root.wrap-last;
+                changed first => {
+                    self.focus();
+                }
+                changed last => {
+                    self.focus();
+                }
+                text: @tr("Close");
+                init => {
+                    self.focus();
+                }
+                clicked => {
+                    AgentState.close-review();
+                }
+            }
+        }
+    }
+}

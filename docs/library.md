@@ -135,7 +135,9 @@ Besides the fields VCMP shows, a scan stores every text item of the tag it reads
 (ID3v2 in MP3 and WAV, Vorbis comments in FLAC and Ogg Vorbis) in `track_tags`, and
 `Library::track_tags` returns them. They are there for AI agents (see the
 [MCP spec](specs/2026-10-19-mcp-library-server.md)), which can find, for example,
-every track without a MusicBrainz ID.
+every track without a MusicBrainz ID: `Library::tag_keys` lists every key with how
+many tracks hold it, and `Library::tracks_by_tag` the available tracks that hold a
+key (with a value, when given) or lack it.
 
 - **Keys.** An item lofty has a format-independent name for is stored under that
   name (`TrackTitle`, `Composer`, `MusicBrainzReleaseId`, `ReplayGainTrackGain`),

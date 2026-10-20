@@ -139,7 +139,7 @@ impl Library {
     /// the library and available, and every key must fit its file's kind of tag.
     /// Nothing is written until [`Library::accept_change_set`].
     pub fn submit_tag_changes(
-        &mut self,
+        &self,
         agent: &str,
         edits: &[(TrackId, TagEdit)],
     ) -> Result<ChangeSetId> {
@@ -200,7 +200,7 @@ impl Library {
 
     /// Records a request to delete a playlist, for review. Deleting can't be undone.
     pub fn submit_playlist_deletion(
-        &mut self,
+        &self,
         agent: &str,
         playlist: PlaylistId,
     ) -> Result<ChangeSetId> {
@@ -219,7 +219,7 @@ impl Library {
     /// Records the undo of an accepted tag set, for review like any set. It puts back
     /// the values every written file had before, provided the file still holds what
     /// the set wrote.
-    pub fn submit_undo(&mut self, id: ChangeSetId, agent: &str) -> Result<ChangeSetId> {
+    pub fn submit_undo(&self, id: ChangeSetId, agent: &str) -> Result<ChangeSetId> {
         let set = self.change_set(id)?.ok_or(Error::UnknownChangeSet(id))?;
         let undoable = set.summary.kind == ChangeKind::Tags
             && matches!(
@@ -340,14 +340,14 @@ impl Library {
         self.change_set(id)?.ok_or(Error::UnknownChangeSet(id))
     }
 
-    pub fn reject_change_set(&mut self, id: ChangeSetId) -> Result<()> {
+    pub fn reject_change_set(&self, id: ChangeSetId) -> Result<()> {
         self.pending_set(id)?;
         self.finish(id, ChangeStatus::Rejected)
     }
 
     /// Marks every set still pending as discarded: VCMP keeps no set waiting across a
     /// restart. Called when the library opens for the app. Returns how many there were.
-    pub fn discard_pending_change_sets(&mut self) -> Result<usize> {
+    pub fn discard_pending_change_sets(&self) -> Result<usize> {
         Ok(self.conn.execute(
             "UPDATE change_sets SET status = 'discarded', finished_ms = ?1
              WHERE status = 'pending'",
@@ -421,7 +421,7 @@ impl Library {
 
     /// Deletes the sets finished longer ago than [`CHANGE_SETS_KEPT`], with the covers
     /// only they kept. Pending sets are never touched.
-    pub fn expire_change_sets(&mut self) -> Result<()> {
+    pub fn expire_change_sets(&self) -> Result<()> {
         let cutoff = now_ms() - CHANGE_SETS_KEPT.as_millis() as i64;
         self.conn.execute(
             "DELETE FROM change_sets WHERE status <> 'pending' AND finished_ms < ?1",
@@ -445,7 +445,7 @@ impl Library {
 
     /// Deletes every finished set and the covers only they kept, so none of them can
     /// be undone any more. Returns the bytes the covers took.
-    pub fn delete_finished_change_sets(&mut self) -> Result<u64> {
+    pub fn delete_finished_change_sets(&self) -> Result<u64> {
         let size = self.finished_change_sets_size()?;
         self.conn
             .execute("DELETE FROM change_sets WHERE status <> 'pending'", [])?;
@@ -517,14 +517,16 @@ impl Library {
     }
 
     fn insert_set(
-        &mut self,
+        &self,
         agent: &str,
         kind: &str,
         playlist: Option<PlaylistId>,
         playlist_name: Option<&str>,
         files: &[NewFile],
     ) -> Result<ChangeSetId> {
-        let tx = self.conn.transaction()?;
+        // Unchecked: &self keeps the app's shared connection usable; nothing else
+        // runs a transaction on this connection meanwhile.
+        let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO change_sets (agent, kind, playlist_id, playlist_name, status, created_ms)
              VALUES (?1, ?2, ?3, ?4, 'pending', ?5)",
