@@ -609,6 +609,13 @@ fn apply(
             tags.mb_recording_id,
         ],
     )?;
+    tx.execute("DELETE FROM track_tags WHERE track_id = ?1", [id])?;
+    let mut insert_tag = tx.prepare_cached(
+        "INSERT INTO track_tags (track_id, position, key, value) VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (position, entry) in track.entries.iter().enumerate() {
+        insert_tag.execute(params![id, position as i64, entry.key, entry.value])?;
+    }
     if let Some(album_id) = album_id {
         // New or changed tracks may bring artwork the album did not have, or another
         // program may have replaced or removed the art it has: look again.

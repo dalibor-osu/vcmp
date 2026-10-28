@@ -935,6 +935,17 @@ fn merged(first: &TagEdit, then: &TagEdit) -> TagEdit {
         year: pick(&first.year, &then.year),
         genre: pick(&first.genre, &then.genre),
         cover: pick(&first.cover, &then.cover),
+        other: first
+            .other
+            .clone()
+            .into_iter()
+            .chain(
+                then.other
+                    .iter()
+                    .filter(|(_, edit)| !matches!(edit, FieldEdit::Keep))
+                    .map(|(key, edit)| (key.clone(), edit.clone())),
+            )
+            .collect(),
     }
 }
 
@@ -1023,11 +1034,21 @@ fn edit(
         year: number(&before.year, &after.year, TagProblem::Year)?,
         genre: text(&before.genre, &after.genre),
         cover,
+        ..TagEdit::default()
     };
     edit.validate().map_err(|invalid| match invalid {
         InvalidTagEdit::ControlCharacter(_) => TagProblem::LineBreak,
         InvalidTagEdit::YearOutOfRange => TagProblem::Year,
         InvalidTagEdit::CoverFormat => TagProblem::Cover,
+        InvalidTagEdit::UnknownKey(_)
+        | InvalidTagEdit::ShownField(_)
+        | InvalidTagEdit::UnwritableKey(_)
+        | InvalidTagEdit::ValueCharacter(_)
+        | InvalidTagEdit::EmptyValue(_)
+        | InvalidTagEdit::NotANumber(_)
+        | InvalidTagEdit::BadValue(_) => {
+            unreachable!("the editor edits only the nine fields: {invalid}")
+        }
     })?;
     Ok(edit)
 }
@@ -1041,6 +1062,10 @@ fn reason(error: &TagWriteError) -> TagFailureReason {
         TagWriteError::Verify(_) => TagFailureReason::Verify,
         TagWriteError::ChangedMeanwhile => TagFailureReason::Changed,
         TagWriteError::Replace(_) => TagFailureReason::Replace,
+        // The editor writes no other tags and no change sets, so these can't come
+        // from it.
+        TagWriteError::UnsupportedKey(_) => TagFailureReason::Write,
+        TagWriteError::Conflict(_) => TagFailureReason::Changed,
     }
 }
 

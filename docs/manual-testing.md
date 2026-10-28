@@ -134,6 +134,10 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Edit the track that is playing.
 - [ ] Make a file read-only, then save: the editor names the file and the reason,
       and Try again works once it's writable.
+- [ ] On each platform, run `cargo run --release -p vcmp-library --example
+      edit_check -- <music dir> 40` against your collection. It edits copies only,
+      every other tag included, and should end with "0 failed edits"; each failure
+      it prints names the file and the tag.
 
 ### Playlists
 
@@ -213,6 +217,43 @@ reading the code or with a simulated system, so they are the most likely to fail
       page; turning the setting off hides it. While the repository is private the
       check gets 404 and shows nothing.
 
+### AI agents (copies of your music, or a VCMP_HOME library)
+
+Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tags.
+
+- [ ] Claude Desktop: copy the configuration entry from Settings into
+      `"mcpServers"` (Settings → Developer → Edit Config), restart Claude Desktop:
+      vcmp's tools are listed and answer. Close VCMP and ask again: Claude says
+      VCMP isn't open. **(never seen working with Claude Desktop; the relay was
+      run with piped requests)**
+- [ ] Settings → AI agents: turn it on. The address, token and the Claude Code
+      command show; Copy puts each on the clipboard. Run the command in a
+      terminal, then `claude mcp list` shows vcmp connected, in any folder. In the
+      Claude desktop app's Code tab, vcmp's tools are still there after a
+      session's second and third message. **(Claude Code connected and made a
+      playlist; the tools lasted past the first message only while vcmp was in
+      local scope, not yet seen in user scope)**
+- [ ] Ask Claude Code to list your albums, to show every tag of a track, and to
+      find tracks without a MusicBrainz release ID. The answers match the library.
+- [ ] Ask it to fix something across an album (the album artist, the genre). The
+      sidebar says a change waits. Review shows each tag before and after, the same
+      change in several files once with their count. Decide later and Escape leave
+      it waiting; Write writes it, the album and the player show the new tags, and
+      Claude Code's get_change_set says accepted.
+- [ ] Ask for another change, then edit one of its files in the tag editor before
+      accepting: that file is left as it was and named in the result.
+- [ ] Settings → Changes by agents → Undo… opens a review of the undo; writing it
+      puts every value back, a file with two artists too.
+- [ ] Ask it to make a playlist and fill it: it appears at once. Ask it to delete
+      one: the review warns that it can't be undone; Delete playlist deletes it.
+      The playlist page's own Delete says the same.
+- [ ] Close VCMP with a change waiting, start it again: the change shows as not
+      reviewed before VCMP closed.
+- [ ] Start a second program on the port (`python3 -m http.server 8267`), turn the
+      switch off and on: Settings says the port is in use; another port in Port
+      works. New token: the old one gets "401" (Claude Code fails to connect).
+- [ ] Delete backups… asks first, then empties the list of finished changes.
+
 ## Linux
 
 - [ ] With the VCMP window focused, the keyboard's play/pause, next and previous
@@ -250,6 +291,10 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Edit the tags of the playing track: the editor says it waits, the write
       happens when playback stops or moves to the next track, and pause alone
       doesn't release it. **(never seen working)**
+- [ ] An agent's change that includes the playing track: the review names the file
+      and Write stays disabled until playback moves on. **(never seen working)**
+- [ ] The relay from a release build, which has no console window: Claude Desktop
+      with `vcmp.exe` and `mcp` lists vcmp's tools. **(never seen working)**
 - [ ] Last.fm keeps its key in Credential Manager across restarts.
 - [ ] Output device list shows the WASAPI device names.
 - [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without
@@ -265,6 +310,8 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Now Playing in Control Center and the media keys show the track and control
       it; the cover shows. **(never seen working)**
 - [ ] Cmd+click, Cmd+A and Cmd+F work where Ctrl does elsewhere.
+- [ ] Claude Desktop with the entry Settings shows (`VCMP.app/Contents/MacOS/...`
+      and `mcp`) lists vcmp's tools. **(never seen working)**
 - [ ] Last.fm keeps its key in the Keychain across restarts.
 - [ ] The `macos-arm64.zip` (or `macos-x64.zip`) unpacks to `VCMP.app`, which
       starts after System Settings → Privacy & Security → Open Anyway, and shows

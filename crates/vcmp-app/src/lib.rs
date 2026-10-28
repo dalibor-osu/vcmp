@@ -1,6 +1,7 @@
 //! VCMP's desktop front end: the Slint UI and the glue that feeds it from the core
 //! crates.
 
+pub mod agents;
 pub mod albums;
 pub mod artist_photos;
 pub mod cover_fetch;

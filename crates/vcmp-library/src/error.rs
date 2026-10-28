@@ -22,6 +22,26 @@ pub enum Error {
     Watch(#[from] notify::Error),
     #[error("{0} is not an image VCMP can read")]
     UnreadableImage(PathBuf),
+    #[error("a change set needs at least one file")]
+    EmptyChangeSet,
+    #[error("track {0:?} is not in the library")]
+    UnknownTrack(crate::TrackId),
+    #[error("the file of track {0:?} is not available")]
+    UnavailableTrack(crate::TrackId),
+    #[error("track {0:?} appears twice in one change set")]
+    RepeatedTrack(crate::TrackId),
+    #[error("the tag of track {track:?} can't hold {key:?} as given")]
+    UnsupportedKey { track: crate::TrackId, key: String },
+    #[error("playlist {0:?} does not exist")]
+    UnknownPlaylist(crate::PlaylistId),
+    #[error("change set {0:?} does not exist (any more)")]
+    UnknownChangeSet(crate::ChangeSetId),
+    #[error("change set {0:?} is not waiting for review")]
+    ChangeSetNotPending(crate::ChangeSetId),
+    #[error(
+        "change set {0:?} can't be undone: only an accepted tag set with written files can, once"
+    )]
+    NotUndoable(crate::ChangeSetId),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

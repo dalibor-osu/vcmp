@@ -242,6 +242,7 @@ fn round_trip_every_format_with_unicode_values() {
             year: FieldEdit::Set(2024),
             genre: set("Klasická"),
             cover: FieldEdit::Set(cover.clone()),
+            ..TagEdit::default()
         };
         let report = setup.write(&[(id, &edit)]);
         assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
@@ -380,6 +381,7 @@ fn clearing_fields_and_the_cover() {
             // An empty value clears too.
             genre: set("   "),
             cover: FieldEdit::Clear,
+            ..TagEdit::default()
         };
         let report = setup.write(&[(id, &edit)]);
         assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
@@ -798,4 +800,301 @@ fn an_edit_in_another_case_renames_the_album_and_artist() {
     assert_eq!(albums.len(), 1);
     assert_eq!(albums[0].title, "The Wall");
     assert_eq!(albums[0].artist.as_deref(), Some("ALBUM ARTIST"));
+}
+
+/// The values the database lists for a track under `key`.
+fn stored(setup: &Setup, id: TrackId, key: &str) -> Vec<String> {
+    setup
+        .library
+        .track_tags(id)
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.key == key)
+        .map(|entry| entry.value)
+        .collect()
+}
+
+fn values(values: &[&str]) -> FieldEdit<Vec<String>> {
+    FieldEdit::Set(values.iter().map(|value| value.to_string()).collect())
+}
+
+fn other(edits: &[(&str, FieldEdit<Vec<String>>)]) -> TagEdit {
+    TagEdit {
+        other: edits
+            .iter()
+            .map(|(key, edit)| (key.to_string(), edit.clone()))
+            .collect(),
+        ..TagEdit::default()
+    }
+}
+
+fn native_key(extension: &str) -> &'static str {
+    match extension {
+        "mp3" | "wav" => "id3:TXXX:MY FIELD",
+        _ => "vorbis:MYFIELD",
+    }
+}
+
+#[test]
+fn other_tags_round_trip_in_every_format() {
+    for (fixture, extension) in FORMATS {
+        let mut setup = Setup::new();
+        let name = format!("song.{extension}");
+        let path = add_file(&setup.music(), &name, fixture, "Title", "Album");
+        setup.scan();
+        let id = setup.id(&path);
+        let audio_before = audio_payload(&path);
+        let native = native_key(extension);
+        // ID3v2 holds unsynchronised lyrics only, which lofty names apart.
+        let lyrics = match extension {
+            "mp3" | "wav" => "UnsyncLyrics",
+            _ => "Lyrics",
+        };
+
+        let edit = TagEdit {
+            title: set("New title"),
+            ..other(&[
+                ("Composer", values(&["First", "Second"])),
+                (lyrics, values(&["Line one\nLine two"])),
+                (native, values(&["  kept as written  "])),
+            ])
+        };
+        let report = setup.write(&[(id, &edit)]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert_eq!(
+            stored(&setup, id, "Composer"),
+            ["First", "Second"],
+            "{extension}"
+        );
+        assert_eq!(stored(&setup, id, lyrics), ["Line one\nLine two"]);
+        assert_eq!(stored(&setup, id, native), ["  kept as written  "]);
+        let track = setup.library.track(id).unwrap().unwrap();
+        assert_eq!(track.title, "New title");
+        // What the edit didn't name is left as it was.
+        assert_eq!(stored(&setup, id, "Comment"), ["A comment"], "{extension}");
+        assert_eq!(stored(&setup, id, "TrackTotal"), ["12"], "{extension}");
+        assert_eq!(track.track_number, Some(3));
+        assert_eq!(audio_payload(&path), audio_before, "{extension}");
+
+        // An empty list removes the tag, like Clear.
+        let edit = other(&[
+            ("Composer", FieldEdit::Clear),
+            (native, FieldEdit::Set(Vec::new())),
+        ]);
+        let report = setup.write(&[(id, &edit)]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert!(stored(&setup, id, "Composer").is_empty(), "{extension}");
+        assert!(stored(&setup, id, native).is_empty(), "{extension}");
+        assert_eq!(stored(&setup, id, lyrics), ["Line one\nLine two"]);
+        assert_eq!(leftovers(&setup.music(), &[&name]), Vec::<String>::new());
+    }
+}
+
+#[test]
+fn a_total_is_edited_without_losing_its_number() {
+    for (fixture, extension) in FORMATS {
+        let mut setup = Setup::new();
+        let path = add_file(
+            &setup.music(),
+            &format!("song.{extension}"),
+            fixture,
+            "Title",
+            "Album",
+        );
+        setup.scan();
+        let id = setup.id(&path);
+
+        let report = setup.write(&[(id, &other(&[("TrackTotal", values(&["14"]))]))]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert_eq!(stored(&setup, id, "TrackTotal"), ["14"], "{extension}");
+        assert_eq!(stored(&setup, id, "TrackNumber"), ["3"], "{extension}");
+        assert_eq!(
+            setup.library.track(id).unwrap().unwrap().track_number,
+            Some(3)
+        );
+    }
+}
+
+#[test]
+fn a_native_key_with_a_common_name_reads_back_under_that_name() {
+    let mut setup = Setup::new();
+    let mp3 = add_file(&setup.music(), "a.mp3", "silence.mp3", "A", "Album");
+    let flac = add_file(&setup.music(), "b.flac", "silence.flac", "B", "Album");
+    setup.scan();
+    let (mp3, flac) = (setup.id(&mp3), setup.id(&flac));
+
+    let report = setup.write(&[
+        (mp3, &other(&[("id3:TCOM", values(&["Native"]))])),
+        (flac, &other(&[("vorbis:composer", values(&["Native"]))])),
+    ]);
+    assert_eq!(report.written, [mp3, flac], "{:?}", report.failed);
+    assert_eq!(stored(&setup, mp3, "Composer"), ["Native"]);
+    assert_eq!(stored(&setup, flac, "Composer"), ["Native"]);
+}
+
+#[test]
+fn a_rating_is_written_in_its_own_form() {
+    for (fixture, extension) in FORMATS {
+        let mut setup = Setup::new();
+        let path = add_file(
+            &setup.music(),
+            &format!("song.{extension}"),
+            fixture,
+            "Title",
+            "Album",
+        );
+        setup.scan();
+        let id = setup.id(&path);
+        // email|stars|play count: the form lofty lists ratings in.
+        let rating = "Easy CD-DA Extractor|4|0";
+        let report = setup.write(&[(id, &other(&[("Popularimeter", values(&[rating]))]))]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert_eq!(stored(&setup, id, "Popularimeter"), [rating], "{extension}");
+
+        // ID3v2 keeps a rating only in that form; Vorbis comments keep any text.
+        let report = setup.write(&[(id, &other(&[("Popularimeter", values(&["5 stars"]))]))]);
+        match extension {
+            "mp3" | "wav" => assert!(
+                matches!(&report.failed[0].error, TagWriteError::UnsupportedKey(key) if key == "Popularimeter"),
+                "{extension}: {:?}",
+                report.failed
+            ),
+            _ => assert_eq!(report.written, [id], "{extension}: {:?}", report.failed),
+        }
+    }
+}
+
+#[test]
+fn a_key_of_another_format_fails_only_that_file() {
+    let mut setup = Setup::new();
+    let mp3 = add_file(&setup.music(), "a.mp3", "silence.mp3", "A", "Album");
+    let flac = add_file(&setup.music(), "b.flac", "silence.flac", "B", "Album");
+    setup.scan();
+    let flac_before = fs::read(&flac).unwrap();
+    let (mp3, flac_id) = (setup.id(&mp3), setup.id(&flac));
+
+    let edit = other(&[("id3:TXXX:MY FIELD", values(&["x"]))]);
+    let report = setup.write(&[(mp3, &edit), (flac_id, &edit)]);
+    assert_eq!(report.written, [mp3]);
+    assert_eq!(report.failed.len(), 1);
+    assert_eq!(report.failed[0].track, flac_id);
+    assert!(
+        matches!(&report.failed[0].error, TagWriteError::UnsupportedKey(key) if key == "id3:TXXX:MY FIELD"),
+        "{:?}",
+        report.failed[0].error
+    );
+    assert_eq!(fs::read(&flac).unwrap(), flac_before);
+}
+
+#[test]
+fn an_invalid_other_tag_touches_no_file() {
+    let mut setup = Setup::new();
+    let path = add_file(&setup.music(), "song.mp3", "silence.mp3", "Title", "Album");
+    setup.scan();
+    let id = setup.id(&path);
+    let before = fs::read(&path).unwrap();
+
+    let key = |key: &str| key.to_owned();
+    let cases = [
+        (
+            other(&[("TrackTitle", values(&["x"]))]),
+            InvalidTagEdit::ShownField(key("TrackTitle")),
+        ),
+        (
+            other(&[("id3:TIT2", values(&["x"]))]),
+            InvalidTagEdit::ShownField(key("id3:TIT2")),
+        ),
+        (
+            other(&[("vorbis:ALBUMARTIST", FieldEdit::Clear)]),
+            InvalidTagEdit::ShownField(key("vorbis:ALBUMARTIST")),
+        ),
+        (
+            other(&[("NoSuchKey", values(&["x"]))]),
+            InvalidTagEdit::UnknownKey(key("NoSuchKey")),
+        ),
+        (
+            other(&[("id3:tcom", values(&["x"]))]),
+            InvalidTagEdit::UnknownKey(key("id3:tcom")),
+        ),
+        (
+            other(&[("Composer", values(&["a\0b"]))]),
+            InvalidTagEdit::ValueCharacter(key("Composer")),
+        ),
+        (
+            other(&[("Composer", values(&[""]))]),
+            InvalidTagEdit::EmptyValue(key("Composer")),
+        ),
+        (
+            other(&[("id3:POPM:someone@example.com", values(&["5"]))]),
+            InvalidTagEdit::UnwritableKey(key("id3:POPM:someone@example.com")),
+        ),
+        (
+            other(&[("TrackTotal", values(&["12 ✓"]))]),
+            InvalidTagEdit::NotANumber(key("TrackTotal")),
+        ),
+        (
+            // An MP4-only key: neither ID3v2 nor Vorbis comments have a field for it.
+            other(&[("AppleXid", values(&["x"]))]),
+            InvalidTagEdit::UnwritableKey(key("AppleXid")),
+        ),
+    ];
+    for (edit, expected) in cases {
+        assert_eq!(edit.validate(), Err(expected.clone()));
+        let error = setup
+            .library
+            .write_tags(&[(id, &edit)], &AtomicBool::new(false), |_, _| {})
+            .unwrap_err();
+        assert!(
+            matches!(&error, vcmp_library::Error::InvalidTagEdit(found) if *found == expected),
+            "{error}"
+        );
+    }
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn a_vorbis_edit_keeps_the_order_of_the_fields_it_leaves() {
+    let mut setup = Setup::new();
+    let path = setup.music().join("song.flac");
+    fs::copy(Path::new(FIXTURES).join("silence.flac"), &path).unwrap();
+    // Both date fields are listed as OriginalReleaseDate. Removing the two album
+    // artist fields between them with lofty's `remove` would swap them.
+    let mut comments = lofty::flac::FlacFile::read_from(
+        &mut fs::File::open(&path).unwrap(),
+        lofty::config::ParseOptions::new(),
+    )
+    .unwrap()
+    .vorbis_comments()
+    .cloned()
+    .unwrap_or_default();
+    for (field, value) in [
+        ("TITLE", "Title"),
+        ("ORIGINALDATE", "2012-12-26"),
+        ("ALBUMARTIST", "Old"),
+        ("ORIGINALYEAR", "2012"),
+        ("ALBUM ARTIST", "Old too"),
+    ] {
+        comments.push(field.into(), value.into());
+    }
+    comments
+        .save_to_path(&path, WriteOptions::default())
+        .unwrap();
+    setup.scan();
+    let id = setup.id(&path);
+    assert_eq!(
+        stored(&setup, id, "OriginalReleaseDate"),
+        ["2012-12-26", "2012"]
+    );
+
+    let edit = TagEdit {
+        album_artist: set("New"),
+        ..TagEdit::default()
+    };
+    let report = setup.write(&[(id, &edit)]);
+    assert_eq!(report.written, [id], "{:?}", report.failed);
+    assert_eq!(
+        stored(&setup, id, "OriginalReleaseDate"),
+        ["2012-12-26", "2012"]
+    );
+    assert_eq!(stored(&setup, id, "AlbumArtist"), ["New"]);
 }
