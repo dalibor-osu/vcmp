@@ -303,6 +303,7 @@ export component LabelsPage inherits Rectangle {
         visible: !root.label-open;
 
         HorizontalLayout {
+            vertical-stretch: 0;
             padding-left: Theme.space-xxl;
             padding-right: Theme.space-xxl;
             padding-top: Theme.space-xxl;
@@ -326,7 +327,10 @@ export component LabelsPage inherits Rectangle {
             }
         }
 
+        // Takes the room below the title, as the list does once there are labels;
+        // without it the layout shares the room out and the title moves down.
         if Labels.all.length == 0: VerticalLayout {
+            vertical-stretch: 1;
             padding: Theme.space-xxl;
             padding-top: Theme.space-l;
             alignment: start;

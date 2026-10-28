@@ -441,3 +441,25 @@ fn the_sidebar_and_settings_list_the_labels() {
         .invoke_accessible_default_action();
     assert!(app.library.label_named("rainy").unwrap().is_none());
 }
+
+#[test]
+fn the_labels_page_without_labels_keeps_its_title_at_the_top() {
+    let app = start();
+    app.window.set_selected_index(4);
+    let title = ElementHandle::find_by_accessible_label(&app.window, "Labels")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Text))
+        .expect("the page's title");
+    assert!(
+        title.absolute_position().y < 120.0,
+        "the title is at {}",
+        title.absolute_position().y
+    );
+    let button = app
+        .find(AccessibleRole::Button, "New label…")
+        .expect("New label");
+    assert!(
+        button.size().height <= 48.0,
+        "the button is {} tall",
+        button.size().height
+    );
+}
