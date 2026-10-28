@@ -21,7 +21,7 @@ tokio = { version = "1.53.3", features = ["rt", "net", "sync", "macros"] }
 tokio-util = "0.7"
 # The relay's HTTP client; already in the build for Last.fm.
 ureq = { version = "3.4.2", default-features = false }
-vcmp-library = { version = "26.10.0", path = "../vcmp-library" }
+vcmp-library = { version = "26.10.1", path = "../vcmp-library" }
 
 [dev-dependencies]
 dunce = "1.0.5"
