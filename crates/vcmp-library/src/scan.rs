@@ -23,7 +23,7 @@ use crate::{Result, path_codec};
 
 /// Tolerance when matching a moved file to its old row.
 const RELINK_DURATION_TOLERANCE_MS: i64 = 1000;
-/// Files written per transaction, so a long first scan shows up gradually.
+/// Files written at most per transaction, so a long first scan shows up gradually.
 const CHUNK: usize = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,8 +185,9 @@ pub(crate) fn scan(
 
             let mut claimed = HashSet::new();
             let mut cover_sent = HashSet::new();
-            let mut tx = conn.transaction()?;
-            for (index, (job, result)) in jobs.iter().zip(read_receiver).enumerate() {
+            // The reader sends a result per job, in order, until it is cancelled.
+            write_as_received(conn, &read_receiver, |tx, index, result| {
+                let job = &jobs[index];
                 progress(ScanProgress {
                     phase: ScanPhase::Reading,
                     done: index,
@@ -195,7 +196,7 @@ pub(crate) fn scan(
                 match result {
                     Ok(track) => {
                         let album = apply(
-                            &tx,
+                            tx,
                             job.file,
                             job.existing,
                             &track,
@@ -208,7 +209,7 @@ pub(crate) fn scan(
                         if let (Some(album), Some(cover)) = (album, track.cover)
                             && album >= first_new_album
                             && !cover_sent.contains(&album)
-                            && album_needs_artwork(&tx, album)?
+                            && album_needs_artwork(tx, album)?
                         {
                             cover_sent.insert(album);
                             let _ = covers.send((album, cover));
@@ -219,13 +220,8 @@ pub(crate) fn scan(
                         reason,
                     }),
                 }
-                if (index + 1) % CHUNK == 0 {
-                    tx.commit()?;
-                    tx = conn.transaction()?;
-                }
-            }
-            tx.commit()?;
-            Ok(())
+                Ok(())
+            })
         })
     })?;
     save_artwork(conn, &stored_covers)?;
@@ -311,10 +307,11 @@ pub(crate) fn reread_edited(
     artwork: &ArtworkStore,
     edited: &[(i64, &TagEdit)],
 ) -> Result<()> {
-    let tx = conn.transaction()?;
-    let mut albums = HashSet::new();
+    // The files are read before the transaction, so the write lock isn't held while
+    // the disk works (see `write_as_received`).
+    let mut read = Vec::with_capacity(edited.len());
     for &(id, edit) in edited {
-        let Some((path, source_id, old_album)) = tx
+        let Some((path, source_id, old_album)) = conn
             .query_row(
                 "SELECT path, source_id, album_id FROM tracks WHERE id = ?1",
                 [id],
@@ -349,6 +346,12 @@ pub(crate) fn reread_edited(
             size: metadata.len() as i64,
             modified_ms: metadata.modified().map(millis).unwrap_or(0),
         };
+        read.push((id, edit, file, track, old_album));
+    }
+
+    let tx = conn.transaction()?;
+    let mut albums = HashSet::new();
+    for (id, edit, file, track, old_album) in read {
         let new_album = apply(
             &tx,
             &file,
@@ -897,6 +900,49 @@ fn artwork_candidate(files: &[PathBuf]) -> Option<Vec<u8>> {
     None
 }
 
+/// Writes each result as it arrives, at most `CHUNK` to a transaction, until the
+/// sender is gone. The write lock is held only while results already here are
+/// written: before waiting for the next one, the transaction is committed. Held while
+/// a hard disk read the files, it kept the window's writes (a setting, a playlist)
+/// waiting past their busy timeout, and they failed.
+fn write_as_received<T>(
+    conn: &Connection,
+    results: &mpsc::Receiver<T>,
+    mut write: impl FnMut(&Transaction, usize, T) -> Result<()>,
+) -> Result<()> {
+    let mut open: Option<Transaction> = None;
+    let mut index = 0;
+    loop {
+        let next = match results.try_recv() {
+            Ok(next) => next,
+            Err(mpsc::TryRecvError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Empty) => {
+                if let Some(tx) = open.take() {
+                    tx.commit()?;
+                }
+                let Ok(next) = results.recv() else { break };
+                next
+            }
+        };
+        let tx = match open.take() {
+            Some(tx) => tx,
+            // Unchecked: no other transaction is open on this connection meanwhile.
+            None => conn.unchecked_transaction()?,
+        };
+        write(&tx, index, next)?;
+        index += 1;
+        if index % CHUNK == 0 {
+            tx.commit()?;
+        } else {
+            open = Some(tx);
+        }
+    }
+    if let Some(tx) = open {
+        tx.commit()?;
+    }
+    Ok(())
+}
+
 /// Threads for image work (decoding, shrinking, encoding covers).
 fn worker_count() -> usize {
     thread::available_parallelism().map_or(4, |n| n.get().clamp(2, 8))
@@ -949,4 +995,57 @@ pub(crate) fn track_id_for_path(conn: &Connection, path: &Path) -> Result<Option
             |row| row.get(0),
         )
         .optional()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// While the scan waits for the next file to be read, another connection can
+    /// write: the window's settings and playlists don't wait for the disk.
+    #[test]
+    fn waiting_for_a_file_holds_no_write_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.sqlite3");
+        let open = || {
+            let conn = Connection::open(&path).unwrap();
+            conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+            conn
+        };
+        let scanner = open();
+        scanner
+            .execute("CREATE TABLE written (value INTEGER)", [])
+            .unwrap();
+        let window = open();
+        // Long enough for a commit, short enough to fail fast on a lock held until
+        // the next file comes.
+        window.busy_timeout(Duration::from_secs(2)).unwrap();
+
+        let (send, receive) = mpsc::channel();
+        let (wrote, written) = mpsc::channel();
+        let scan = thread::spawn(move || {
+            write_as_received(&scanner, &receive, |tx, _, value: i64| {
+                tx.execute("INSERT INTO written (value) VALUES (?1)", [value])?;
+                wrote.send(()).unwrap();
+                Ok(())
+            })
+        });
+        send.send(1).unwrap();
+        written.recv().unwrap();
+        window
+            .execute("INSERT INTO written (value) VALUES (2)", [])
+            .expect("the window writes while the scan waits for a file");
+        send.send(3).unwrap();
+        drop(send);
+        scan.join().unwrap().unwrap();
+
+        let values: Vec<i64> = window
+            .prepare("SELECT value FROM written ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(values, [1, 2, 3]);
+    }
 }

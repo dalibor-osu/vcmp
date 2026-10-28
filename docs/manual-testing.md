@@ -37,6 +37,8 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 - [ ] Add a music folder: albums appear while the scan runs, with progress in
       Settings, and the grid scrolls smoothly once it's done.
+- [ ] While a long scan of a hard disk runs, turn a switch in Settings (AI agents,
+      Discord) and make a playlist. After a restart, both are still there.
 - [ ] Albums, Artists (album artists and all artists), Songs and Folders show the
       same music; the filters narrow each page.
 - [ ] Tracks without an album tag show in an "Unknown" album of their artist, with
