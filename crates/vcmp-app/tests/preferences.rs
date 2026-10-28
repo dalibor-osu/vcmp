@@ -102,6 +102,20 @@ fn the_zoom_scales_the_window_and_is_restored() {
         ElementHandle::find_by_accessible_label(&window, "Zoom")
             .any(|element| element.accessible_value().as_deref() == Some("125%"))
     );
+    // The window is laid out again at once, in the logical size its pixels now
+    // make: the player bar ends at its bottom, not below it as before a resize.
+    let pixels = window.window().size();
+    assert_eq!(pixels.height, 2400, "the native window keeps its pixels");
+    let bar = ElementHandle::find_by_element_type_name(&window, "PlayerBar")
+        .next()
+        .expect("the player bar");
+    let bottom = bar.absolute_position().y + bar.size().height;
+    assert!(
+        (bottom - 2400.0 / 1.25).abs() < 0.5,
+        "the bar ends at {bottom}, the window at {}",
+        2400.0 / 1.25
+    );
+    assert!((bar.size().width - 1100.0 / 1.25).abs() < 0.5);
     // Ctrl+- steps back down.
     for event in [
         slint::platform::WindowEvent::KeyPressed {

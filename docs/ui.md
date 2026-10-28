@@ -877,7 +877,10 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   maps the pointer by its window's scale factor, so `src/zoom.rs` hands the window
   the system's factor times the zoom (a `ScaleFactorChanged` event). The native
   window keeps its size in pixels, and the pages lay out in the logical size that
-  leaves. Slint sets the system's factor when it makes the native window and when
+  leaves. Slint lays a window out again only on a resize, which a native window
+  that keeps its pixels never sends, so a `Resized` event with that logical size
+  follows; without it the pages kept their old size and the player bar fell below
+  the window until it was resized by hand. Slint sets the system's factor when it makes the native window and when
   the system's changes (the window moved to another monitor); the winit hook then
   applies the zoom on top again. With `SLINT_SCALE_FACTOR` set, that is the
   system's factor.

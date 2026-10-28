@@ -189,11 +189,13 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 - [ ] Light, dark and system theme, with the system switched while VCMP runs.
 - [ ] Settings → Zoom on a large monitor: + and − step through 80 to 200 %, the
-      whole window grows and shrinks, and clicks still land where they point.
+      whole window grows and shrinks at once, the player bar stays at the bottom
+      without resizing the window, and clicks still land where they point.
       Ctrl+=, Ctrl+- and Ctrl+0 do the same from any page (not while typing in a
       field is fine too). Restart: the zoom is kept. Move the window to a monitor
-      with another scale: the zoom stays on top of it. **(never seen on a real
-      monitor; tested headless)**
+      with another scale: the zoom stays on top of it. **(seen on Linux under a
+      tiling window manager, where the first build needed a resize to lay out;
+      another monitor's scale not yet tried)**
 - [ ] Light theme: hover over track rows, Songs table rows and headings, folder
       rows and queue rows: the grey text turns dark and stays easy to read.
 - [ ] With no music folder, Albums, Artists, Songs and Folders each say so and

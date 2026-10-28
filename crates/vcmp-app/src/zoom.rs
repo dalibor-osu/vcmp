@@ -66,11 +66,18 @@ pub fn parse(saved: &str) -> Option<f32> {
 pub fn apply(window: &AppWindow) {
     let target = system_scale(window) * window.global::<Theme>().get_zoom();
     if (window.window().scale_factor() - target).abs() > 0.001 {
+        // Slint only lays the window out again on a resize, and the native window
+        // keeps its pixels, so none comes: the same pixels are handed back as the
+        // logical size the new factor makes of them.
+        let pixels = window.window().size();
         window
             .window()
             .dispatch_event(WindowEvent::ScaleFactorChanged {
                 scale_factor: target,
             });
+        window.window().dispatch_event(WindowEvent::Resized {
+            size: pixels.to_logical(target),
+        });
     }
 }
 
