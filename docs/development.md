@@ -87,9 +87,10 @@ that needs a fix makes way for the next patch number.
 ### Making a release
 
 1. On a `feature/` branch, set `version` under `[workspace.package]` in the root
-   `Cargo.toml` to the release's version, and the three VCMP crates' `version` in
-   `crates/vcmp-app/Cargo.toml` with it. Run `cargo check` to update `Cargo.lock`
-   and merge the pull request into `main`.
+   `Cargo.toml` to the release's version, and the `version` of each `vcmp-*`
+   dependency with it: four in `crates/vcmp-app/Cargo.toml`, one in
+   `crates/vcmp-mcp/Cargo.toml`. Run `cargo check` to update `Cargo.lock` and
+   merge the pull request into `main`.
 2. Tag the merge commit on `main` and push the tag:
 
    ```bash
