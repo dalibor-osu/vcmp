@@ -165,7 +165,7 @@ cargo run -p vcmp-playback --example play -- path/to/album
 | `docs/playback.md` | Playback engine: threads, data path, queue and shuffle rules, known limits |
 | `docs/mcp.md` | The MCP server for AI agents: running, security, tools, how changes reach the app, known limits |
 | `docs/manual-testing.md` | What only a person can check: real devices, online services, Windows and macOS |
-| `ideas.md` | The owner's original idea list |
+| `ideas.md` | The owner's original idea list and improvements noticed in use |
 
 Keep the technical documentation up to date: when a change alters behaviour,
 structure, commands or conventions described in these files, update the files in the
