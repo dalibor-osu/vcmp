@@ -209,7 +209,7 @@ Each file is written through a verified copy:
    - every item, every `track_tags` entry and every picture of the written tag with
      what was meant to be written;
    - the scan's reading of every field, MusicBrainz IDs included, with the old reading
-     plus the edit;
+     plus the edit (MusicBrainz IDs are edited as other tags);
    - every other tag the edit names with the values asked for, and every tag it
      doesn't touch with what the file held before, in the same order (skipped when
      VCMP had to create the tag);
@@ -266,11 +266,15 @@ writes with.
   (a rating as free text is kept in a FLAC file, not in an MP3), and two keys of one
   edit that name the same tag.
 - **ID3v2.** A native key replaces its frames (by frame ID and description) with one
-  new frame; several values are joined with NULs. A common name goes through lofty's
+  new frame; several values are joined with NULs. A number or its total is written
+  by VCMP into the frame holding both as `number/total` (`TRCK` for `TrackNumber`
+  and `TrackTotal`, `TPOS` for the disc, `MVIN` for the movement), keeping the part
+  not edited. lofty would build the frame from the edited part alone, so a total
+  added to `TRCK` `7` would become `0/15`. Any other common name goes through lofty's
   generic tag, but only for the frames holding that key: they are split into lofty's
-  generic form, edited and merged back, so a frame holding two keys keeps the one not
-  edited (`TRCK` holds `TrackNumber` and `TrackTotal`), and every other frame stays
-  as it was.
+  generic form, edited and merged back, so a frame holding several keys keeps the
+  ones not edited (`TIPL` holds the producer and the engineer), and every other
+  frame stays as it was.
 - **Vorbis comments.** The fields of the key are removed (for a common name, every
   field name lofty reads as it) and one field per value is added under the key's
   name. lofty's own `remove` swaps the fields it keeps around, which could reverse
@@ -518,6 +522,10 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   tags (Windows Explorer reads RIFF INFO in WAV files) show them.
 - A comment or lyrics frame VCMP writes gets the unknown language `XXX`, whatever
   language the frame it replaces had.
+- ID3v2 keeps a total only behind its number. A total for an MP3 or WAV file
+  without the number, or clearing a movement number while its total stays, would
+  read back as the number 0, so the read-back check refuses that file
+  (`TagWriteError::Verify`).
 - When VCMP has to create the tag it writes (an MP3 with only ID3v1, a WAV with only
   RIFF INFO), only the fields the scan reads go into it, and the check that
   untouched tags keep their values is skipped for that file. From then on the
