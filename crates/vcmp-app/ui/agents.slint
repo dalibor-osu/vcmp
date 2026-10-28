@@ -8,14 +8,14 @@ import { Theme } from "theme.slint";
 import { Button, Modal, ProgressBar, SectionHeading, SettingRow, TextField, TextLink, Toggle } from "components.slint";
 
 export enum ServerStatus { off, running, failed }
-export enum ChangeKind { tags, undo, playlist }
+export enum ChangeKind { tags, undo, playlist, labels, label-undo }
 export enum ChangeStatus { pending, accepted, partly-written, rejected, discarded, undone }
 
 // One change an agent asked for, as the history lists it.
 export struct ChangeEntry {
     id: int,
     kind: ChangeKind,
-    // The files a change of tags covers.
+    // The files a change of tags covers, or the tracks a change of labels does.
     files: int,
     // The playlist a deletion names.
     playlist: string,
@@ -26,7 +26,8 @@ export struct ChangeEntry {
     can-undo: bool,
 }
 
-export enum ChangeField { title, artist, album, album-artist, track, disc, year, genre, cover, other }
+// `label`: a label put on (`after` holds its name) or taken off (`after` empty).
+export enum ChangeField { title, artist, album, album-artist, track, disc, year, genre, cover, other, label }
 
 // One change the review lists: a tag, its values before and after, and how many files
 // change that way.
@@ -83,6 +84,8 @@ export global AgentState {
     in property <string> review-agent;
     in property <int> review-files;
     in property <string> review-playlist;
+    // The labels a change of labels makes, by name; empty when it makes none.
+    in property <string> review-new-labels;
     in property <[ChangeRow]> review-rows;
     in property <ReviewStatus> review-status;
     in property <int> review-done;
@@ -171,6 +174,9 @@ global AgentWords {
         }
         if row.field == ChangeField.cover {
             return @tr("Cover");
+        }
+        if row.field == ChangeField.label {
+            return @tr("Label “{}”", row.key);
         }
         row.key
     }
@@ -352,6 +358,8 @@ export component AgentsSection inherits VerticalLayout {
                 Text {
                     text: entry.kind == ChangeKind.playlist ? @tr("Delete the playlist “{}”", entry.playlist)
                         : entry.kind == ChangeKind.undo ? @tr("Undo tags in {n} file" | "Undo tags in {n} files" % entry.files)
+                        : entry.kind == ChangeKind.labels ? @tr("Labels of {n} track" | "Labels of {n} tracks" % entry.files)
+                        : entry.kind == ChangeKind.label-undo ? @tr("Undo labels on {n} track" | "Undo labels on {n} tracks" % entry.files)
                         : @tr("Tags of {n} file" | "Tags of {n} files" % entry.files);
                     color: Theme.colors.text;
                     font-size: Theme.font-body;
@@ -457,8 +465,10 @@ export component ChangeReview inherits Modal {
     // Tab went past the last control, or Shift+Tab before the first.
     private property <int> wrap-first;
     private property <int> wrap-last;
+    private property <bool> labels: root.kind == ChangeKind.labels || root.kind == ChangeKind.label-undo;
     private property <string> title-text: root.kind == ChangeKind.playlist ? @tr("Delete a playlist?")
-        : root.kind == ChangeKind.undo ? @tr("Review an undo") : @tr("Review tag changes");
+        : root.kind == ChangeKind.undo || root.kind == ChangeKind.label-undo ? @tr("Review an undo")
+        : root.kind == ChangeKind.labels ? @tr("Review label changes") : @tr("Review tag changes");
 
     label: root.title-text;
     card-width: Theme.dialog-width;
@@ -506,6 +516,8 @@ export component ChangeReview inherits Modal {
                 if !root.done: Text {
                     text: root.kind == ChangeKind.playlist ? @tr("The playlist “{}” would be deleted. Its tracks stay in your library.", AgentState.review-playlist)
                         : root.kind == ChangeKind.undo ? @tr("The tags below are put back into {n} file. A file whose tags changed since is left as it was." | "The tags below are put back into {n} files. A file whose tags changed since is left as it was." % AgentState.review-files)
+                        : root.kind == ChangeKind.label-undo ? @tr("The labels below are put back as they were on {n} track. A track whose labels changed since is left as it was." | "The labels below are put back as they were on {n} tracks. A track whose labels changed since is left as it was." % AgentState.review-files)
+                        : root.kind == ChangeKind.labels ? @tr("The labels below would be put on or taken off {n} track. Labels stay in VCMP, so no file is written. A track whose labels changed since the agent looked is left as it was, and the change can be undone for 30 days." | "The labels below would be put on or taken off {n} tracks. Labels stay in VCMP, so no file is written. A track whose labels changed since the agent looked is left as it was, and the change can be undone for 30 days." % AgentState.review-files)
                         : @tr("The tags below would be written into {n} file. A file whose tags changed since the agent looked is left as it was, and a written change can be undone for 30 days." | "The tags below would be written into {n} files. A file whose tags changed since the agent looked is left as it was, and a written change can be undone for 30 days." % AgentState.review-files);
                     color: Theme.colors.text-muted;
                     font-size: Theme.font-body;
@@ -527,17 +539,26 @@ export component ChangeReview inherits Modal {
             if root.kind != ChangeKind.playlist && !root.done: VerticalLayout {
                 spacing: Theme.space-l;
 
+                if AgentState.review-new-labels != "": Text {
+                    text: @tr("New labels it makes: {}", AgentState.review-new-labels);
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+
                 for row in AgentState.review-rows: VerticalLayout {
                     spacing: Theme.space-xs;
 
                     Text {
-                        text: row.files > 1 ? @tr("{0}, in {1} files", AgentWords.field-name(row), row.files) : AgentWords.field-name(row);
+                        text: row.field == ChangeField.label ? (row.files > 1 ? @tr("{0}, on {1} tracks", AgentWords.field-name(row), row.files) : AgentWords.field-name(row))
+                            : row.files > 1 ? @tr("{0}, in {1} files", AgentWords.field-name(row), row.files) : AgentWords.field-name(row);
                         color: Theme.colors.text-muted;
                         font-size: Theme.font-small;
                         wrap: word-wrap;
                         min-height: self.preferred-height;
                     }
-                    Text {
+                    if row.field != ChangeField.label: Text {
                         text: row.field == ChangeField.cover ? (row.before == "" ? @tr("Before: no cover") : @tr("Before: a cover"))
                             : row.before == "" ? @tr("Before: not set") : @tr("Before: {}", row.before);
                         color: Theme.colors.text-muted;
@@ -546,7 +567,8 @@ export component ChangeReview inherits Modal {
                         min-height: self.preferred-height;
                     }
                     Text {
-                        text: row.field == ChangeField.cover ? (row.after == "" ? @tr("After: no cover") : @tr("After: a new cover"))
+                        text: row.field == ChangeField.label ? (row.after == "" ? @tr("Taken off") : @tr("Put on"))
+                            : row.field == ChangeField.cover ? (row.after == "" ? @tr("After: no cover") : @tr("After: a new cover"))
                             : row.after == "" ? @tr("After: removed") : @tr("After: {}", row.after);
                         color: Theme.colors.text;
                         font-size: Theme.font-body;
@@ -563,6 +585,8 @@ export component ChangeReview inherits Modal {
                 Text {
                     text: AgentState.review-failed ? @tr("The library could not be read or written, so nothing was changed.")
                         : root.kind == ChangeKind.playlist ? @tr("The playlist is deleted.")
+                        : root.labels && AgentState.review-problems.length == 0 ? @tr("Changed on {n} track." | "Changed on {n} tracks." % AgentState.review-written)
+                        : root.labels ? @tr("Changed on {n} track. These tracks were left as they were:" | "Changed on {n} tracks. These tracks were left as they were:" % AgentState.review-written)
                         : AgentState.review-problems.length == 0 ? @tr("Written into {n} file." | "Written into {n} files." % AgentState.review-written)
                         : @tr("Written into {n} file. These files were left as they were:" | "Written into {n} files. These files were left as they were:" % AgentState.review-written);
                     color: AgentState.review-failed ? Theme.colors.error : Theme.colors.text;
@@ -579,7 +603,8 @@ export component ChangeReview inherits Modal {
                         overflow: elide;
                     }
                     Text {
-                        text: problem.conflict ? @tr("Its tags changed since the change was asked for.") : @tr("Its tags could not be written.");
+                        text: root.labels ? @tr("Its labels changed since the change was asked for.")
+                            : problem.conflict ? @tr("Its tags changed since the change was asked for.") : @tr("Its tags could not be written.");
                         color: Theme.colors.text-muted;
                         font-size: Theme.font-small;
                         wrap: word-wrap;
@@ -609,7 +634,8 @@ export component ChangeReview inherits Modal {
             spacing: Theme.space-s;
 
             Text {
-                text: @tr("Writing tags: {0} of {1} files", AgentState.review-done, AgentState.review-files);
+                text: root.labels ? @tr("Changing labels: {0} of {1} tracks", AgentState.review-done, AgentState.review-files)
+                    : @tr("Writing tags: {0} of {1} files", AgentState.review-done, AgentState.review-files);
                 color: Theme.colors.text;
                 font-size: Theme.font-body;
             }
@@ -641,6 +667,8 @@ export component ChangeReview inherits Modal {
                 }
                 text: root.kind == ChangeKind.playlist ? @tr("Delete playlist")
                     : root.kind == ChangeKind.undo ? @tr("Undo in {n} file" | "Undo in {n} files" % AgentState.review-files)
+                    : root.kind == ChangeKind.label-undo ? @tr("Undo on {n} track" | "Undo on {n} tracks" % AgentState.review-files)
+                    : root.kind == ChangeKind.labels ? @tr("Change {n} track" | "Change {n} tracks" % AgentState.review-files)
                     : @tr("Write {n} file" | "Write {n} files" % AgentState.review-files);
                 // Filled for writing tags, which can be undone; not for deleting a
                 // playlist, which can't.

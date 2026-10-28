@@ -411,6 +411,7 @@ fn entry_row(entry: &PlaylistEntry) -> TrackRow {
         duration: format_duration(track.duration).into(),
         path: track.path.to_string_lossy().as_ref().into(),
         unavailable: !track.available,
+        labels: crate::labels::chips(track.id),
         ..TrackRow::default()
     }
 }

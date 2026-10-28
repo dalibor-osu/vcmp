@@ -55,7 +55,10 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, changes by agents, backups), the sidebar's review note and `ChangeReview`, the dialog that reviews a change |
 | `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread |
 | `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
-| `src/theme.rs` | The light and dark palettes, plus their contrast tests |
+| `ui/labels.slint` | `Labels` global, `LabelEntry`, `LabelDot`, `LabelChip(s)`, `LabelFilter` (the Songs and Albums pages' label filter), `LabelEditor` (the dialog that makes or edits a label, with the palette and the custom colour picker) and the Labels section of Settings |
+| `ui/label-page.slint` | `LabelsPage`: the Labels section's list, and `LabelView`, one label's tracks with Play and Shuffle |
+| `src/labels.rs` | `LabelBrowser`: labels behind the `Labels` global: the menus' choices and toggles, the dialog, the filters, the label page, the chips rows show, the colour picker's images |
+| `src/theme.rs` | The light and dark palettes and the labels' colours, plus their contrast tests |
 
 ## Rules enforced by tests
 
@@ -434,7 +437,8 @@ table can select several tracks for the track menu.
   window's Space shortcut leaves Ctrl+Space to the lists.
 - **The menu** acts on every selected track when it opens on one of them, and says
   how many ("3 tracks selected"): Play next and Add to queue put them into Up next in
-  list order, Add to playlist adds them all, Edit tags… edits them together, and in a
+  list order, Add to playlist adds them all, Labels puts a label on them all or takes
+  it off (see [Labels](#labels)), Edit tags… edits them together, and in a
   playlist Remove from playlist (or Delete) removes them. Play now and Move up/down
   are for one track and hide. A right click on a track outside the selection clears
   it first, so the menu acts on that track alone.
@@ -544,6 +548,9 @@ table, which can hold tens of thousands of rows, once typing pauses for 150 ms.
 The page says when nothing matches, and Escape or the clear button empties the
 field. Unlike Search, a filter only narrows the page it is on.
 
+While labels exist, the Songs and Albums pages also have a Labels button before the
+field (see [Labels](#labels)).
+
 ## Songs page
 
 - **The table** (`SongTable`) lists every available track: Title, Artist, Album,
@@ -562,6 +569,8 @@ field. Unlike Search, a filter only narrows the page it is on.
   table's order from that one; the queue panel says "Next from all songs".
 - **Columns:** the edges between the Title, Artist and Album headings resize those
   columns (see [Table columns](#table-columns)); Year and Time keep their widths.
+  While labels exist, a Labels column of 140 px before Year shows a track's first
+  label and how many more it has.
 
 ## Folders page
 
@@ -875,8 +884,64 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   Tab goes round, so the player bar can't be reached by keyboard while a dialog is
   open; Space and the media keys still play and pause.
 
+## Labels
+
+The owner's own names for tracks ([labels spec](specs/2026-10-28-user-labels.md),
+storage in [library.md](library.md#labels)). `LabelBrowser` (`src/labels.rs`, owned
+by `LibraryView`) keeps the `Labels` global current.
+
+- **A colour is only a dot** (`LabelDot`) beside the name, in the text colour (muted
+  on rows until the row is hovered or selected, like their other secondary text).
+  So any colour the owner picks leaves the name readable in both themes. The
+  palette is Catppuccin: Mocha's colours on the dark theme, Latte's darkened in
+  the same hue on the light one until each reaches 3:1 on `surface`, the fill of a
+  hovered row (`src/theme.rs` tests it). A custom colour is drawn as it is.
+- **Menus.** Every track menu (track lists, the songs table, the queue, the now
+  playing "…" menu) has a Labels submenu: each label as a checkable item, and New
+  label…. Album cards (the Albums grid, an artist's albums, search) have a menu of
+  their own, for every track the album has now; the album page gets one with the
+  overflow menu `ideas.md` plans. Slint's menus have no mixed state, so a label only
+  some chosen tracks hold reads "chill (on some)". Choosing a label puts it on all of
+  them unless all hold it, which takes it off all. A menu asks for its choices just
+  before it opens (`prepare-labels`, `prepare-path`, `prepare-album`): a right click
+  through the list's `show-menu`, the Menu key (or Shift+F10) through the list's key
+  handler, which then lets the key through to `ContextMenuArea`. The action works
+  out its tracks again from the list's rows, so old choices can't act on other
+  tracks.
+- **Rows** show a track's labels after its title, the first two and then "+n"; the
+  row's spoken label names them. Every row builder takes them from
+  `labels::chips(track)`, which reads what `LabelBrowser` keeps for the UI thread,
+  so no builder needs the browser. After any label change `LibraryView::labels_changed`
+  builds the rows again without reading the albums or tracks.
+- **Filters.** The Labels button opens a menu of every label to check; picked
+  labels show as chips with a remove mark beside the button, and "Show every label"
+  clears them. Songs keep the tracks holding every picked label; albums stay when
+  one of their tracks does. The filters combine with the typed one and aren't saved.
+- **The Labels section** sits after Playlists, and the labels are listed below the
+  playlists in the sidebar, each with its dot. The section's page lists them with
+  their counts and New label…; a label's page (`LabelView`) has its tracks in the
+  library's order with the artist and album, Play and Shuffle. They play as a
+  context of their own (`label:<id>`), named in the queue panel. A label deleted
+  while its page is open says so until the user leaves.
+- **The dialog** (`LabelEditor`, a `Modal`) takes the name and a colour: the palette
+  as one tab stop (Left and Right choose, like `SegmentedChoice`), then Custom,
+  which shows a picker: the shades of a hue to click or drag in, a strip of hues,
+  and the colour as a hex code, which is the keyboard's way to pick one. Rust paints
+  the strip and the shades (`Labels.hue-strip`, `Labels.shades`). What is wrong
+  (no name, too long, taken, not a colour) shows in the error colour. Made from a
+  menu, the new label goes on the menu's tracks.
+- **Settings** lists every label with its dot and count, Edit… (the dialog) and
+  Delete…, which asks first, on the page, with the focus on Cancel and how many
+  tracks lose it.
+
 ## Known limits
 
+- A label held by only some of the chosen tracks is marked by words in the menu
+  ("on some"), not by a mixed check mark: Slint's `MenuItem` has none.
+- The custom colour picker's shades and hues work with the mouse only; the keyboard
+  picks a custom colour by typing its hex code.
+- The album page has no label menu yet; label an album from its card, or select its
+  tracks.
 - The tag editor can't empty a field that differs between an album's tracks in one
   go: an empty "Several values" field keeps the values. Type a value, or edit the
   tracks one by one.

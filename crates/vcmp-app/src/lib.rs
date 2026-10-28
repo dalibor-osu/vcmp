@@ -7,6 +7,7 @@ pub mod artist_photos;
 pub mod cover_fetch;
 pub mod folders;
 pub mod icons;
+pub mod labels;
 pub mod lastfm_service;
 pub mod library_service;
 pub mod library_view;

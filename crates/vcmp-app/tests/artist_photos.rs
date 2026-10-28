@@ -327,7 +327,7 @@ fn a_personal_key_is_kept_and_goes_with_each_search() {
 
 /// Whether Settings shows the personal key field.
 fn key_field_shown(app: &App) -> bool {
-    app.window.set_selected_index(6);
+    app.window.set_selected_index(7);
     app.frame();
     ElementHandle::find_by_accessible_label(&app.window, "fanart.tv personal API key")
         .next()
@@ -338,7 +338,7 @@ fn key_field_shown(app: &App) -> bool {
 fn settings_and_about_tell_where_photos_come_from() {
     let app = open(true);
     assert!(key_field_shown(&app), "Settings offers the personal key");
-    app.window.set_selected_index(7);
+    app.window.set_selected_index(8);
     app.frame();
     assert!(app.button("fanart.tv, opens the website").is_some());
     assert!(app.button("Cover Art Archive, opens the website").is_some());

@@ -13,14 +13,18 @@ macOS.
 
 - Sorts the music in your folders into albums and artists by their tags, and
   notices new, changed and moved files by itself.
-- Lets you browse by album, artist, song, folder or playlist, and search for any
-  part of a name. Ctrl+F filters the page you are on, and the mouse's back and
+- Lets you browse by album, artist, song, folder, playlist or label, and search for
+  any part of a name. Ctrl+F filters the page you are on, and the mouse's back and
   forward buttons move through the pages you have visited.
 - Plays MP3, FLAC, WAV and Ogg Vorbis without gaps between tracks, with a queue,
   shuffle and repeat. The queue is still there after a restart, and you can choose
   the output device.
 - Edits the tags of a track, an album or several selected tracks, covers included.
   It edits a copy of each file and checks it before replacing the original.
+- Labels: your own names for tracks, such as chill or workout, each with a colour.
+  Put them on tracks or whole albums from their menu, then filter the Songs and
+  Albums pages by them or play a label's tracks. They stay in VCMP and never go into
+  your files.
 - Finds missing album covers online (the Cover Art Archive, through MusicBrainz) and
   artist photos on fanart.tv. You can use your own pictures instead, and give
   playlists one too.
@@ -29,7 +33,8 @@ macOS.
 - Has light and dark themes, and uses less motion when your system asks for it.
 - Tells you when a new version is out, unless you turn that off in Settings.
 - Lets AI agents such as Claude Code look through your library, suggest fixes to its
-  tags and build playlists, if you turn it on. Tag changes wait for your review.
+  tags, label tracks and build playlists, if you turn it on. Tag and label changes
+  wait for your review.
 
 ## Download
 
@@ -75,7 +80,10 @@ agents, and it works only while VCMP is open.
 
 - An agent reads your library and every tag of your files, and makes and edits
   playlists right away.
-- Changing tags, undoing such a change and deleting a playlist wait for you. The
+- An agent sees your labels, so "something chill" can mean the tracks you labelled
+  chill.
+- Changing tags or labels, undoing such a change and deleting a playlist wait for
+  you. The
   sidebar says when something waits; you see every value before and after, then
   write the change or reject it. A file that changed meanwhile is left alone, and a
   written change can be undone for 30 days.

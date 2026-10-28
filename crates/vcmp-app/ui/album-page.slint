@@ -7,6 +7,7 @@ import { Playlists } from "playlist-state.slint";
 import { TagEditorState } from "tag-editor.slint";
 import { SelectionChange } from "selection.slint";
 import { ColumnEdge, ColumnWidths } from "columns.slint";
+import { LabelChips, LabelEntry, LabelWords, Labels } from "labels.slint";
 
 export struct AlbumDetail {
     title: string,
@@ -49,6 +50,8 @@ export struct TrackRow {
     unavailable: bool,
     // Picked with Ctrl or Shift, so the track menu acts on it with the others.
     selected: bool,
+    // The track's labels, by name.
+    labels: [LabelEntry],
 }
 
 // The selection in a track list, kept in its rows (src/selection.rs). The menu's
@@ -60,6 +63,11 @@ export global TrackSelection {
     // Adds the tracks to playlist n (-1: to a new one).
     callback add-to-playlist([TrackRow], int, int);
     callback edit-tags([TrackRow], int);
+    // The Labels submenu: fills `Labels.choices` before the menu opens, puts label
+    // n on the tracks or takes it off, or opens the dialog for a new label.
+    callback prepare-labels([TrackRow], int);
+    callback toggle-label([TrackRow], int, int);
+    callback new-label([TrackRow], int);
 }
 
 // Returns to the page before. The chevron points the way back.
@@ -180,6 +188,8 @@ export component TrackLine {
     private property <bool> joined-below: root.track.selected && root.selected-below;
     // The pointer is on the play button, in the number's place.
     private property <bool> on-play-button: touch.has-hover && touch.mouse-x < number.x + number.width + Theme.space-l / 2;
+    private property <string> spoken: root.track.unavailable ? @tr("{0}, file not found", root.track.title)
+        : root.track.artist == "" ? root.track.title : @tr("{0}, {1}", root.track.title, root.track.artist);
 
     changed focused => {
         if self.focused {
@@ -205,8 +215,7 @@ export component TrackLine {
             border-bottom-right-radius: root.joined-below ? 0 : Theme.radius-m;
             background: root.track.selected || touch.has-hover ? Theme.colors.surface : transparent;
             accessible-role: list-item;
-            accessible-label: root.track.unavailable ? @tr("{0}, file not found", root.track.title)
-                : root.track.artist == "" ? root.track.title : @tr("{0}, {1}", root.track.title, root.track.artist);
+            accessible-label: root.track.labels.length == 0 ? root.spoken : @tr("{0}, labels: {1}", root.spoken, LabelWords.names(root.track.labels));
             accessible-item-selectable: true;
             accessible-item-selected: root.track.selected || root.focused;
             accessible-action-default => {
@@ -256,18 +265,30 @@ export component TrackLine {
                 }
 
                 // Zero preferred widths make the columns share space by stretch alone,
-                // so every row's columns start where the list's headings do.
-                Text {
+                // so every row's columns start where the list's headings do. The
+                // track's labels follow its title.
+                HorizontalLayout {
                     horizontal-stretch: ColumnWidths.track-title;
                     preferred-width: 0;
                     min-width: 0;
-                    text: root.track.title;
-                    color: root.playing ? Theme.colors.accent : root.track.unavailable ? root.secondary : Theme.colors.text;
-                    font-size: Theme.font-body;
-                    font-weight: root.playing ? Theme.weight-strong : Theme.weight-regular;
-                    vertical-alignment: center;
-                    overflow: elide;
-                    accessible-role: none;
+                    spacing: Theme.space-m;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        preferred-width: 0;
+                        min-width: 0;
+                        text: root.track.title;
+                        color: root.playing ? Theme.colors.accent : root.track.unavailable ? root.secondary : Theme.colors.text;
+                        font-size: Theme.font-body;
+                        font-weight: root.playing ? Theme.weight-strong : Theme.weight-regular;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: none;
+                    }
+                    if root.track.labels.length > 0: LabelChips {
+                        labels: root.track.labels;
+                        strong: root.track.selected || touch.has-hover;
+                    }
                 }
 
                 // A missing file says so in words, not only by its dimmed title.
@@ -418,6 +439,7 @@ export component TrackList {
             root.select(index, SelectionChange.none);
         }
         root.current = index;
+        TrackSelection.prepare-labels(root.tracks, index);
         menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
     }
 
@@ -541,6 +563,25 @@ export component TrackList {
                         }
                     }
                 }
+                Menu {
+                    title: @tr("Labels");
+
+                    for choice in Labels.choices: MenuItem {
+                        title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                        checkable: true;
+                        checked: choice.checked;
+                        activated => {
+                            TrackSelection.toggle-label(root.tracks, root.current, choice.id);
+                        }
+                    }
+                    if Labels.choices.length > 0: MenuSeparator { }
+                    MenuItem {
+                        title: @tr("New label…");
+                        activated => {
+                            TrackSelection.new-label(root.tracks, root.current);
+                        }
+                    }
+                }
                 MenuItem {
                     title: @tr("Edit tags…");
                     activated => {
@@ -600,6 +641,10 @@ export component TrackList {
                         root.select(0, SelectionChange.none);
                     } else if event.text == Key.Return || event.text == Key.Space {
                         root.play(root.current);
+                    } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
+                        // The menu opens on its own; it needs the current labels first.
+                        TrackSelection.prepare-labels(root.tracks, root.current);
+                        return reject;
                     } else {
                         return reject;
                     }

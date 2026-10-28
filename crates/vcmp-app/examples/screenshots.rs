@@ -174,7 +174,7 @@ const fn now_playing(name: &'static str, mode: ThemeMode) -> Shot {
 const fn lastfm(name: &'static str, mode: ThemeMode, status: LastfmStatus) -> Shot {
     Shot {
         lastfm: Some(status),
-        ..shot(name, mode, 6, None, 0)
+        ..shot(name, mode, 7, None, 0)
     }
 }
 
@@ -182,7 +182,7 @@ const fn lastfm(name: &'static str, mode: ThemeMode, status: LastfmStatus) -> Sh
 const fn update(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         update: true,
-        ..shot(name, mode, 7, None, 0)
+        ..shot(name, mode, 8, None, 0)
     }
 }
 
@@ -211,10 +211,12 @@ const SHOTS: &[Shot] = &[
     shot("playlists-dark", ThemeMode::Dark, 3, None, 0),
     shot("playlist-light", ThemeMode::Light, 3, Some(0), 0),
     shot("playlist-dark", ThemeMode::Dark, 3, Some(0), 0),
-    shot("songs-light", ThemeMode::Light, 4, None, 0),
-    shot("songs-dark", ThemeMode::Dark, 4, None, 0),
-    shot("folders-light", ThemeMode::Light, 5, None, 0),
-    shot("folders-dark", ThemeMode::Dark, 5, None, 0),
+    shot("labels-light", ThemeMode::Light, 4, None, 0),
+    shot("labels-dark", ThemeMode::Dark, 4, None, 0),
+    shot("songs-light", ThemeMode::Light, 5, None, 0),
+    shot("songs-dark", ThemeMode::Dark, 5, None, 0),
+    shot("folders-light", ThemeMode::Light, 6, None, 0),
+    shot("folders-dark", ThemeMode::Dark, 6, None, 0),
     now_playing("now-playing-light", ThemeMode::Light),
     now_playing("now-playing-dark", ThemeMode::Dark),
     cover_picker("cover-picker-light", ThemeMode::Light),
@@ -229,8 +231,8 @@ const SHOTS: &[Shot] = &[
     tags_waiting("tags-waiting-dark", ThemeMode::Dark),
     tags_confirm("tags-confirm-light", ThemeMode::Light),
     tags_confirm("tags-confirm-dark", ThemeMode::Dark),
-    shot("settings-light", ThemeMode::Light, 6, None, 0),
-    shot("settings-dark", ThemeMode::Dark, 6, None, 0),
+    shot("settings-light", ThemeMode::Light, 7, None, 0),
+    shot("settings-dark", ThemeMode::Dark, 7, None, 0),
     lastfm("lastfm-light", ThemeMode::Light, LastfmStatus::Connected),
     lastfm("lastfm-dark", ThemeMode::Dark, LastfmStatus::Connected),
     lastfm(
@@ -243,13 +245,13 @@ const SHOTS: &[Shot] = &[
         ThemeMode::Dark,
         LastfmStatus::Waiting,
     ),
-    shot("about-light", ThemeMode::Light, 7, None, 0),
-    shot("about-dark", ThemeMode::Dark, 7, None, 0),
+    shot("about-light", ThemeMode::Light, 8, None, 0),
+    shot("about-dark", ThemeMode::Dark, 8, None, 0),
     update("update-light", ThemeMode::Light),
     update("update-dark", ThemeMode::Dark),
-    shot("focus-nav-light", ThemeMode::Light, 6, None, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 6, None, 3),
-    shot("focus-switch-light", ThemeMode::Light, 6, None, 1),
+    shot("focus-nav-light", ThemeMode::Light, 7, None, 1),
+    shot("focus-theme-dark", ThemeMode::Dark, 7, None, 3),
+    shot("focus-switch-light", ThemeMode::Light, 7, None, 1),
     agents("agents-light", ThemeMode::Light, Agents::Settings),
     agents("agents-dark", ThemeMode::Dark, Agents::Settings),
     agents("agents-history-light", ThemeMode::Light, Agents::History),
@@ -336,7 +338,7 @@ fn prepare(window: &AppWindow, shot: &Shot) {
         show_photo_picker(window);
     }
     window.global::<PhotoSearch>().set_open(shot.photo_picker);
-    if shot.page == 5 {
+    if shot.page == 6 {
         // Inside the first music folder, where there is more than one row.
         window.invoke_folders_needed();
         window.invoke_folder_go_to(-1);

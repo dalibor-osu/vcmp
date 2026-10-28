@@ -60,7 +60,8 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
 - 2026-10-18, sidebar: the order of the sections stays, grouped as Search, then
   Albums, Artists, Playlists, Songs and Folders, then Settings and About; the
   playlist list stays as it is. Choosing a section always goes to its full view,
-  not to the detail it last showed.
+  not to the detail it last showed. (2026-10-28: Labels joins after Playlists,
+  below.)
 - 2026-10-18, an album renamed while its page is open: the page goes to the renamed
   album instead of showing it as missing.
 - 2026-10-18, selection: in a run of selected tracks, only the first and last
@@ -81,3 +82,11 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   screen. Chosen from offered options: Settings' column grows with the window
   between 720 and 960 px, and the cover and photo pickers become the same kind of
   dialog.
+- 2026-10-28, labels (chosen from offered options,
+  `docs/specs/2026-10-28-user-labels.md`): the owner's own names for tracks are
+  called labels; "tags" stay the file tags. A Labels section comes after Playlists
+  in the sidebar, with the labels listed below the playlists. A label's colour
+  comes from a palette or a colour picker ("There should be a color picker as well
+  as predefined palette to choose from"), and is drawn as a dot beside the name in
+  plain text. Labels show as chips on track rows and as a column in the Songs
+  table.

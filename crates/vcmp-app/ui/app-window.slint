@@ -25,7 +25,10 @@ import { PhotoPicker, PhotoSearch, PhotoSearchStatus } from "photo-picker.slint"
 import { TagChange, TagEditorState, TagEditorStatus, TagEditorView, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues } from "tag-editor.slint";
 import { ColumnWidths } from "columns.slint";
 import { AgentState, ChangeEntry, ChangeField, ChangeKind, ChangeProblem, ChangeReview, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus, SidebarReviewNote } from "agents.slint";
+import { LabelChoice, LabelEditor, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour } from "labels.slint";
+import { LabelDetail, LabelsPage } from "label-page.slint";
 
+export { LabelChoice, LabelDetail, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour }
 export { AgentState, ChangeEntry, ChangeField, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
 export { LastfmProblem, LastfmState, LastfmStatus }
 export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
@@ -38,7 +41,7 @@ export { UpdateState }
 export { TrackSelection }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
 
-export enum Page { search, albums, artists, playlists, songs, folders, settings, about }
+export enum Page { search, albums, artists, playlists, labels, songs, folders, settings, about }
 
 struct NavEntry {
     page: Page,
@@ -101,6 +104,16 @@ export component AppWindow inherits Window {
     // Plays the open playlist from an entry (-1: from its start), shuffled or not.
     callback play-playlist(int, bool);
     callback queue-playlist-track(int, bool);
+    // The Labels section: the open label's page, and what it plays.
+    in-out property <bool> label-open;
+    in property <LabelDetail> label-detail;
+    in property <[TrackRow]> label-tracks;
+    // Position of the open label in `Labels.all` and the sidebar; -1 for none.
+    in property <int> open-label-index: -1;
+    callback label-activated(int);
+    // Plays the open label's tracks from one (-1: from the first), shuffled or not.
+    callback play-label(int, bool);
+    callback queue-label-track(int, bool);
     // The queue panel is shown beside the page.
     in-out property <bool> queue-open;
     // The library database could not be opened or read.
@@ -157,6 +170,7 @@ export component AppWindow inherits Window {
         { page: Page.albums, label: @tr("Albums"), group: 1 },
         { page: Page.artists, label: @tr("Artists"), group: 1 },
         { page: Page.playlists, label: @tr("Playlists"), group: 1 },
+        { page: Page.labels, label: @tr("Labels"), group: 1 },
         { page: Page.songs, label: @tr("Songs"), group: 1 },
         { page: Page.folders, label: @tr("Folders"), group: 1 },
         { page: Page.settings, label: @tr("Settings"), group: 2 },
@@ -192,6 +206,12 @@ export component AppWindow inherits Window {
     changed open-playlist-index => {
         root.navigated();
     }
+    changed label-open => {
+        root.navigated();
+    }
+    changed open-label-index => {
+        root.navigated();
+    }
 
     // Shows a section on its grid, not on the album, artist or playlist it last
     // showed, as its sidebar entry does.
@@ -206,6 +226,9 @@ export component AppWindow inherits Window {
         }
         if page == Page.playlists && root.playlist-open {
             playlists-page.close-playlist();
+        }
+        if page == Page.labels && root.label-open {
+            labels-page.close-label();
         }
     }
 
@@ -239,6 +262,13 @@ export component AppWindow inherits Window {
         root.playlist-activated(index);
         root.opened-from-search = false;
         root.selected-index = 3;
+    }
+
+    // Opens label `index` on the Labels page, from the sidebar.
+    function show-label(index: int) {
+        root.label-activated(index);
+        root.opened-from-search = false;
+        root.selected-index = 4;
     }
 
     // Shows the Search page with its field focused.
@@ -445,6 +475,42 @@ export component AppWindow inherits Window {
                                             selected: root.current-page == Page.playlists && root.playlist-open && index == root.open-playlist-index;
                                             activated => {
                                                 root.show-playlist(index);
+                                            }
+                                            shown-focused(top, height) => {
+                                                root.show-in-sidebar(top, height);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // The labels, below the playlists.
+                                if Labels.all.length > 0: VerticalLayout {
+                                    spacing: Theme.space-s;
+
+                                    HorizontalLayout {
+                                        padding-left: Theme.space-l;
+
+                                        Text {
+                                            text: @tr("Labels");
+                                            color: Theme.colors.text-muted;
+                                            font-size: Theme.font-small;
+                                            accessible-role: none;
+                                        }
+                                    }
+
+                                    VerticalLayout {
+                                        spacing: root.nav-spacing;
+                                        accessible-role: list;
+                                        accessible-label: @tr("Labels");
+
+                                        for label[index] in Labels.all: PlaylistLink {
+                                            label: label.name;
+                                            dot: true;
+                                            dot-light: label.light;
+                                            dot-dark: label.dark;
+                                            selected: root.current-page == Page.labels && root.label-open && index == root.open-label-index;
+                                            activated => {
+                                                root.show-label(index);
                                             }
                                             shown-focused(top, height) => {
                                                 root.show-in-sidebar(top, height);
@@ -677,6 +743,25 @@ export component AppWindow inherits Window {
                                 root.delete-playlist();
                             }
                         }
+                        labels-page := LabelsPage {
+                            x: 0;
+                            width: root.page-width;
+                            shown: root.current-page == Page.labels;
+                            library-failed: root.library-failed;
+                            label-open <=> root.label-open;
+                            label: root.label-detail;
+                            tracks: root.label-tracks;
+                            playing-path: PlayerState.track-path;
+                            activated(index) => {
+                                root.label-activated(index);
+                            }
+                            play(start, shuffle) => {
+                                root.play-label(start, shuffle);
+                            }
+                            queue-track(index, next) => {
+                                root.queue-label-track(index, next);
+                            }
+                        }
                         songs-page := SongsPage {
                             x: 0;
                             width: root.page-width;
@@ -791,6 +876,12 @@ export component AppWindow inherits Window {
 
                 // The review of a change an agent asked for, the same way.
                 if AgentState.review-open: ChangeReview {
+                    width: parent.width;
+                    height: parent.height;
+                }
+
+                // Making or editing a label, from Settings, the Labels page or a menu.
+                if Labels.editor-open: LabelEditor {
                     width: parent.width;
                     height: parent.height;
                 }

@@ -1,0 +1,835 @@
+// Labels: the owner's own names for tracks, each with a colour, kept in VCMP's
+// database only. This file holds what every page shares: the state Rust keeps
+// (src/labels.rs), the dot and chips that show a label, the filter on the Songs and
+// Albums pages, the dialog that makes or edits a label, and its Settings section.
+// A colour is only ever a dot beside the name, so any colour the owner picks leaves
+// the name readable in both themes.
+
+import { Theme } from "theme.slint";
+import { Button, FocusRing, Modal, SectionHeading, TextField } from "components.slint";
+import { Glyph, Icon } from "icons.slint";
+
+// One label, as Rust gives it.
+export struct LabelEntry {
+    id: int,
+    name: string,
+    // Its colour in each theme: a palette colour has a light and a dark variant, a
+    // custom colour is the same in both.
+    light: color,
+    dark: color,
+    // Available tracks holding it.
+    count: int,
+}
+
+// A label in a menu, as the tracks the menu acts on hold it: all of them, or some.
+export struct LabelChoice {
+    id: int,
+    name: string,
+    checked: bool,
+    partial: bool,
+}
+
+// A colour of the palette: its name as stored, and its two variants.
+export struct PaletteColour {
+    name: string,
+    light: color,
+    dark: color,
+}
+
+// Why the label in the dialog can't be saved.
+export enum LabelProblem { none, empty, too-long, taken, colour }
+
+export enum LabelFilterPage { songs, albums }
+
+export global Labels {
+    // Every label, by name.
+    in property <[LabelEntry]> all;
+    in property <[PaletteColour]> palette;
+
+    // The labels a track menu offers, as the tracks it acts on hold them. A menu
+    // asks for them just before it opens; the track lists and the songs table ask
+    // through `TrackSelection` and `SongSelection`, by their rows.
+    in property <[LabelChoice]> choices;
+    // Menus for one file (the queue, now playing) and for an album's tracks.
+    callback prepare-path(string);
+    callback toggle-path(string, int);
+    callback new-for-path(string);
+    callback prepare-album(int);
+    callback toggle-album(int, int);
+    callback new-for-album(int);
+
+    // The label filters of the Songs and Albums pages: the labels picked, and every
+    // label with whether it is.
+    in property <[LabelEntry]> songs-filter;
+    in property <[LabelChoice]> songs-filter-choices;
+    in property <[LabelEntry]> albums-filter;
+    in property <[LabelChoice]> albums-filter-choices;
+    callback toggle-filter(LabelFilterPage, int);
+    callback clear-filter(LabelFilterPage);
+
+    // The dialog that makes or edits a label.
+    in property <bool> editor-open;
+    // The label edited, or -1 for a new one.
+    in property <int> editor-id: -1;
+    in property <string> editor-name;
+    // The colour's place in the palette, or the palette's length for a custom
+    // colour, which is `editor-hex`.
+    in property <int> editor-colour;
+    in property <string> editor-hex;
+    // A new label from a track menu is put on this many tracks.
+    in property <int> editor-tracks;
+    in property <LabelProblem> editor-problem;
+    // Opens the dialog for a label, or for a new one (-1).
+    callback edit(int);
+    // Saves the dialog's name and colour: a place in the palette, or past its end
+    // the custom colour as #rrggbb.
+    callback save(string, int, string);
+    callback close-editor();
+    callback delete(int);
+
+    // The custom colour picker: a strip of hues, and the shades of one hue as an
+    // image (saturation across, brightness down), painted by Rust.
+    in property <image> hue-strip;
+    pure callback shades(float) -> image;
+    // A colour as #rrggbb from hue, saturation and brightness, each 0 to 1.
+    pure callback hex-of(float, float, float) -> string;
+    // The colour #rrggbb names; transparent when it names none.
+    pure callback colour-of(string) -> color;
+}
+
+// The names of the palette's colours, for people and assistive technology.
+export global LabelWords {
+    // A palette colour's name by its place in `Labels.palette`.
+    public pure function colour-name(index: int) -> string {
+        if index == 0 { return @tr("Pink"); }
+        if index == 1 { return @tr("Mauve"); }
+        if index == 2 { return @tr("Red"); }
+        if index == 3 { return @tr("Peach"); }
+        if index == 4 { return @tr("Yellow"); }
+        if index == 5 { return @tr("Green"); }
+        if index == 6 { return @tr("Teal"); }
+        if index == 7 { return @tr("Sky"); }
+        if index == 8 { return @tr("Blue"); }
+        if index == 9 { return @tr("Lavender"); }
+        @tr("Colour {}", index + 1)
+    }
+
+    // A label's name for assistive technology in a list of them: "chill, rainy".
+    public pure function names(labels: [LabelEntry]) -> string {
+        if labels.length == 0 { return ""; }
+        if labels.length == 1 { return labels[0].name; }
+        if labels.length == 2 { return @tr("{0}, {1}", labels[0].name, labels[1].name); }
+        @tr("{0}, {1} and {n} more" | "{0}, {1} and {n} more" % labels.length - 2, labels[0].name, labels[1].name)
+    }
+}
+
+// A label's colour as a dot.
+export component LabelDot inherits Rectangle {
+    in property <color> light;
+    in property <color> dark;
+    in property <length> size: 10px;
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    background: Theme.dark ? root.dark : root.light;
+    accessible-role: none;
+}
+
+// A label as a dot and its name. `strong` turns the name to full strength, on the
+// fill of a hovered or selected row.
+export component LabelChip inherits HorizontalLayout {
+    in property <LabelEntry> label;
+    in property <bool> strong;
+
+    spacing: Theme.space-xs;
+    horizontal-stretch: 0;
+    accessible-role: none;
+
+    VerticalLayout {
+        alignment: center;
+
+        LabelDot {
+            light: root.label.light;
+            dark: root.label.dark;
+            size: 8px;
+        }
+    }
+    Text {
+        text: root.label.name;
+        color: root.strong ? Theme.colors.text : Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+}
+
+// A row's labels: the first `shown`, then how many more. The row's own spoken label
+// names them.
+export component LabelChips inherits HorizontalLayout {
+    in property <[LabelEntry]> labels;
+    in property <int> shown: 2;
+    in property <bool> strong;
+
+    spacing: Theme.space-s;
+    horizontal-stretch: 0;
+    accessible-role: none;
+
+    for label[index] in root.labels: LabelChip {
+        visible: index < root.shown;
+        width: index < root.shown ? self.preferred-width : 0px;
+        label: label;
+        strong: root.strong;
+    }
+    if root.labels.length > root.shown: Text {
+        text: @tr("+{}", root.labels.length - root.shown);
+        color: root.strong ? Theme.colors.text : Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+}
+
+// A picked label in a page's filter: a button that takes it out of the filter.
+component FilterChip {
+    in property <LabelEntry> label;
+    callback removed();
+
+    min-height: Theme.target-height - Theme.space-s;
+    accessible-role: button;
+    accessible-label: @tr("Stop filtering by {}", root.label.name);
+    accessible-action-default => {
+        root.removed();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: touch.has-hover ? Theme.colors.surface : Theme.colors.base;
+        border-width: 1px;
+        border-color: Theme.colors.outline;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-m;
+        padding-right: Theme.space-s;
+        spacing: Theme.space-s;
+
+        VerticalLayout {
+            alignment: center;
+
+            LabelDot {
+                light: root.label.light;
+                dark: root.label.dark;
+            }
+        }
+        Text {
+            text: root.label.name;
+            color: Theme.colors.text;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+        VerticalLayout {
+            alignment: center;
+
+            Icon {
+                width: 14px;
+                height: 14px;
+                glyph: Glyph.remove;
+                tint: Theme.colors.text;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.removed();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.removed();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: root.height / 2;
+    }
+}
+
+// The label filter beside a page's text filter: a Labels button whose menu picks
+// labels, and the picked ones as chips that take themselves out. Only shown while
+// there are labels.
+export component LabelFilter inherits HorizontalLayout {
+    in property <LabelFilterPage> page;
+    private property <[LabelEntry]> picked: root.page == LabelFilterPage.songs ? Labels.songs-filter : Labels.albums-filter;
+    private property <[LabelChoice]> choices: root.page == LabelFilterPage.songs ? Labels.songs-filter-choices : Labels.albums-filter-choices;
+
+    spacing: Theme.space-s;
+    horizontal-stretch: 0;
+
+    for label in root.picked: VerticalLayout {
+        alignment: center;
+
+        FilterChip {
+            label: label;
+            removed => {
+                Labels.toggle-filter(root.page, label.id);
+            }
+        }
+    }
+
+    menu := ContextMenuArea {
+        Menu {
+            for choice in root.choices: MenuItem {
+                title: choice.name;
+                checkable: true;
+                checked: choice.checked;
+                activated => {
+                    Labels.toggle-filter(root.page, choice.id);
+                }
+            }
+            if root.picked.length > 0: MenuSeparator { }
+            if root.picked.length > 0: MenuItem {
+                title: @tr("Show every label");
+                activated => {
+                    Labels.clear-filter(root.page);
+                }
+            }
+        }
+
+        opener := Button {
+            text: root.picked.length == 0 ? @tr("Labels") : @tr("Labels ({})", root.picked.length);
+            label: root.picked.length == 0 ? @tr("Filter by labels") : @tr("Filter by labels, {n} picked" | "Filter by labels, {n} picked" % root.picked.length);
+            clicked => {
+                menu.show({ x: 0, y: self.height });
+            }
+        }
+    }
+}
+
+// The palette as one tab stop, with Custom after its colours: Left and Right move
+// the choice. `current` is the palette index, or the palette's length for Custom.
+component ColourChoice {
+    in property <int> current;
+    callback chosen(int);
+
+    private property <length> swatch: 28px;
+    private property <int> count: Labels.palette.length + 1;
+
+    function choose(index: int) {
+        if index >= 0 && index < root.count {
+            root.chosen(index);
+        }
+    }
+
+    accessible-role: radio-group;
+    accessible-label: @tr("Colour");
+    forward-focus: focus;
+
+    HorizontalLayout {
+        spacing: Theme.space-s;
+        alignment: start;
+
+        for colour[index] in Labels.palette: Rectangle {
+            width: root.swatch + 2 * Theme.space-xs;
+            height: root.swatch + 2 * Theme.space-xs;
+            accessible-role: radio-button;
+            accessible-label: LabelWords.colour-name(index);
+            accessible-checkable: true;
+            accessible-checked: index == root.current;
+            accessible-item-index: index;
+            accessible-action-default => {
+                root.choose(index);
+            }
+
+            // The chosen colour has a ring around it.
+            Rectangle {
+                border-radius: self.width / 2;
+                border-width: index == root.current ? 2px : 0px;
+                border-color: Theme.colors.text;
+            }
+            Rectangle {
+                x: Theme.space-xs;
+                y: Theme.space-xs;
+                width: root.swatch;
+                height: root.swatch;
+                border-radius: self.width / 2;
+                background: Theme.dark ? colour.dark : colour.light;
+            }
+            TouchArea {
+                clicked => {
+                    Theme.keyboard-navigation = false;
+                    root.choose(index);
+                }
+            }
+        }
+
+        custom := Rectangle {
+            min-width: custom-text.preferred-width + 2 * Theme.space-m;
+            height: root.swatch + 2 * Theme.space-xs;
+            border-radius: self.height / 2;
+            border-width: root.current == Labels.palette.length ? 2px : 1px;
+            border-color: root.current == Labels.palette.length ? Theme.colors.text : Theme.colors.outline;
+            background: custom-touch.has-hover ? Theme.colors.surface : Theme.colors.base;
+            accessible-role: radio-button;
+            accessible-label: @tr("Custom colour");
+            accessible-checkable: true;
+            accessible-checked: root.current == Labels.palette.length;
+            accessible-item-index: Labels.palette.length;
+            accessible-action-default => {
+                root.choose(Labels.palette.length);
+            }
+
+            custom-text := Text {
+                text: @tr("Custom");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+            custom-touch := TouchArea {
+                clicked => {
+                    Theme.keyboard-navigation = false;
+                    root.choose(Labels.palette.length);
+                }
+            }
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                root.choose(root.current - 1);
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                root.choose(root.current + 1);
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-l;
+    }
+}
+
+// Any colour: a strip of hues and the shades of the chosen hue to click or drag in,
+// and the colour as #rrggbb to type, which is also the keyboard's way to pick one.
+component ColourPicker inherits VerticalLayout {
+    in-out property <string> hex;
+    private property <float> hue: 0.9;
+    private property <float> saturation: 0.6;
+    private property <float> brightness: 0.8;
+
+    function pick-shade(x: length, y: length, width: length, height: length) {
+        root.saturation = clamp(x / width, 0, 1);
+        root.brightness = 1 - clamp(y / height, 0, 1);
+        root.hex = Labels.hex-of(root.hue, root.saturation, root.brightness);
+    }
+    function pick-hue(x: length, width: length) {
+        root.hue = clamp(x / width, 0, 1);
+        root.hex = Labels.hex-of(root.hue, root.saturation, root.brightness);
+    }
+
+    spacing: Theme.space-m;
+
+    shades := Rectangle {
+        height: 120px;
+        border-radius: Theme.radius-m;
+        clip: true;
+        accessible-role: none;
+
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: Labels.shades(root.hue);
+            image-fit: fill;
+            accessible-role: none;
+        }
+        Rectangle {
+            x: root.saturation * parent.width - self.width / 2;
+            y: (1 - root.brightness) * parent.height - self.height / 2;
+            width: 14px;
+            height: 14px;
+            border-radius: self.width / 2;
+            border-width: 2px;
+            border-color: Theme.colors.base;
+        }
+        TouchArea {
+            pointer-event(event) => {
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                    root.pick-shade(self.mouse-x, self.mouse-y, self.width, self.height);
+                }
+            }
+            moved => {
+                if self.pressed {
+                    root.pick-shade(self.mouse-x, self.mouse-y, self.width, self.height);
+                }
+            }
+        }
+    }
+
+    hues := Rectangle {
+        height: 16px;
+        border-radius: Theme.radius-s;
+        clip: true;
+        accessible-role: none;
+
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: Labels.hue-strip;
+            image-fit: fill;
+            accessible-role: none;
+        }
+        Rectangle {
+            x: root.hue * parent.width - self.width / 2;
+            width: 4px;
+            border-radius: Theme.radius-s;
+            border-width: 1px;
+            border-color: Theme.colors.base;
+            background: Theme.colors.text;
+        }
+        TouchArea {
+            pointer-event(event) => {
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                    root.pick-hue(self.mouse-x, self.width);
+                }
+            }
+            moved => {
+                if self.pressed {
+                    root.pick-hue(self.mouse-x, self.width);
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Theme.space-m;
+        alignment: start;
+
+        VerticalLayout {
+            alignment: center;
+
+            LabelDot {
+                light: Labels.colour-of(root.hex);
+                dark: Labels.colour-of(root.hex);
+                size: 20px;
+            }
+        }
+        TextField {
+            width: 140px;
+            label: @tr("Colour as a hex code");
+            placeholder: @tr("#rrggbb");
+            text <=> root.hex;
+        }
+    }
+}
+
+// Makes a label, or renames and recolours one: its name, a colour from the palette
+// or any other, then Save or Cancel. A label made from a track menu is put on the
+// tracks the menu was for.
+export component LabelEditor inherits Modal {
+    private property <bool> new: Labels.editor-id < 0;
+    private property <string> name;
+    private property <int> colour-index;
+    private property <string> hex;
+    private property <bool> custom: root.colour-index >= Labels.palette.length;
+    // Tab went past the last control, or Shift+Tab before the first.
+    private property <int> wrap-first;
+    private property <int> wrap-last;
+
+    function save() {
+        Labels.save(root.name, root.colour-index, root.hex);
+    }
+
+    init => {
+        root.name = Labels.editor-name;
+        root.hex = Labels.editor-hex;
+        root.colour-index = Labels.editor-colour;
+    }
+
+    label: root.new ? @tr("New label") : @tr("Edit label");
+    card-width: Theme.dialog-width;
+    escape => {
+        Labels.close-editor();
+    }
+    focus-first => {
+        root.wrap-first += 1;
+    }
+    focus-last => {
+        root.wrap-last += 1;
+    }
+
+    VerticalLayout {
+        padding: Theme.space-xl;
+        spacing: Theme.space-xl;
+
+        VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: root.new ? @tr("New label") : @tr("Edit label");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+            }
+            Text {
+                text: root.new && Labels.editor-tracks > 0 ? @tr("It is put on the track you chose. Labels stay in VCMP and are never written into your files." | "It is put on the {n} tracks you chose. Labels stay in VCMP and are never written into your files." % Labels.editor-tracks)
+                    : @tr("Labels stay in VCMP and are never written into your files.");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+        }
+
+        VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: @tr("Name");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                accessible-role: none;
+            }
+            name-field := TextField {
+                property <int> wrap: root.wrap-first;
+                changed wrap => {
+                    self.focus-text();
+                }
+                label: @tr("Name");
+                placeholder: @tr("chill, workout, to sort…");
+                text <=> root.name;
+                init => {
+                    self.focus-text();
+                }
+                accepted => {
+                    root.save();
+                }
+                cancelled => {
+                    Labels.close-editor();
+                }
+            }
+        }
+
+        VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: @tr("Colour");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                accessible-role: none;
+            }
+            ColourChoice {
+                current: root.colour-index;
+                chosen(index) => {
+                    root.colour-index = index;
+                    if index >= Labels.palette.length && root.hex == "" {
+                        root.hex = Labels.hex-of(0.9, 0.6, 0.8);
+                    }
+                }
+            }
+            if root.custom: ColourPicker {
+                hex <=> root.hex;
+            }
+        }
+
+        // Always in the layout, collapsed while there is nothing to say: a wrapped
+        // text an `if` creates lost its last line.
+        Text {
+            visible: Labels.editor-problem != LabelProblem.none;
+            height: self.visible ? self.preferred-height : 0px;
+            text: Labels.editor-problem == LabelProblem.empty ? @tr("Give the label a name.")
+                : Labels.editor-problem == LabelProblem.too-long ? @tr("A label's name can be 40 characters at most.")
+                : Labels.editor-problem == LabelProblem.taken ? @tr("Another label has this name.")
+                : Labels.editor-problem == LabelProblem.colour ? @tr("Type the colour as # and six digits or letters from a to f.")
+                : "";
+            color: Theme.colors.error;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-m;
+            alignment: start;
+
+            Button {
+                text: root.new ? @tr("Make label") : @tr("Save");
+                primary: true;
+                clicked => {
+                    root.save();
+                }
+            }
+            Button {
+                property <int> wrap: root.wrap-last;
+                changed wrap => {
+                    self.focus();
+                }
+                text: @tr("Cancel");
+                clicked => {
+                    Labels.close-editor();
+                }
+            }
+        }
+    }
+}
+
+// The Labels section of Settings: every label with its colour and number of tracks,
+// Edit and Delete for each, and New label. Deleting asks first, saying how many
+// tracks lose the label.
+export component LabelsSection inherits VerticalLayout {
+    private property <int> confirming: -1;
+
+    spacing: Theme.space-xs;
+
+    SectionHeading {
+        text: @tr("Labels");
+    }
+
+    Text {
+        text: @tr("Your own names for tracks, such as chill or workout, to filter, group and play by, and for AI agents to find. They stay in VCMP and are never written into your files. Put them on tracks or albums from their menu.");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+
+    for label in Labels.all: VerticalLayout {
+        HorizontalLayout {
+            spacing: Theme.space-l;
+            padding-top: Theme.space-s;
+            padding-bottom: Theme.space-s;
+
+            VerticalLayout {
+                alignment: center;
+
+                LabelDot {
+                    light: label.light;
+                    dark: label.dark;
+                    size: 14px;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 2px;
+
+                Text {
+                    text: label.name;
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    font-weight: Theme.weight-strong;
+                    overflow: elide;
+                }
+                Text {
+                    text: @tr("{n} track" | "{n} tracks" % label.count);
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+
+                Button {
+                    text: @tr("Edit…");
+                    label: @tr("Edit {}", label.name);
+                    clicked => {
+                        root.confirming = -1;
+                        Labels.edit(label.id);
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+
+                Button {
+                    text: @tr("Delete…");
+                    label: @tr("Delete {}", label.name);
+                    clicked => {
+                        root.confirming = label.id;
+                    }
+                }
+            }
+        }
+
+        // Asks first, with the focus on Cancel.
+        if root.confirming == label.id: VerticalLayout {
+            spacing: Theme.space-m;
+            padding-bottom: Theme.space-m;
+
+            Text {
+                text: @tr("Delete the label “{0}”? It is taken off the track that has it. The track stays in your library." | "Delete the label “{0}”? It is taken off the {n} tracks that have it. The tracks stay in your library." % label.count, label.name);
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            HorizontalLayout {
+                spacing: Theme.space-m;
+                alignment: start;
+
+                Button {
+                    text: @tr("Delete label");
+                    clicked => {
+                        root.confirming = -1;
+                        Labels.delete(label.id);
+                    }
+                }
+                Button {
+                    text: @tr("Cancel");
+                    label: @tr("Keep the label");
+                    init => {
+                        self.focus();
+                    }
+                    clicked => {
+                        root.confirming = -1;
+                    }
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        padding-top: Theme.space-s;
+        alignment: start;
+
+        Button {
+            text: @tr("New label…");
+            clicked => {
+                root.confirming = -1;
+                Labels.edit(-1);
+            }
+        }
+    }
+}

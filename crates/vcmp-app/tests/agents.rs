@@ -1,6 +1,6 @@
 //! Changes AI agents ask for: the note in the sidebar, the history in Settings, the
-//! review (accept, reject, decide later), undo, a playlist deletion's warning, a file
-//! in use, the backups, and the switch. Files are copies in a temporary directory.
+//! review (accept, reject, decide later), undo, a change of labels, a playlist
+//! deletion's warning, a file in use, the backups, and the switch. Files are copies in a temporary directory.
 
 mod common;
 
@@ -19,7 +19,7 @@ use vcmp_app::library_view::LibraryView;
 use vcmp_app::{
     AgentState, AppWindow, ChangeField, ChangeKind, ChangeStatus, ReviewStatus, ServerStatus,
 };
-use vcmp_library::{ChangeSetId, FieldEdit, Library, TagEdit, TrackId};
+use vcmp_library::{ChangeSetId, FieldEdit, LabelEdit, Library, NewLabel, TagEdit, TrackId};
 
 struct App {
     dir: tempfile::TempDir,
@@ -283,6 +283,74 @@ fn an_undo_from_settings_is_reviewed_and_puts_the_tags_back() {
         .map(|entry| entry.can_undo)
         .collect();
     assert_eq!(can_undo, [true, false]);
+}
+
+#[test]
+fn a_change_of_labels_is_reviewed_and_can_be_undone() {
+    let app = start();
+    let (one, two) = (app.id("One"), app.id("Two"));
+    let chill = || LabelEdit {
+        add: vec!["chill".into()],
+        remove: Vec::new(),
+    };
+    app.agents
+        .submit_labels(
+            "Claude",
+            &[(one, chill()), (two, chill())],
+            &[NewLabel {
+                name: "chill".into(),
+                colour: "palette:teal".into(),
+            }],
+        )
+        .unwrap();
+    assert!(app.library.label_named("chill").unwrap().is_none());
+
+    app.press("1 change by an agent waits for your review, opens it");
+    let state = app.state();
+    assert_eq!(state.get_review_kind(), ChangeKind::Labels);
+    assert_eq!(state.get_review_new_labels(), "chill");
+    let rows: Vec<_> = state.get_review_rows().iter().collect();
+    assert_eq!(rows.len(), 1, "the same label on both tracks is one row");
+    assert_eq!(rows[0].field, ChangeField::Label);
+    assert_eq!(
+        (rows[0].key.as_str(), rows[0].after.as_str(), rows[0].files),
+        ("chill", "chill", 2)
+    );
+
+    app.accept("Change 2 tracks");
+    assert_eq!(state.get_review_written(), 2);
+    let on = |id| -> Vec<String> {
+        app.library
+            .track_labels_of(id)
+            .unwrap()
+            .into_iter()
+            .map(|label| label.name)
+            .collect()
+    };
+    assert_eq!(on(one), ["chill"]);
+    assert_eq!(on(two), ["chill"]);
+    assert_eq!(
+        app.history(),
+        [(ChangeKind::Labels, ChangeStatus::Accepted)]
+    );
+    app.press("Close");
+
+    app.open_settings();
+    app.press("Undo the change asked by Claude");
+    assert_eq!(state.get_review_kind(), ChangeKind::LabelUndo);
+    app.accept("Undo on 2 tracks");
+    assert!(on(one).is_empty());
+    assert!(
+        app.library.label_named("chill").unwrap().is_none(),
+        "the label it made goes too"
+    );
+    assert_eq!(
+        app.history(),
+        [
+            (ChangeKind::LabelUndo, ChangeStatus::Accepted),
+            (ChangeKind::Labels, ChangeStatus::Undone)
+        ]
+    );
 }
 
 #[test]

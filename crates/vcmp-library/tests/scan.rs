@@ -26,7 +26,8 @@ const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
 /// Drops what the migrations after version 9 add, for tests that put a database back
 /// the way an older version left it.
-const TABLES_AFTER_VERSION_9: &str = "DROP TABLE change_values; DROP TABLE change_edits;
+const TABLES_AFTER_VERSION_9: &str = "DROP TABLE change_labels; DROP TABLE track_labels;
+    DROP TABLE labels; DROP TABLE change_values; DROP TABLE change_edits;
     DROP TABLE change_files; DROP TABLE change_sets; DROP TABLE track_tags;";
 
 struct Setup {

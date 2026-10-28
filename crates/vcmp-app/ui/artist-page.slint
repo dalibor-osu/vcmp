@@ -257,6 +257,7 @@ export component ArtistView {
                 // Always there (it is focused by id); empty when the artist has no albums.
                 albums-grid := CardGrid {
                     tiles: root.albums;
+                    album-menu: true;
                     label: @tr("Albums");
                     available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
                     activated(index) => {

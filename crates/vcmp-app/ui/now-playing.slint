@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { FocusRing, IconButton, TextLink } from "components.slint";
 import { Playlists } from "playlist-state.slint";
+import { Labels } from "labels.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 
@@ -332,12 +333,32 @@ export component NowPlayingView inherits Rectangle {
                         }
                     }
                 }
+                Menu {
+                    title: @tr("Labels");
+
+                    for choice in Labels.choices: MenuItem {
+                        title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                        checkable: true;
+                        checked: choice.checked;
+                        activated => {
+                            Labels.toggle-path(PlayerState.track-path, choice.id);
+                        }
+                    }
+                    if Labels.choices.length > 0: MenuSeparator { }
+                    MenuItem {
+                        title: @tr("New label…");
+                        activated => {
+                            Labels.new-for-path(PlayerState.track-path);
+                        }
+                    }
+                }
             }
 
             IconButton {
                 glyph: Glyph.more;
                 label: @tr("More for {}", PlayerState.title);
                 clicked => {
+                    Labels.prepare-path(PlayerState.track-path);
                     actions.show({ x: 0, y: self.height });
                 }
             }

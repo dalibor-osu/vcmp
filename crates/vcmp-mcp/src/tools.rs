@@ -1,7 +1,7 @@
 //! The tools agents call. Reads go to the server's own library connection; changes go
 //! through [`Changes`], to the app. Every answer is JSON text.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,7 +14,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use vcmp_library::{
     Album, AlbumId, Artist, ChangeKind, ChangeSet, ChangeSetId, ChangeSetSummary, ChangeStatus,
-    FieldEdit, FileResult, Library, Playlist, PlaylistId, TagEdit, Track, TrackId,
+    FieldEdit, FileResult, LABEL_PALETTE, Label, LabelEdit, Library, NewLabel, Playlist,
+    PlaylistId, TagEdit, Track, TrackId, valid_label_colour,
 };
 
 use crate::{Changes, PlaylistEdit};
@@ -31,7 +32,8 @@ VCMP is the owner's music player. These tools read their music library and ask f
 changes to it.
 
 Reading: search, list_albums, list_artists, get_album, get_tracks, list_tag_keys, \
-find_tracks_by_tag, list_playlists and get_playlist. get_tracks lists every tag a \
+find_tracks_by_tag, list_labels, find_tracks_by_labels, list_playlists and \
+get_playlist. get_tracks lists every tag a \
 file holds, by key: lofty's common name (TrackTitle, Composer, MusicBrainzReleaseId, \
 ReplayGainTrackGain) or the format's own key behind a prefix (id3:TXXX:MY FIELD, \
 vorbis:MYFIELD). The same keys are used to change tags.
@@ -59,6 +61,15 @@ A MusicBrainzReleaseId tag groups an album by itself, ahead of album and \
 album_artist: tracks of one album must share it. Keep changes small and focused, and \
 say in your own words what you asked for; the owner sees every value before and \
 after.
+
+Labels are the owner's own names for tracks, such as chill or workout, each with a \
+colour. They are not tags: they live only in VCMP and never in the files, and \
+find_tracks_by_tag doesn't see them. Every track you're given lists its labels. When \
+the owner asks for music by mood or purpose (\"play some chill music\"), look at \
+list_labels first: a label of that name is their own choice of tracks. \
+propose_label_changes puts labels on tracks and takes them off, and can create new \
+labels; like tag changes it waits for the owner's review, and propose_undo undoes it. \
+Labelling an album labels the tracks it has now.
 
 Playlists: create_playlist, rename_playlist, add_to_playlist, remove_from_playlist \
 and move_in_playlist change playlists at once. Deleting one is never immediate: \
@@ -177,6 +188,47 @@ pub struct ByTagArgs {
 }
 
 #[derive(Deserialize, JsonSchema)]
+pub struct ByLabelsArgs {
+    /// Label names, ignoring case. A track must hold every one of them.
+    labels: Vec<String>,
+    offset: Option<u32>,
+    /// Default 100, at most 500.
+    limit: Option<u32>,
+}
+
+/// Labels to put on and take off a group of tracks.
+#[derive(Deserialize, JsonSchema)]
+pub struct LabelChange {
+    track_ids: Vec<i64>,
+    /// Label names to put on these tracks: existing labels, or ones in new_labels.
+    #[serde(default)]
+    add: Vec<String>,
+    /// Label names to take off these tracks.
+    #[serde(default)]
+    remove: Vec<String>,
+}
+
+/// A label to create when the owner accepts the change.
+#[derive(Deserialize, JsonSchema)]
+pub struct NewLabelArgs {
+    /// 1 to 40 characters, not the name of an existing label (ignoring case).
+    name: String,
+    /// One of pink, mauve, red, peach, yellow, green, teal, sky, blue, lavender (drawn
+    /// to suit VCMP's light and dark themes), or any colour as #rrggbb.
+    colour: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct ProposeLabelsArgs {
+    /// Groups of tracks with the labels they get and lose. A track in several groups
+    /// gets all of their changes; at most 500 tracks in all.
+    changes: Vec<LabelChange>,
+    /// Labels to create, used by name in changes.
+    #[serde(default)]
+    new_labels: Vec<NewLabelArgs>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 pub struct PlaylistArgs {
     playlist_id: i64,
 }
@@ -280,7 +332,7 @@ impl VcmpServer {
             Ok(serde_json::json!({
                 "artists": found.artists.iter().map(artist_out).collect::<Vec<_>>(),
                 "albums": found.albums.iter().map(album_out).collect::<Vec<_>>(),
-                "tracks": found.tracks.iter().map(|track| track_out(track, None)).collect::<Vec<_>>(),
+                "tracks": tracks_out(library, &found.tracks)?,
             }))
         })
         .await
@@ -325,7 +377,7 @@ impl VcmpServer {
             let tracks = library.album_tracks(id).map_err(failed)?;
             Ok(serde_json::json!({
                 "album": album_out(&album),
-                "tracks": tracks.iter().map(|track| track_out(track, None)).collect::<Vec<_>>(),
+                "tracks": tracks_out(library, &tracks)?,
             }))
         })
         .await
@@ -355,7 +407,7 @@ impl VcmpServer {
                 } else {
                     None
                 };
-                tracks.push(track_out(&track, tags));
+                tracks.push(track_out(library, &track, tags)?);
             }
             Ok(tracks)
         })
@@ -397,7 +449,56 @@ impl VcmpServer {
             let mut tracks = Vec::with_capacity(ids.len());
             for id in ids {
                 if let Some(track) = library.track(id).map_err(failed)? {
-                    tracks.push(track_out(&track, None));
+                    tracks.push(track_out(library, &track, None)?);
+                }
+            }
+            Ok(tracks)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Every label the owner made, with its colour and how many available tracks hold it. Labels are the owner's own names for tracks (moods, purposes), kept in VCMP only, not tags in the files."
+    )]
+    async fn list_labels(&self) -> Result<String, String> {
+        self.read(|library| {
+            Ok(library
+                .labels()
+                .map_err(failed)?
+                .iter()
+                .map(label_out)
+                .collect::<Vec<_>>())
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Available tracks holding every one of the labels named, such as all the owner's chill tracks."
+    )]
+    async fn find_tracks_by_labels(
+        &self,
+        Parameters(args): Parameters<ByLabelsArgs>,
+    ) -> Result<String, String> {
+        if args.labels.is_empty() {
+            return Err("name at least one label".into());
+        }
+        let (offset, limit) = page(args.offset, args.limit);
+        self.read(move |library| {
+            let mut ids = Vec::with_capacity(args.labels.len());
+            for name in &args.labels {
+                let label = library
+                    .label_named(name)
+                    .map_err(failed)?
+                    .ok_or_else(|| format!("there is no label named {name:?}; see list_labels"))?;
+                ids.push(label.id);
+            }
+            let found = library
+                .tracks_with_labels(&ids, offset, limit)
+                .map_err(failed)?;
+            let mut tracks = Vec::with_capacity(found.len());
+            for id in found {
+                if let Some(track) = library.track(id).map_err(failed)? {
+                    tracks.push(track_out(library, &track, None)?);
                 }
             }
             Ok(tracks)
@@ -434,10 +535,10 @@ impl VcmpServer {
             let entries = library.playlist_entries(id).map_err(failed)?;
             Ok(serde_json::json!({
                 "playlist": playlist_out(&playlist),
-                "entries": entries.iter().map(|entry| serde_json::json!({
+                "entries": entries.iter().map(|entry| Ok(serde_json::json!({
                     "position": entry.position,
-                    "track": track_out(&entry.track, None),
-                })).collect::<Vec<_>>(),
+                    "track": track_out(library, &entry.track, None)?,
+                }))).collect::<Result<Vec<_>, String>>()?,
             }))
         })
         .await
@@ -473,6 +574,66 @@ impl VcmpServer {
                 "status": "pending",
                 "files": files,
                 "note": "Waiting for the owner's review in VCMP.",
+            }))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Ask to put labels on tracks and take them off, creating new labels if needed, for up to 500 tracks. Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
+    )]
+    async fn propose_label_changes(
+        &self,
+        Parameters(args): Parameters<ProposeLabelsArgs>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<String, String> {
+        let mut order: Vec<TrackId> = Vec::new();
+        let mut by_track: HashMap<TrackId, LabelEdit> = HashMap::new();
+        for change in args.changes {
+            if change.add.is_empty() && change.remove.is_empty() {
+                return Err("each change needs labels to add or remove".into());
+            }
+            for id in change.track_ids {
+                let edit = by_track.entry(TrackId(id)).or_insert_with(|| {
+                    order.push(TrackId(id));
+                    LabelEdit::default()
+                });
+                edit.add.extend(change.add.iter().cloned());
+                edit.remove.extend(change.remove.iter().cloned());
+            }
+        }
+        if order.is_empty() {
+            return Err("name at least one track to change".into());
+        }
+        if order.len() > MAX_FILES {
+            return Err(format!(
+                "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
+            ));
+        }
+        let new_labels = args
+            .new_labels
+            .into_iter()
+            .map(|label| {
+                Ok(NewLabel {
+                    name: label.name,
+                    colour: colour(&label.colour)?,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let edits: Vec<(TrackId, LabelEdit)> = order
+            .into_iter()
+            .map(|id| {
+                let edit = by_track.remove(&id).unwrap_or_default();
+                (id, edit)
+            })
+            .collect();
+        let agent = agent(&context);
+        self.change(move |changes| {
+            let id = changes.submit_labels(&agent, edits, new_labels)?;
+            Ok(serde_json::json!({
+                "change_set_id": id.0,
+                "status": "pending",
+                "note": "Waiting for the owner's review in VCMP. Tracks that already were as asked are left out.",
             }))
         })
         .await
@@ -521,7 +682,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Ask to undo an accepted change of tags: it puts back every value the written files had before. Like any change, it waits for the owner's review."
+        description = "Ask to undo an accepted change of tags or labels: it puts back every value the written files (or the labels the tracks) had before; labels the change created go once no track holds them. Like any change, it waits for the owner's review."
     )]
     async fn propose_undo(
         &self,
@@ -709,7 +870,43 @@ fn edit(change: TrackChange) -> Result<(TrackId, TagEdit), String> {
     Ok((TrackId(track), edit))
 }
 
-fn track_out(track: &Track, tags: Option<BTreeMap<String, Vec<String>>>) -> serde_json::Value {
+/// A colour as an agent gives it: a palette name (with or without `palette:`) or
+/// `#rrggbb` in either case.
+fn colour(given: &str) -> Result<String, String> {
+    let given = given.trim().to_lowercase();
+    let stored = if LABEL_PALETTE.contains(&given.as_str()) {
+        format!("palette:{given}")
+    } else {
+        given
+    };
+    if valid_label_colour(&stored) {
+        Ok(stored)
+    } else {
+        Err(format!(
+            "{stored:?} is not a label colour: use one of {} or #rrggbb",
+            LABEL_PALETTE.join(", ")
+        ))
+    }
+}
+
+fn tracks_out(library: &Library, tracks: &[Track]) -> Result<Vec<serde_json::Value>, String> {
+    tracks
+        .iter()
+        .map(|track| track_out(library, track, None))
+        .collect()
+}
+
+fn track_out(
+    library: &Library,
+    track: &Track,
+    tags: Option<BTreeMap<String, Vec<String>>>,
+) -> Result<serde_json::Value, String> {
+    let labels: Vec<String> = library
+        .track_labels_of(track.id)
+        .map_err(failed)?
+        .into_iter()
+        .map(|label| label.name)
+        .collect();
     let mut out = serde_json::json!({
         "id": track.id.0,
         "title": track.title,
@@ -726,11 +923,20 @@ fn track_out(track: &Track, tags: Option<BTreeMap<String, Vec<String>>>) -> serd
         "format": track.format.map(|format| format!("{format:?}")),
         "path": track.path.to_string_lossy(),
         "available": track.available,
+        "labels": labels,
     });
     if let Some(tags) = tags {
         out["tags"] = serde_json::json!(tags);
     }
-    out
+    Ok(out)
+}
+
+fn label_out(label: &Label) -> serde_json::Value {
+    serde_json::json!({
+        "name": label.name,
+        "colour": label.colour.strip_prefix("palette:").unwrap_or(&label.colour),
+        "track_count": label.track_count,
+    })
 }
 
 fn album_out(album: &Album) -> serde_json::Value {
@@ -775,6 +981,8 @@ fn summary_out(summary: &ChangeSetSummary) -> serde_json::Value {
     let (kind, playlist) = match &summary.kind {
         ChangeKind::Tags if summary.undoes.is_some() => ("undo", None),
         ChangeKind::Tags => ("tags", None),
+        ChangeKind::Labels if summary.undoes.is_some() => ("label_undo", None),
+        ChangeKind::Labels => ("labels", None),
         ChangeKind::PlaylistDeletion { playlist, name } => (
             "playlist_deletion",
             Some(serde_json::json!({ "id": playlist.0, "name": name })),
@@ -795,16 +1003,14 @@ fn summary_out(summary: &ChangeSetSummary) -> serde_json::Value {
 
 fn change_set_out(set: &ChangeSet) -> serde_json::Value {
     let mut out = summary_out(&set.summary);
+    if set.summary.kind == ChangeKind::Labels {
+        return label_set_out(set, out);
+    }
     out["files"] = serde_json::json!(
         set.files
             .iter()
             .map(|file| {
-                let (result, detail) = match &file.result {
-                    None => (None, None),
-                    Some(FileResult::Written) => (Some("written"), None),
-                    Some(FileResult::Conflict(detail)) => (Some("conflict"), Some(detail.clone())),
-                    Some(FileResult::Failed(detail)) => (Some("failed"), Some(detail.clone())),
-                };
+                let (result, detail) = result_out(&file.result);
                 serde_json::json!({
                     "track_id": file.track.0,
                     "path": file.path.to_string_lossy(),
@@ -823,6 +1029,59 @@ fn change_set_out(set: &ChangeSet) -> serde_json::Value {
             .collect::<Vec<_>>()
     );
     out
+}
+
+/// A label set: per track, each label it changes, whether the track held it before,
+/// whether it should, and whether it does once accepted.
+fn label_set_out(set: &ChangeSet, mut out: serde_json::Value) -> serde_json::Value {
+    out["new_labels"] = serde_json::json!(
+        set.new_labels
+            .iter()
+            .map(|label| serde_json::json!({
+                "name": label.name,
+                "colour": label.colour.strip_prefix("palette:").unwrap_or(&label.colour),
+                "created": label.created,
+            }))
+            .collect::<Vec<_>>()
+    );
+    out["tracks"] = serde_json::json!(
+        set.files
+            .iter()
+            .map(|file| {
+                let (result, detail) = result_out(&file.result);
+                serde_json::json!({
+                    "track_id": file.track.0,
+                    "labels": file.values.iter().map(|value| {
+                        let asked = file
+                            .edits
+                            .iter()
+                            .find(|(target, _)| *target == value.key)
+                            .is_some_and(|(_, values)| values.is_some());
+                        serde_json::json!({
+                            "label": value.key.strip_prefix("label:").unwrap_or(&value.key),
+                            "held_before": !value.before.is_empty(),
+                            "asked": asked,
+                            "held_after": value.after.as_ref().map(|after| !after.is_empty()),
+                        })
+                    }).collect::<Vec<_>>(),
+                    "result": result,
+                    "detail": detail,
+                })
+            })
+            .collect::<Vec<_>>()
+    );
+    out.as_object_mut().map(|object| object.remove("files"));
+    out["tracks_changed"] = serde_json::json!(set.summary.file_count);
+    out
+}
+
+fn result_out(result: &Option<FileResult>) -> (Option<&'static str>, Option<String>) {
+    match result {
+        None => (None, None),
+        Some(FileResult::Written) => (Some("written"), None),
+        Some(FileResult::Conflict(detail)) => (Some("conflict"), Some(detail.clone())),
+        Some(FileResult::Failed(detail)) => (Some("failed"), Some(detail.clone())),
+    }
 }
 
 fn status(status: ChangeStatus) -> &'static str {

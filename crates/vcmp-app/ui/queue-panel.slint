@@ -4,6 +4,7 @@ import { Button, EdgeScroll, FocusRing, IconButton } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
+import { Labels } from "labels.slint";
 
 // One track in the queue. A right click asks the panel for the track's menu.
 component QueueLine {
@@ -216,6 +217,7 @@ export component QueuePanel inherits Rectangle {
 
     function show-menu(index: int, x: length, y: length) {
         root.current = index;
+        Labels.prepare-path(root.current-path());
         menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
     }
 
@@ -339,6 +341,25 @@ export component QueuePanel inherits Rectangle {
                                 }
                             }
                         }
+                        Menu {
+                            title: @tr("Labels");
+
+                            for choice in Labels.choices: MenuItem {
+                                title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                                checkable: true;
+                                checked: choice.checked;
+                                activated => {
+                                    Labels.toggle-path(root.current-path(), choice.id);
+                                }
+                            }
+                            if Labels.choices.length > 0: MenuSeparator { }
+                            MenuItem {
+                                title: @tr("New label…");
+                                activated => {
+                                    Labels.new-for-path(root.current-path());
+                                }
+                            }
+                        }
                     }
 
                     list := FocusScope {
@@ -368,6 +389,10 @@ export component QueuePanel inherits Rectangle {
                                 PlayerState.play-queue-entry(root.current);
                             } else if event.text == Key.Delete && root.current < root.up-next-count {
                                 PlayerState.remove-from-up-next(root.current);
+                            } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
+                                // The menu opens on its own; it needs the current labels first.
+                                Labels.prepare-path(root.current-path());
+                                return reject;
                             } else {
                                 return reject;
                             }

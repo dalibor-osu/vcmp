@@ -79,6 +79,8 @@ pub(crate) enum TrackFilter {
     Album(AlbumId),
     /// Tracks credited to the artist outside the artist's own albums.
     AppearsOn(ArtistId),
+    /// Tracks holding the label.
+    Label(crate::LabelId),
 }
 
 pub(crate) const TRACK_COLUMNS: &str =
@@ -111,6 +113,11 @@ pub(crate) fn tracks(conn: &Connection, filter: TrackFilter) -> Result<Vec<Track
         TrackFilter::Album(AlbumId(id)) => ("AND t.album_id = ?1", Some(id)),
         TrackFilter::AppearsOn(ArtistId(id)) => (
             "AND t.artist_id = ?1 AND (a.artist_id IS NULL OR a.artist_id != ?1)",
+            Some(id),
+        ),
+        TrackFilter::Label(crate::LabelId(id)) => (
+            "AND EXISTS (SELECT 1 FROM track_labels tl
+                         WHERE tl.track_id = t.id AND tl.label_id = ?1)",
             Some(id),
         ),
     };

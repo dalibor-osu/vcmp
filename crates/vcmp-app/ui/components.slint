@@ -122,6 +122,10 @@ export component PlaylistLink {
     in property <string> label;
     // Its page is open.
     in property <bool> selected;
+    // A label's colour as a dot before the name, in each theme.
+    in property <bool> dot;
+    in property <color> dot-light;
+    in property <color> dot-dark;
     callback activated;
     // Window position of the entry when the keyboard focuses it, to scroll it into view.
     callback shown-focused(length, length);
@@ -140,9 +144,17 @@ export component PlaylistLink {
         animate background { duration: Theme.duration-fast; }
     }
 
-    Text {
+    if root.dot: Rectangle {
         x: Theme.space-l;
-        width: parent.width - 2 * Theme.space-l;
+        width: 10px;
+        height: 10px;
+        border-radius: self.width / 2;
+        background: Theme.dark ? root.dot-dark : root.dot-light;
+    }
+
+    Text {
+        x: Theme.space-l + (root.dot ? 10px + Theme.space-m : 0px);
+        width: parent.width - 2 * Theme.space-l - (root.dot ? 10px + Theme.space-m : 0px);
         text: root.label;
         color: Theme.colors.text;
         font-size: Theme.font-body;

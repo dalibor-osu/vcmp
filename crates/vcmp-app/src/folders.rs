@@ -204,6 +204,7 @@ fn file_row(track: &Track) -> TrackRow {
         artist: tags.into(),
         duration: format_duration(track.duration).into(),
         path: track.path.to_string_lossy().as_ref().into(),
+        labels: crate::labels::chips(track.id),
         ..TrackRow::default()
     }
 }
