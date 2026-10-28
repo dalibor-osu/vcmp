@@ -81,3 +81,16 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   screen. Chosen from offered options: Settings' column grows with the window
   between 720 and 960 px, and the cover and photo pickers become the same kind of
   dialog.
+- 2026-10-28, after using the app:
+  - The buttons under an album's or artist's picture are distracting and seldom
+    used. A button with three dots next to Play and Shuffle opens a menu with them:
+    find album cover, add to playlist and edit tags for albums; find photo online
+    and choose photo for artists. The room goes to a larger cover, and the other
+    text is a little bigger.
+  - Small icons in the player bar mark a lossless file and Last.fm scrobbling.
+  - On a big 2K monitor the app looks scaled down: Settings gets a zoom.
+  - The review of an agent's change is hard to navigate: its changes are grouped
+    per song/file.
+  - Many agent changes clutter Settings: they move to a dialog opened by a button
+    in Settings.
+  - The mouse wheel over the volume slider changes the volume.

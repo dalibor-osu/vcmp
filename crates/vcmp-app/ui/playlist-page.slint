@@ -58,6 +58,8 @@ export component PlaylistView {
 
     private property <string> new-name;
     private property <bool> confirming-delete;
+    // The picture as large as the page allows beside the details.
+    private property <length> picture-size: Theme.detail-cover-size(root.width);
 
     function finish-rename(keep: bool) {
         if keep {
@@ -134,8 +136,8 @@ export component PlaylistView {
                     alignment: start;
 
                     Rectangle {
-                        width: 200px;
-                        height: 200px;
+                        width: root.picture-size;
+                        height: root.picture-size;
                         border-radius: Theme.radius-l;
                         clip: true;
                         background: Theme.colors.surface;
@@ -172,7 +174,7 @@ export component PlaylistView {
                         if !root.renaming: Text {
                             text: root.playlist.name;
                             color: Theme.colors.text;
-                            font-size: Theme.font-title;
+                            font-size: Theme.font-display;
                             font-weight: Theme.weight-strong;
                             wrap: word-wrap;
                             min-height: self.preferred-height;
@@ -221,17 +223,17 @@ export component PlaylistView {
                             Text {
                                 text: @tr("{n} track" | "{n} tracks" % root.playlist.track-count);
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                             if root.playlist.track-count > 0: Text {
                                 text: @tr("{} min", root.playlist.minutes);
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                             if root.playlist.unavailable-count > 0: Text {
                                 text: @tr("{n} file not found" | "{n} files not found" % root.playlist.unavailable-count);
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                         }
 

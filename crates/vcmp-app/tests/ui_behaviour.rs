@@ -144,6 +144,14 @@ fn everything_works_from_the_keyboard() {
     press(&window, Key::LeftArrow);
     assert_eq!(theme.get_mode(), ThemeMode::System);
 
+    // Zoom out and Zoom in, then Reduce motion.
+    press(&window, Key::Tab);
+    press(&window, Key::Return);
+    assert_eq!(theme.get_zoom(), 0.9);
+    press(&window, Key::Tab);
+    press(&window, Key::Return);
+    assert_eq!(theme.get_zoom(), 1.0);
+
     press(&window, Key::Tab);
     press(&window, Key::RightArrow);
     assert_eq!(theme.get_motion_choice(), ReduceMotion::On);
@@ -294,6 +302,9 @@ fn every_library_page_offers_to_add_a_folder_when_empty() {
 #[test]
 fn reduced_motion_makes_transitions_instant() {
     let window = open_window();
+    // Tall enough to show Settings down to Reduce motion: controls scrolled out of
+    // view can't be found.
+    window.window().set_size(LogicalSize::new(1100.0, 1400.0));
     let albums_marker = marker_y(&window);
     open_page(&window, "Settings");
     motion_option(&window, "On").invoke_accessible_default_action();

@@ -12,7 +12,7 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 
 | File | Holds |
 |---|---|
-| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, durations, drag scrolling |
+| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, the detail pages' cover size, the zoom, durations, drag scrolling |
 | `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
@@ -52,10 +52,11 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | `src/lastfm_service.rs` | `LastfmService`: the Last.fm row, the account, and plays into the scrobble queue |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note and the Updates section of Settings |
-| `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, changes by agents, backups), the sidebar's review note and `ChangeReview`, the dialog that reviews a change |
+| `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
 | `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread |
 | `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
 | `src/theme.rs` | The light and dark palettes, plus their contrast tests |
+| `src/zoom.rs` | The zoom: its steps, and the window's scale factor as the system's times the zoom |
 
 ## Rules enforced by tests
 
@@ -103,7 +104,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | No glow | The owner dropped the neon (2026-10-18). The page marker's glow, the one neon touch, barely showed in the light theme |
 | Red only for errors, with words | The owner's choice (2026-10-18): pink means active, so a wrong value marked in pink read as selected. The red label is bold and the sentence under the form names the field, so the colour never carries the message alone |
 | Sora for everything, two weights (400, 600) | The owner's choice; two weights carry hierarchy without a second family at ENERGY 1 |
-| Type scale 12 / 14 / 16 / 20 / 26 px, and 34 px for the track in the now playing view (42 px when the view is wider than 1800 px) | Small steps suit a calm UI; the page title is the one large element per screen, and the now playing view's title takes its place there, a step larger next to the largest cover |
+| Type scale 12 / 14 / 16 / 20 / 26 px, and 34 px for the track in the now playing view (42 px when the view is wider than 1800 px) and for the title of an album, artist or playlist page | Small steps suit a calm UI; the page title is the one large element per screen, and the now playing view's and a detail page's titles take its place there, a step larger next to the large cover. A detail page's artist line is 20 px and its counts 14 px, so the header reads at a glance beside its cover (the owner's request, 2026-10-28) |
 | Now playing covers the pages, not the player bar | The bar already holds every control, so the view needs none of its own and the controls stay where people know them |
 | Titles, artists and albums of the playing track are links, underlined on hover | People expect to go from what plays to where it comes from; the underline marks a link without adding colour |
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
@@ -131,9 +132,10 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
 | Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
-| "Find cover online" under the missing cover | The action sits where the gap is, and it leaves the Play and Shuffle row the width a 720 px window allows |
+| An album's and an artist's other actions in a More menu ("…") beside Play and Shuffle | The owner's request (2026-10-28): the buttons under the cover (Add to playlist…, Edit tags…, the photo's) were distracting and seldom used. The playlist page already worked this way, so the three detail pages now share it. The album's menu holds Find cover online (or Find another cover and Remove cover for a cover fetched online), Add to playlist and Edit tags…; the artist's Find photo online, Choose photo… and Remove photo |
+| The cover or picture of an album, artist or playlist page as large as the page allows, from 128 to 280 px (`Theme.detail-cover-size`) | The owner's request (2026-10-28): the room the buttons under it took goes to the cover. It shrinks first in a narrow window, so the title and the Play, Shuffle and More buttons keep about 240 px beside it down to a 720 px window |
 | The cover picker is a dialog in the middle of the window, over the dimmed sidebar and pages | The owner's request (2026-10-20): a form or a few covers at the top left of a full-window overlay left most of a wide window empty. One dialog pattern (`Modal`) for the tag editor and both pickers; the page stays in sight behind the scrim, and the player bar stays usable. The pickers' card is 960 px wide (`Theme.dialog-wide-width`), room for five covers in a row, and as tall as the window allows from the start, so it doesn't grow as covers arrive |
-| Artist photo actions sit under the picture, and their picker is the cover picker's twin | The same place and pattern as an album's "Find cover online", so one way of working covers both |
+| The artist photo picker is the cover picker's twin | The same pattern as an album's "Find cover online", so one way of working covers both. The fanart.tv credit stays under the photo, as its terms ask |
 | The tag editor is the same kind of dialog, not a separate window | One dialog pattern again, 720 px wide (`Theme.dialog-width`) and as tall as the form. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
 | A dialog keeps the keyboard: Tab and Shift+Tab go round its controls | The page behind is in sight but not in use. A focus that moved to it would be hidden behind the scrim, and Escape would no longer reach the dialog |
 | A click beside a picker closes it; beside the tag editor it does nothing | A picker holds nothing to lose. The tag editor holds typed values, so only Cancel and Escape close it |
@@ -147,11 +149,16 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Values to copy are read-only fields with a Copy button | The token and command are too long to read out; a field shows they are text, selects like text, and Copy needs no clipboard library (`TextField.copy-all`). A long value scrolls inside its field, which clips it |
 | A waiting change is a note at the foot of the sidebar, above the update note | The owner chose a notice that doesn't interrupt (spec, "Notice, review when ready"). The sidebar is on every page, like the update note; the note is in text colour, not muted, because it asks for a decision. A dialog that opens by itself would interrupt listening and typing |
 | The review is a dialog like the tag editor's, focus on Decide later | The same `Modal` pattern. Three answers: write, reject, or leave it waiting; the focus starts on the one that changes nothing, so an Enter pressed by accident writes nothing. A click beside it does nothing, and Escape decides later |
-| The review groups the same change in several files into one row with the count | A change to a whole album would otherwise list the same values twelve times; the spec's risk was an owner who accepts what is too long to read |
+| The review lists the changes by file: what every file gets first, once ("In all 12 files"), then each file with changes of its own under its title and file name, by path | The owner's request (2026-10-28): rows of values with counts were hard to follow back to the songs they touch. A change to a whole album still lists its shared values once, so the spec's risk (an owner who accepts what is too long to read) stays answered |
+| The review's values in two columns, Before and After, of equal width beside the field's name | The columns line up from row to row and file to file, so the eye runs down one of them. A screen reader hears each value with its column ("After: 1979") |
+| A new cover in the review is the picture itself, 64 px | The owner decides on what the cover looks like; "a new cover" in words gave nothing to decide on |
 | Before in muted text, after in text colour | The new value is what the owner decides on; the old one is context |
 | Writing tags is the filled button; deleting a playlist is not | Written tags can be undone for 30 days, so filling the button that writes them doesn't push a risk. A deleted playlist can't come back, so its button stays outlined, under the warning |
 | Deleting a playlist warns that it can't be undone, whoever asks | The owner's decision (2026-10-20): the playlist page's own Delete question says it too |
-| The changes by agents list newest first, with Review or Undo where they apply | The decision is about the latest change; older ones are history. An undo is itself a change, so it can be undone (it writes the agent's tags again) |
+| The changes by agents list newest first, with Review or Undo where they apply, in a dialog of their own opened from Settings (Show changes…) | The decision is about the latest change; older ones are history. An undo is itself a change, so it can be undone (it writes the agent's tags again). The owner's request (2026-10-28): a busy month of changes cluttered Settings, so the page keeps one row that counts them. A review opened from the dialog takes its place and gives it back when it closes; a click beside the dialog closes it, as it holds nothing to lose |
+| Zoom in Settings, from 80 to 200 %, with Ctrl+= and Ctrl+- (Ctrl+0 for 100 %) | The owner's request (2026-10-28): on a large 2K monitor VCMP looked small. It scales the whole window on top of the system's own scale, so every size in `theme.slint` grows together and the layout rules still hold. Buttons on either side of the value step it, as zooming goes a step at a time; the shortcuts are the ones browsers use |
+| Small marks after the playing track's artist: lossless (a waveform) and Last.fm (signal arcs, with a tick once the play counts) | The owner's request (2026-10-28). Muted and 14 px, so they inform without competing with the title; the scrobbled mark turns to text colour and changes shape, so the state never rests on colour. Their name shows above them under the pointer and is what a screen reader hears. The Last.fm mark shows only while an account is connected, and only for plays Last.fm would count (an artist, and longer than 30 s) |
+| The wheel over the volume slider changes the volume, 5 % a notch; over the position slider it scrolls the page | The owner's request (2026-10-28). Turning the wheel to set the volume is what people expect of a player; seeking by wheel would happen by accident while scrolling. The volume is saved once the wheel rests (`Theme.wheel-commit-delay`), not on every step |
 
 ## Album grid
 
@@ -222,11 +229,14 @@ its scroll position and current card survive.
   more than one.
 - **Track artist:** shown only where it differs from the album artist, as on a
   compilation.
-- **Find cover online:** an album without artwork has this button under its
-  missing cover. Nothing is sent anywhere before it is chosen. An album showing a
-  cover fetched this way has "Change cover…" there instead, whose menu offers "Find
-  another cover" (the same picker) and "Remove cover", which goes back to no cover
-  and lets the automatic Discord lookup run again.
+- **The More menu** ("More for …", beside Play and Shuffle) holds the album's other
+  actions: Find cover online, Add to playlist (with New playlist and every
+  playlist) and Edit tags…. It opens below the button, from a click or Enter.
+- **Find cover online:** an album without artwork has this item in its More menu.
+  Nothing is sent anywhere before it is chosen. An album showing a cover fetched
+  this way has "Find another cover" (the same picker) and "Remove cover" there
+  instead; removing goes back to no cover and lets the automatic Discord lookup run
+  again.
   - It opens the cover picker (`CoverPicker`), a dialog over the sidebar and pages, and
     `CoverFetch` asks `vcmp-integrations::musicbrainz::CoverPicker` for covers. That
     sends the album title and artist to musicbrainz.org, at one request a second
@@ -250,7 +260,8 @@ its scroll position and current card survive.
     arrives; the covers are one tab stop (`CardGrid`: arrows, Home/End, Enter).
     Tab and Shift+Tab stay in the picker. Escape, Cancel or a click beside the
     dialog closes the picker and stops the search, and the focus returns to the
-    album page's back button.
+    album page's back button. Both pages that show albums hold an album page, so
+    only the one shown takes the focus back.
 
 The Albums page fades in through a `FadeCurtain`, created each time the page is
 shown, because the page itself stays alive while hidden. The Albums, Artists and
@@ -266,8 +277,8 @@ the new view in too.
   for an artist with no albums of their own. Its picture is the artist's photo, or
   without one the cover of their newest album; pictures load in the background like
   album covers (`CoverGrid`).
-- **An artist's page** (`ArtistView`) shows their picture, name and counts, Play
-  and Shuffle, their albums as a small grid (`CardGrid`, one tab stop with arrow
+- **An artist's page** (`ArtistView`) shows their picture, name and counts, Play,
+  Shuffle and the More menu (the photo's actions), their albums as a small grid (`CardGrid`, one tab stop with arrow
   keys), and "Appears on": tracks credited to them on other artists' albums or on
   no album, each with its album name.
   - Play and Shuffle play their albums' tracks, then the appearances, as one
@@ -279,7 +290,7 @@ the new view in too.
     page's.
   - An artist who leaves the library while their page is open stays on screen,
     marked as gone, until the user leaves.
-- **The artist's photo:** under the picture, "Find photo online", "Choose photo…"
+- **The artist's photo:** in the More menu, "Find photo online", "Choose photo…"
   and, once there is one, "Remove photo".
   - "Find photo online" opens a picker, a dialog like the cover picker. The artist is looked up on MusicBrainz (by the ID the files are tagged
     with, then by name; only sure, same-name matches), and their photos come from
@@ -302,7 +313,7 @@ the new view in too.
     the Cover Art Archive and MusicBrainz as the sources of what VCMP finds online,
     with links, as fanart.tv's terms ask.
   - "Choose photo…" takes a JPEG, PNG or WebP file. One that can't be read says so
-    under the buttons.
+    under the picture.
   - The photo is kept by the library (see `docs/library.md`) and shows at once on
     the page, the artist cards and search.
 - **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
@@ -349,7 +360,7 @@ the new view in too.
   every playlist by name. New playlist there makes "Playlist n" with the track,
   without leaving the page. The now playing view has the same in its "…" menu, for
   the track playing.
-- **A whole album:** "Add to playlist…" under the album page's cover adds every
+- **A whole album:** Add to playlist in the album page's More menu adds every
   track of the album; New playlist there names the playlist after the album.
 - **Getting back:** the back button, Escape, or the Playlists sidebar entry. A
   playlist opened from search goes back to Search.
@@ -358,8 +369,8 @@ the new view in too.
 
 - **Opening it:** "Edit tags…" in every track menu (album, artist, search, folder and
   playlist lists, and the songs table) edits that track, or every selected track
-  (see [Selecting tracks](#selecting-tracks)). "Edit tags…" under the cover on an
-  album page edits every track of the album at once. The heading names the album
+  (see [Selecting tracks](#selecting-tracks)). "Edit tags…" in an album page's More
+  menu edits every track of the album at once. The heading names the album
   for tracks of one album, or counts the tracks of several.
 - **The form:** the cover, with Choose image… (JPEG or PNG) and Remove cover, then
   Artist, Album, Album artist, Disc, Year and Genre, plus Title and Track for one
@@ -644,7 +655,15 @@ The Albums page tells apart why it is empty:
   - shuffle, previous, play/pause, next and repeat (off, all, one);
   - the position with a seek slider, and volume;
   - the speaker icon mutes and unmutes, coming back to the earlier volume. Moving the
-    volume slider while muted unmutes at the new value.
+    volume slider while muted unmutes at the new value. The mouse wheel over the
+    volume slider changes it, 5 % a notch (a third of that each frame of a
+    `WheelScroller` glide, which adds up the same), and the volume is saved once
+    the wheel has rested for 400 ms;
+  - after the artist, a mark for a lossless file (FLAC or WAV, from the library's
+    `tracks.format`) and, while a Last.fm account is connected, a mark for a play
+    Last.fm will count, which changes to a tick once it has (`PlayerState.scrobble`,
+    set from the same `lastfm::Play` that hands the scrobble over). Pointing at a
+    mark shows its name above it.
 - **Seeking** moves the bar to the new position at once. Positions the engine sent
   before it took the seek are ignored for up to a second, so the bar doesn't jump
   back.
@@ -853,6 +872,18 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - Controls set `accessible-role`, `accessible-label`, the checked or selected state,
   and `accessible-action-default`. Tests find elements through these properties.
 - Interactive targets are at least 40 px tall (`Theme.target-height`).
+- **Zoom** (Settings → Appearance, or Ctrl+= and Ctrl+-, Ctrl+0 back to 100 %) goes
+  in steps from 80 to 200 % and is saved as `ui.zoom`. Slint draws, lays out and
+  maps the pointer by its window's scale factor, so `src/zoom.rs` hands the window
+  the system's factor times the zoom (a `ScaleFactorChanged` event). The native
+  window keeps its size in pixels, and the pages lay out in the logical size that
+  leaves. Slint lays a window out again only on a resize, which a native window
+  that keeps its pixels never sends, so a `Resized` event with that logical size
+  follows; without it the pages kept their old size and the player bar fell below
+  the window until it was resized by hand. Slint sets the system's factor when it makes the native window and when
+  the system's changes (the window moved to another monitor); the winit hook then
+  applies the zoom on top again. With `SLINT_SCALE_FACTOR` set, that is the
+  system's factor.
 - Reduced motion turns every duration in `theme.slint` to 0 ms. Under "System" (the
   default) it does what the operating system asks: Windows' "Animation effects",
   macOS' "Reduce motion", and on Linux the settings portal's `reduced-motion` key,
@@ -896,10 +927,12 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   until playback moves on. The tag editor instead writes the rest and holds that
   one file back; a change set is accepted once, with a result per file, so it waits
   rather than leave one file for later. Tested on Linux with the lock simulated.
-- The review lists each change's values, not the files it covers: a change to a
-  few tracks of several albums reads as one row per value, with its count.
-- Agents can't change covers: the MCP tools take the other eight fields and any tag,
-  but no image.
+- The More menus are Slint's own, like the track menus, and Slint's testing backend
+  can't reach their items: tests find the More button and run the item's action
+  directly.
+- Zoom was tested headless and against the window's scale factor; how it looks on
+  a real high-resolution monitor, and on moving the window to another monitor, is
+  in [manual-testing.md](manual-testing.md).
 
 - The history (back and forward) remembers sections and the album, artist and
   playlist pages, not a folder opened on the Folders page or the search typed, and

@@ -22,6 +22,11 @@ const ALLOWED_LITERALS: &[&str] = &[
     "\"F\"",
     "\"a\"",
     "\"A\"",
+    // The zoom shortcuts' keys.
+    "\"=\"",
+    "\"+\"",
+    "\"-\"",
+    "\"0\"",
 ];
 
 fn slint_sources() -> Vec<PathBuf> {

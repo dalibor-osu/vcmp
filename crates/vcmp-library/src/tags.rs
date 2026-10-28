@@ -60,6 +60,21 @@ impl Format {
         }
     }
 
+    /// The audio is stored without loss: FLAC and WAV, not MP3 or Vorbis.
+    pub fn is_lossless(self) -> bool {
+        matches!(self, Self::Flac | Self::Wav)
+    }
+
+    /// The name people know the format by, such as "FLAC".
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Mp3 => "MP3",
+            Self::Flac => "FLAC",
+            Self::OggVorbis => "Ogg Vorbis",
+            Self::Wav => "WAV",
+        }
+    }
+
     pub(crate) fn parse(text: &str) -> Option<Self> {
         [Self::Mp3, Self::Flac, Self::OggVorbis, Self::Wav]
             .into_iter()

@@ -1,6 +1,6 @@
-// AI agents through MCP: the switch and the connection in Settings, the changes they
-// asked for with Undo, the note in the sidebar while one waits, and the dialog that
-// reviews one. Rust keeps `AgentState` current and implements its callbacks
+// AI agents through MCP: the switch and the connection in Settings, the dialog that
+// lists the changes they asked for with Review and Undo, the note in the sidebar while
+// one waits, and the dialog that reviews one. Rust keeps `AgentState` current and implements its callbacks
 // (src/agents.rs).
 
 import { ScrollView } from "std-widgets.slint";
@@ -28,8 +28,7 @@ export struct ChangeEntry {
 
 export enum ChangeField { title, artist, album, album-artist, track, disc, year, genre, cover, other }
 
-// One change the review lists: a tag, its values before and after, and how many files
-// change that way.
+// One change the review lists: a tag and its values before and after.
 export struct ChangeRow {
     field: ChangeField,
     // The tag's key, for a tag other than the nine fields.
@@ -37,7 +36,18 @@ export struct ChangeRow {
     // Values joined by semicolons; empty for none.
     before: string,
     after: string,
-    files: int,
+    // A change of cover: the image before and after, `has-` false for no cover.
+    has-before-cover: bool,
+    before-cover: image,
+    has-after-cover: bool,
+    after-cover: image,
+}
+
+// One file's changes in the review: its track's title, its file name and the rows.
+export struct ChangeGroup {
+    title: string,
+    file: string,
+    rows: [ChangeRow],
 }
 
 export enum ReviewStatus { waiting, writing, done }
@@ -64,8 +74,11 @@ export global AgentState {
     callback set-port(string);
     callback new-token();
 
-    // Newest first.
+    // Newest first, in their own dialog opened from Settings.
     in property <[ChangeEntry]> history;
+    in-out property <bool> history-open;
+    // The review was opened from that dialog, which comes back when it closes.
+    in-out property <bool> review-from-history;
     callback review(int);
     callback undo(int);
     // The covers kept for finished changes ("2.4 MB"), empty when none are kept.
@@ -83,7 +96,10 @@ export global AgentState {
     in property <string> review-agent;
     in property <int> review-files;
     in property <string> review-playlist;
-    in property <[ChangeRow]> review-rows;
+    // With several files: the changes every one of them gets, listed once. Then each
+    // file with changes of its own, by path.
+    in property <[ChangeRow]> review-shared;
+    in property <[ChangeGroup]> review-groups;
     in property <ReviewStatus> review-status;
     in property <int> review-done;
     in property <int> review-written;
@@ -225,7 +241,7 @@ export component AgentsSection inherits VerticalLayout {
 
     SettingRow {
         title: @tr("Let AI agents use your library");
-        description: @tr("While VCMP is open, agents that speak MCP, such as Claude, can read your library and edit playlists. Changes to tags and deleting a playlist wait here for your review.");
+        description: @tr("While VCMP is open, agents that speak MCP, such as Claude, can read your library and edit playlists. Changes to tags and deleting a playlist wait for your review.");
 
         Toggle {
             label: @tr("Let AI agents use your library");
@@ -319,75 +335,19 @@ export component AgentsSection inherits VerticalLayout {
         }
     }
 
-    // The changes agents asked for, newest first, each with what can still be done.
-    VerticalLayout {
-        spacing: Theme.space-xs;
-        padding-top: Theme.space-m;
+    // The changes agents asked for, in a dialog of their own so a long history doesn't
+    // fill Settings.
+    SettingRow {
+        title: @tr("Changes by agents");
+        description: AgentState.history.length == 0 ? @tr("Changes agents ask for are kept here for 30 days, and a written change can be undone in that time.")
+            : @tr("{n} change from the last 30 days. Review it while it waits, or undo it once written." | "{n} changes from the last 30 days. Review the ones waiting, or undo written ones." % AgentState.history.length);
 
-        Text {
-            text: @tr("Changes by agents");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            font-weight: Theme.weight-strong;
-        }
-
-        if AgentState.history.length == 0: Text {
-            text: @tr("Changes agents ask for appear here, newest first. A written change can be undone for 30 days.");
-            color: Theme.colors.text-muted;
-            font-size: Theme.font-small;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        for entry in AgentState.history: HorizontalLayout {
-            spacing: Theme.space-xl;
-            padding-top: Theme.space-s;
-            padding-bottom: Theme.space-s;
-
-            VerticalLayout {
-                spacing: Theme.space-xs;
-                alignment: center;
-                horizontal-stretch: 1;
-
-                Text {
-                    text: entry.kind == ChangeKind.playlist ? @tr("Delete the playlist “{}”", entry.playlist)
-                        : entry.kind == ChangeKind.undo ? @tr("Undo tags in {n} file" | "Undo tags in {n} files" % entry.files)
-                        : @tr("Tags of {n} file" | "Tags of {n} files" % entry.files);
-                    color: Theme.colors.text;
-                    font-size: Theme.font-body;
-                    wrap: word-wrap;
-                    min-height: self.preferred-height;
-                }
-                Text {
-                    text: @tr("Asked by {0} {1}, {2}", AgentWords.asked-by(entry.agent), AgentWords.age(entry.minutes-ago), AgentWords.status-text(entry.status));
-                    color: Theme.colors.text-muted;
-                    font-size: Theme.font-small;
-                    wrap: word-wrap;
-                    min-height: self.preferred-height;
-                }
-            }
-
-            if entry.status == ChangeStatus.pending: VerticalLayout {
-                alignment: center;
-
-                Button {
-                    text: @tr("Review");
-                    label: @tr("Review the change asked by {}", AgentWords.asked-by(entry.agent));
-                    clicked => {
-                        AgentState.review(entry.id);
-                    }
-                }
-            }
-            if entry.can-undo: VerticalLayout {
-                alignment: center;
-
-                Button {
-                    text: @tr("Undo…");
-                    label: @tr("Undo the change asked by {}", AgentWords.asked-by(entry.agent));
-                    clicked => {
-                        AgentState.undo(entry.id);
-                    }
-                }
+        Button {
+            text: @tr("Show changes…");
+            label: @tr("Show the changes by agents");
+            enabled: AgentState.history.length > 0;
+            clicked => {
+                AgentState.history-open = true;
             }
         }
     }
@@ -444,6 +404,316 @@ export component AgentsSection inherits VerticalLayout {
     }
 }
 
+// The changes agents asked for, newest first, each with what can still be done: a
+// dialog over Settings like the review, which it hands over to. Escape, Close or a
+// click beside it closes; it holds nothing to lose.
+export component ChangeHistory inherits Modal {
+    // Tab went past the last control, or Shift+Tab before the first.
+    private property <int> wrap-first;
+    private property <int> wrap-last;
+
+    function close() {
+        AgentState.history-open = false;
+    }
+    // The review takes the dialog's place, and gives it back when it closes.
+    function review(id: int, undo: bool) {
+        AgentState.review-from-history = true;
+        AgentState.history-open = false;
+        if undo {
+            AgentState.undo(id);
+        } else {
+            AgentState.review(id);
+        }
+    }
+
+    label: @tr("Changes by agents");
+    card-width: Theme.dialog-width;
+    escape => {
+        root.close();
+    }
+    scrim-clicked => {
+        root.close();
+    }
+    focus-first => {
+        root.wrap-first += 1;
+    }
+    focus-last => {
+        root.wrap-last += 1;
+    }
+
+    scroll := ScrollView {
+        vertical-stretch: 1;
+        preferred-height: body.preferred-height;
+
+        body := VerticalLayout {
+            padding: Theme.space-xl;
+            padding-bottom: Theme.space-s;
+            spacing: Theme.space-s;
+            alignment: start;
+
+            Text {
+                text: @tr("Changes by agents");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            Text {
+                text: @tr("Newest first. A written change can be undone for 30 days.");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+
+            for entry[index] in AgentState.history: VerticalLayout {
+                // A line between changes.
+                if index > 0: Rectangle {
+                    height: 1px;
+                    background: Theme.colors.surface;
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-xl;
+                    padding-top: Theme.space-m;
+                    padding-bottom: Theme.space-m;
+
+                    VerticalLayout {
+                        spacing: Theme.space-xs;
+                        alignment: center;
+                        horizontal-stretch: 1;
+
+                        Text {
+                            text: entry.kind == ChangeKind.playlist ? @tr("Delete the playlist “{}”", entry.playlist)
+                                : entry.kind == ChangeKind.undo ? @tr("Undo tags in {n} file" | "Undo tags in {n} files" % entry.files)
+                                : @tr("Tags of {n} file" | "Tags of {n} files" % entry.files);
+                            color: Theme.colors.text;
+                            font-size: Theme.font-body;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
+                        }
+                        Text {
+                            text: @tr("Asked by {0} {1}, {2}", AgentWords.asked-by(entry.agent), AgentWords.age(entry.minutes-ago), AgentWords.status-text(entry.status));
+                            color: Theme.colors.text-muted;
+                            font-size: Theme.font-small;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
+                        }
+                    }
+
+                    if entry.status == ChangeStatus.pending: VerticalLayout {
+                        alignment: center;
+
+                        Button {
+                            text: @tr("Review");
+                            label: @tr("Review the change asked by {}", AgentWords.asked-by(entry.agent));
+                            clicked => {
+                                root.review(entry.id, false);
+                            }
+                        }
+                    }
+                    if entry.can-undo: VerticalLayout {
+                        alignment: center;
+
+                        Button {
+                            text: @tr("Undo…");
+                            label: @tr("Undo the change asked by {}", AgentWords.asked-by(entry.agent));
+                            clicked => {
+                                root.review(entry.id, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Marks where the list scrolls under the foot, when it doesn't fit.
+    Rectangle {
+        height: 1px;
+
+        Rectangle {
+            visible: scroll.content-height > scroll.visible-height;
+            background: Theme.colors.surface;
+        }
+    }
+
+    HorizontalLayout {
+        padding: Theme.space-xl;
+        padding-top: Theme.space-l;
+        alignment: start;
+
+        Button {
+            property <int> first: root.wrap-first;
+            property <int> last: root.wrap-last;
+            changed first => {
+                self.focus();
+            }
+            changed last => {
+                self.focus();
+            }
+            text: @tr("Close");
+            label: @tr("Close the changes by agents");
+            init => {
+                self.focus();
+            }
+            clicked => {
+                root.close();
+            }
+        }
+    }
+}
+
+// One value in the review's table: text, or for a cover its image.
+component ChangeValue inherits VerticalLayout {
+    in property <ChangeRow> change;
+    // The value after the change, rather than before.
+    in property <bool> after;
+
+    private property <string> value: root.after ? root.change.after : root.change.before;
+    private property <bool> has-cover: root.after ? root.change.has-after-cover : root.change.has-before-cover;
+
+    alignment: start;
+
+    if root.change.field == ChangeField.cover && root.has-cover: HorizontalLayout {
+        alignment: start;
+
+        Rectangle {
+            width: 64px;
+            height: 64px;
+            border-radius: Theme.radius-m;
+            clip: true;
+            background: Theme.colors.surface;
+            accessible-role: image;
+            accessible-label: root.after ? @tr("After: the new cover") : @tr("Before: the cover it had");
+
+            Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.after ? root.change.after-cover : root.change.before-cover;
+                image-fit: ImageFit.cover;
+                accessible-role: none;
+            }
+        }
+    }
+    if root.change.field == ChangeField.cover && !root.has-cover: Text {
+        text: root.after ? @tr("Removed") : @tr("No cover");
+        color: root.after ? Theme.colors.text : Theme.colors.text-muted;
+        font-size: Theme.font-body;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+        accessible-label: root.after ? @tr("After: removed") : @tr("Before: no cover");
+    }
+    if root.change.field != ChangeField.cover: Text {
+        text: root.value != "" ? root.value : root.after ? @tr("Removed") : @tr("Not set");
+        color: root.after ? Theme.colors.text : Theme.colors.text-muted;
+        font-size: Theme.font-body;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+        accessible-label: root.after ? (root.value == "" ? @tr("After: removed") : @tr("After: {}", root.value))
+            : (root.value == "" ? @tr("Before: not set") : @tr("Before: {}", root.value));
+    }
+}
+
+// The review's columns: the field's name, then its value before and after, each
+// half of the rest, so they line up from row to row and file to file.
+global ChangeColumns {
+    out property <length> field: 120px;
+    out property <length> gap: Theme.space-m;
+    public pure function value(width: length) -> length {
+        (width - self.field - 2 * self.gap) / 2
+    }
+}
+
+// "Before" and "After" over the review's columns.
+component ChangeHeadings inherits HorizontalLayout {
+    // The width the columns share, from outside: the layout's own would loop.
+    in property <length> table-width;
+
+    spacing: ChangeColumns.gap;
+
+    Rectangle {
+        width: ChangeColumns.field;
+    }
+    Text {
+        width: ChangeColumns.value(root.table-width);
+        text: @tr("Before");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        font-weight: Theme.weight-strong;
+        accessible-role: none;
+    }
+    Text {
+        width: ChangeColumns.value(root.table-width);
+        text: @tr("After");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        font-weight: Theme.weight-strong;
+        accessible-role: none;
+    }
+}
+
+// The changes of one file (or those every file shares) under a heading: the field,
+// its value before, and after.
+component ChangeTable inherits VerticalLayout {
+    in property <string> heading;
+    // The file's name after the heading, muted; empty for the shared changes.
+    in property <string> file;
+    in property <[ChangeRow]> rows;
+    // The width the columns share, from outside: the layout's own would loop.
+    in property <length> table-width;
+
+    spacing: Theme.space-xs;
+
+    HorizontalLayout {
+        spacing: Theme.space-s;
+        padding-bottom: Theme.space-xs;
+
+        Text {
+            horizontal-stretch: 0;
+            max-width: self.preferred-width;
+            text: root.heading;
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            font-weight: Theme.weight-strong;
+            overflow: elide;
+        }
+        if root.file != "": Text {
+            horizontal-stretch: 1;
+            text: root.file;
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    for row in root.rows: HorizontalLayout {
+        spacing: ChangeColumns.gap;
+        padding-top: Theme.space-xs;
+        padding-bottom: Theme.space-xs;
+
+        Text {
+            width: ChangeColumns.field;
+            text: AgentWords.field-name(row);
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+        ChangeValue {
+            width: ChangeColumns.value(root.table-width);
+            change: row;
+        }
+        ChangeValue {
+            width: ChangeColumns.value(root.table-width);
+            change: row;
+            after: true;
+        }
+    }
+}
+
 // The review of one change, a dialog like the tag editor: what the agent asks, then
 // Accept, Reject, or Decide later, which leaves the change waiting. The focus starts
 // on Decide later, so an Enter pressed by accident writes nothing. While the files
@@ -454,6 +724,8 @@ export component ChangeReview inherits Modal {
     private property <bool> done: AgentState.review-status == ReviewStatus.done;
     private property <bool> blocked: AgentState.review-playing != "";
     private property <ChangeKind> kind: AgentState.review-kind;
+    // The changes' columns span the card inside its padding.
+    private property <length> table-width: root.shown-width - 2 * Theme.space-xl;
     // Tab went past the last control, or Shift+Tab before the first.
     private property <int> wrap-first;
     private property <int> wrap-last;
@@ -523,35 +795,33 @@ export component ChangeReview inherits Modal {
                 }
             }
 
-            // Each change, with its value before and after.
+            // Each file's changes, with their values before and after; what every
+            // file gets comes first, once.
             if root.kind != ChangeKind.playlist && !root.done: VerticalLayout {
                 spacing: Theme.space-l;
 
-                for row in AgentState.review-rows: VerticalLayout {
-                    spacing: Theme.space-xs;
+                ChangeHeadings {
+                    table-width: root.table-width;
+                }
 
-                    Text {
-                        text: row.files > 1 ? @tr("{0}, in {1} files", AgentWords.field-name(row), row.files) : AgentWords.field-name(row);
-                        color: Theme.colors.text-muted;
-                        font-size: Theme.font-small;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
+                if AgentState.review-shared.length > 0: ChangeTable {
+                    heading: @tr("In all {} files", AgentState.review-files);
+                    rows: AgentState.review-shared;
+                    table-width: root.table-width;
+                }
+
+                for group in AgentState.review-groups: VerticalLayout {
+                    spacing: Theme.space-l;
+
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.colors.surface;
                     }
-                    Text {
-                        text: row.field == ChangeField.cover ? (row.before == "" ? @tr("Before: no cover") : @tr("Before: a cover"))
-                            : row.before == "" ? @tr("Before: not set") : @tr("Before: {}", row.before);
-                        color: Theme.colors.text-muted;
-                        font-size: Theme.font-body;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
-                    }
-                    Text {
-                        text: row.field == ChangeField.cover ? (row.after == "" ? @tr("After: no cover") : @tr("After: a new cover"))
-                            : row.after == "" ? @tr("After: removed") : @tr("After: {}", row.after);
-                        color: Theme.colors.text;
-                        font-size: Theme.font-body;
-                        wrap: word-wrap;
-                        min-height: self.preferred-height;
+                    ChangeTable {
+                        heading: group.title;
+                        file: group.file;
+                        rows: group.rows;
+                        table-width: root.table-width;
                     }
                 }
             }

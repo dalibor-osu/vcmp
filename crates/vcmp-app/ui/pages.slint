@@ -1,6 +1,7 @@
 import { AboutSlint, Palette, ScrollView } from "std-widgets.slint";
 import { ReduceMotion, Theme, ThemeMode } from "theme.slint";
-import { Button, Dropdown, FocusRing, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
+import { Button, Dropdown, FocusRing, IconButton, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
+import { Glyph } from "icons.slint";
 import { LibraryState } from "library-state.slint";
 import { AddFolderButton, LibrarySection } from "library-settings.slint";
 import { LastfmRow } from "lastfm-settings.slint";
@@ -163,6 +164,44 @@ export component SettingsPage inherits Page {
                 selected(index) => {
                     Theme.mode = index == 1 ? ThemeMode.light : index == 2 ? ThemeMode.dark : ThemeMode.system;
                     Theme.preferences-changed();
+                }
+            }
+        }
+
+        SettingRow {
+            title: @tr("Zoom");
+            description: @tr("Makes everything larger or smaller than your operating system's display scale. Ctrl+= and Ctrl+- zoom too, and Ctrl+0 goes back to 100%.");
+
+            HorizontalLayout {
+                spacing: Theme.space-s;
+
+                IconButton {
+                    glyph: Glyph.minus;
+                    label: @tr("Zoom out");
+                    enabled: Theme.zoom > Theme.zoom-smallest + 0.001;
+                    clicked => {
+                        Theme.zoom-by(-1);
+                    }
+                }
+
+                Text {
+                    min-width: 56px;
+                    text: @tr("{}%", round(Theme.zoom * 100));
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    accessible-label: @tr("Zoom");
+                    accessible-value: self.text;
+                }
+
+                IconButton {
+                    glyph: Glyph.plus;
+                    label: @tr("Zoom in");
+                    enabled: Theme.zoom < Theme.zoom-largest - 0.001;
+                    clicked => {
+                        Theme.zoom-by(1);
+                    }
                 }
             }
         }

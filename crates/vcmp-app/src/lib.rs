@@ -22,6 +22,7 @@ pub mod tag_editor;
 pub mod theme;
 pub mod updates;
 pub mod wheel;
+pub mod zoom;
 
 slint::include_modules!();
 
@@ -31,6 +32,7 @@ pub fn create_window() -> Result<AppWindow, slint::PlatformError> {
     theme::install(&window);
     icons::install(&window);
     selection::install(&window);
+    zoom::install(&window);
     window.set_version(env!("CARGO_PKG_VERSION").into());
     Ok(window)
 }

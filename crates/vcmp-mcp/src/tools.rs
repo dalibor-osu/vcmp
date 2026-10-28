@@ -55,6 +55,11 @@ track to stay one album.
 - track_number and disc_number: the order within an album.
 - year: the album's year is its earliest track's.
 - genre: shown and searchable.
+- cover: the front cover embedded in the file, which VCMP shows for its album: a \
+JPEG or PNG image from a file on this computer ({\"file\": \"/absolute/path.jpg\"}) \
+or from the web ({\"url\": \"https://...\"}), which VCMP downloads, at most 10 MB. \
+Give every track of an album the same cover. remove: [\"cover\"] takes it away. The owner \
+sees the image before accepting.
 A MusicBrainzReleaseId tag groups an album by itself, ahead of album and \
 album_artist: tracks of one album must share it. Keep changes small and focused, and \
 say in your own words what you asked for; the owner sees every value before and \
@@ -192,6 +197,17 @@ pub enum Field {
     DiscNumber,
     Year,
     Genre,
+    Cover,
+}
+
+/// Where a new front cover comes from.
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverSource {
+    /// The absolute path of a JPEG or PNG file on this computer.
+    File(String),
+    /// The http or https address of a JPEG or PNG image, which VCMP downloads.
+    Url(String),
 }
 
 /// The changes to one track's file. Fields left out stay as they are.
@@ -207,6 +223,9 @@ pub struct TrackChange {
     /// From 1 to 9999.
     year: Option<i32>,
     genre: Option<String>,
+    /// A new front cover: {"file": "/absolute/path.jpg"} or {"url": "https://..."},
+    /// a JPEG or PNG image of at most 10 MB.
+    cover: Option<CoverSource>,
     /// Fields to remove from the file.
     #[serde(default)]
     remove: Vec<Field>,
@@ -459,10 +478,25 @@ impl VcmpServer {
                 "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
             ));
         }
+        // Each image once, however many tracks it goes into.
+        let sources: Vec<CoverSource> = args
+            .changes
+            .iter()
+            .filter_map(|change| change.cover.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let covers = if sources.is_empty() {
+            BTreeMap::new()
+        } else {
+            tokio::task::spawn_blocking(move || load_covers(sources))
+                .await
+                .map_err(|error| error.to_string())??
+        };
         let edits = args
             .changes
             .into_iter()
-            .map(edit)
+            .map(|change| edit(change, &covers))
             .collect::<Result<Vec<_>, String>>()?;
         let agent = agent(&context);
         let files = edits.len();
@@ -648,8 +682,86 @@ impl ServerHandler for VcmpServer {
     }
 }
 
-/// The edit a track change asks for. A field both set and removed is refused.
-fn edit(change: TrackChange) -> Result<(TrackId, TagEdit), String> {
+/// The largest cover an agent may give, as a file or a download.
+const MAX_COVER_BYTES: u64 = 10 * 1000 * 1000;
+
+/// Reads or downloads every cover, each checked to be a JPEG or PNG image.
+fn load_covers(sources: Vec<CoverSource>) -> Result<BTreeMap<CoverSource, Vec<u8>>, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .user_agent(concat!("VCMP/", env!("CARGO_PKG_VERSION")))
+        .max_redirects(5)
+        .timeout_global(Some(std::time::Duration::from_secs(30)))
+        .build()
+        .into();
+    sources
+        .into_iter()
+        .map(|source| {
+            let data = match &source {
+                CoverSource::File(path) => read_cover(path)?,
+                CoverSource::Url(url) => download_cover(&agent, url)?,
+            };
+            if !is_jpeg_or_png(&data) {
+                return Err(format!("{}: not a JPEG or PNG image", source_name(&source)));
+            }
+            Ok((source, data))
+        })
+        .collect()
+}
+
+fn read_cover(path: &str) -> Result<Vec<u8>, String> {
+    let path = std::path::Path::new(path);
+    if !path.is_absolute() {
+        return Err(format!(
+            "{}: give the cover file's absolute path",
+            path.display()
+        ));
+    }
+    let size = std::fs::metadata(path)
+        .map_err(|error| format!("{}: {error}", path.display()))?
+        .len();
+    if size > MAX_COVER_BYTES {
+        return Err(format!(
+            "{}: a cover may take at most 10 MB",
+            path.display()
+        ));
+    }
+    std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+fn download_cover(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(format!(
+            "{url}: only http and https addresses can be downloaded"
+        ));
+    }
+    let mut response = agent
+        .get(url)
+        .call()
+        .map_err(|error| format!("{url}: {error}"))?;
+    response
+        .body_mut()
+        .with_config()
+        .limit(MAX_COVER_BYTES)
+        .read_to_vec()
+        .map_err(|error| format!("{url}: {error}"))
+}
+
+fn is_jpeg_or_png(data: &[u8]) -> bool {
+    data.starts_with(&[0xff, 0xd8, 0xff]) || data.starts_with(b"\x89PNG\r\n\x1a\n")
+}
+
+fn source_name(source: &CoverSource) -> &str {
+    match source {
+        CoverSource::File(path) | CoverSource::Url(path) => path,
+    }
+}
+
+/// The edit a track change asks for, its cover from `covers`. A field both set and
+/// removed is refused.
+fn edit(
+    change: TrackChange,
+    covers: &BTreeMap<CoverSource, Vec<u8>>,
+) -> Result<(TrackId, TagEdit), String> {
     let track = change.track_id;
     let removes = |field: Field| change.remove.contains(&field);
     fn field<T>(
@@ -689,7 +801,12 @@ fn edit(change: TrackChange) -> Result<(TrackId, TagEdit), String> {
         )?,
         year: field(change.year, removes(Field::Year), "year", track)?,
         genre: field(change.genre, removes(Field::Genre), "genre", track)?,
-        cover: FieldEdit::Keep,
+        cover: field(
+            change.cover.and_then(|source| covers.get(&source).cloned()),
+            removes(Field::Cover),
+            "cover",
+            track,
+        )?,
         other: change
             .tags
             .into_iter()
@@ -811,6 +928,9 @@ fn change_set_out(set: &ChangeSet) -> serde_json::Value {
                     "asked": file.edits.iter().filter(|(target, _)| target != "cover").map(|(target, values)| {
                         serde_json::json!({ "field": target, "values": values })
                     }).collect::<Vec<_>>(),
+                    "cover": file.edits.iter().find(|(target, _)| target == "cover").map(|(_, image)| {
+                        if image.is_some() { "replaced" } else { "removed" }
+                    }),
                     "tags": file.values.iter().map(|value| serde_json::json!({
                         "key": value.key,
                         "before": value.before,
