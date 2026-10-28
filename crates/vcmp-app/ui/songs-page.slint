@@ -6,6 +6,7 @@ import { Playlists } from "playlist-state.slint";
 import { TagEditorState } from "tag-editor.slint";
 import { SelectionChange } from "selection.slint";
 import { ColumnEdge, ColumnWidths } from "columns.slint";
+import { LabelChips, LabelEntry, LabelWords, Labels } from "labels.slint";
 
 export enum SongColumn { title, artist, album, year, duration }
 
@@ -21,6 +22,8 @@ export struct SongRow {
     path: string,
     // Picked with Ctrl or Shift, so the track menu acts on it with the others.
     selected: bool,
+    // The track's labels, by name.
+    labels: [LabelEntry],
 }
 
 // The selection in the songs table, kept in its rows, as `TrackSelection` does for
@@ -29,6 +32,14 @@ export global SongSelection {
     callback change([SongRow], int, int, SelectionChange) -> int;
     callback add-to-playlist([SongRow], int, int);
     callback edit-tags([SongRow], int);
+    callback prepare-labels([SongRow], int);
+    callback toggle-label([SongRow], int, int);
+    callback new-label([SongRow], int);
+}
+
+// The width of the Labels column, there while any label exists.
+global LabelColumn {
+    out property <length> width: 140px;
 }
 
 // A column header: sorts by its column, and shows the direction while it does.
@@ -136,6 +147,7 @@ component SongLine {
     in property <SongRow> song;
     in property <bool> playing;
     in property <bool> focused;
+    in property <bool> labels-column;
     // A click, and whether it toggles the row's selection (Ctrl, or Cmd on macOS) or
     // selects a range (Shift).
     callback clicked(bool, bool);
@@ -157,10 +169,11 @@ component SongLine {
     private property <bool> joined-below: root.song.selected && root.selected-below;
     // The pointer is on the play button at the row's start.
     private property <bool> on-play-button: touch.has-hover && touch.mouse-x < play-cell.x + play-cell.width + Theme.space-l / 2;
+    private property <string> spoken: root.song.artist == "" ? root.song.title : @tr("{0}, {1}", root.song.title, root.song.artist);
 
     height: Theme.target-height;
     accessible-role: list-item;
-    accessible-label: root.song.artist == "" ? root.song.title : @tr("{0}, {1}", root.song.title, root.song.artist);
+    accessible-label: root.song.labels.length == 0 ? root.spoken : @tr("{0}, labels: {1}", root.spoken, LabelWords.names(root.song.labels));
     accessible-item-selectable: true;
     accessible-item-selected: root.song.selected || root.focused;
     accessible-action-default => {
@@ -235,6 +248,20 @@ component SongLine {
             overflow: elide;
             accessible-role: none;
         }
+        if root.labels-column: Rectangle {
+            width: LabelColumn.width;
+            clip: true;
+
+            HorizontalLayout {
+                alignment: start;
+
+                LabelChips {
+                    labels: root.song.labels;
+                    shown: 1;
+                    strong: root.song.selected || touch.has-hover;
+                }
+            }
+        }
         Text {
             width: 56px;
             text: root.song.year;
@@ -305,6 +332,7 @@ export component SongTable {
     // Puts a song into Up next: at its front (`next`), or at its end.
     callback queue(int, bool);
 
+    private property <bool> labels-column: Labels.all.length > 0;
     private property <int> current: 0;
     // Where a Shift range starts, and how many rows are selected.
     private property <int> anchor: 0;
@@ -343,6 +371,7 @@ export component SongTable {
             root.select(index, SelectionChange.none);
         }
         root.current = index;
+        SongSelection.prepare-labels(root.songs, index);
         menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
     }
 
@@ -396,6 +425,13 @@ export component SongTable {
                     clicked => {
                         root.sort(SongColumn.album);
                     }
+                }
+                if root.labels-column: Text {
+                    width: LabelColumn.width;
+                    text: @tr("Labels");
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-small;
+                    vertical-alignment: center;
                 }
                 ColumnHeader {
                     width: 56px;
@@ -493,6 +529,25 @@ export component SongTable {
                         }
                     }
                 }
+                Menu {
+                    title: @tr("Labels");
+
+                    for choice in Labels.choices: MenuItem {
+                        title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                        checkable: true;
+                        checked: choice.checked;
+                        activated => {
+                            SongSelection.toggle-label(root.songs, root.current, choice.id);
+                        }
+                    }
+                    if Labels.choices.length > 0: MenuSeparator { }
+                    MenuItem {
+                        title: @tr("New label…");
+                        activated => {
+                            SongSelection.new-label(root.songs, root.current);
+                        }
+                    }
+                }
                 MenuItem {
                     title: @tr("Edit tags…");
                     activated => {
@@ -535,6 +590,10 @@ export component SongTable {
                         root.select(0, SelectionChange.none);
                     } else if event.text == Key.Return || event.text == Key.Space {
                         root.play(root.current);
+                    } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
+                        // The menu opens on its own; it needs the current labels first.
+                        SongSelection.prepare-labels(root.songs, root.current);
+                        return reject;
                     } else {
                         return reject;
                     }
@@ -554,6 +613,7 @@ export component SongTable {
                         selected-below: self.index + 1 < root.songs.length && root.songs[self.index + 1].selected;
                         playing: self.song.path == PlayerState.track-path;
                         focused: list.has-focus && self.index == root.current;
+                        labels-column: root.labels-column;
                         clicked(toggle, range) => {
                             root.current = self.index;
                             if range {

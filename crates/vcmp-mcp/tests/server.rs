@@ -10,7 +10,9 @@ use lofty::config::WriteOptions;
 use lofty::file::TaggedFileExt;
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
 use serde_json::{Value, json};
-use vcmp_library::{ChangeSetId, ChangeStatus, Library, PlaylistId, TagEdit, TrackId};
+use vcmp_library::{
+    ChangeSetId, ChangeStatus, LabelEdit, Library, NewLabel, PlaylistId, TagEdit, TrackId,
+};
 use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig, relay};
 
 const FIXTURE: &str = concat!(
@@ -31,6 +33,18 @@ impl Changes for Direct {
         let library = self.0.lock().unwrap();
         library
             .submit_tag_changes(agent, &edits)
+            .map_err(|error| error.to_string())
+    }
+
+    fn submit_labels(
+        &self,
+        agent: &str,
+        edits: Vec<(TrackId, LabelEdit)>,
+        new_labels: Vec<NewLabel>,
+    ) -> Result<ChangeSetId, String> {
+        let library = self.0.lock().unwrap();
+        library
+            .submit_label_changes(agent, &edits, &new_labels)
             .map_err(|error| error.to_string())
     }
 
@@ -450,6 +464,86 @@ fn a_cover_from_a_file_waits_for_review_like_any_tag() {
         .unwrap()
         .unwrap();
     assert!(matches!(&set.files[0].edits[..], [(target, None)] if target == "cover"));
+}
+
+#[test]
+fn agents_find_tracks_by_label_and_label_changes_wait_for_review() {
+    let setup = start();
+    let mut session = setup.session();
+    let a = id_of(&setup.library, "a.flac");
+    let b = id_of(&setup.library, "b.flac");
+    let chill = setup.library.create_label("Chill", "palette:teal").unwrap();
+    setup.library.add_label(chill, &[a]).unwrap();
+
+    let labels = session.call("list_labels", json!({})).unwrap();
+    assert_eq!(
+        labels,
+        json!([{ "name": "Chill", "colour": "teal", "track_count": 1 }])
+    );
+    let found = session
+        .call("find_tracks_by_labels", json!({ "labels": ["chill"] }))
+        .unwrap();
+    assert_eq!(found.as_array().unwrap().len(), 1);
+    assert_eq!(found[0]["id"], a.0);
+    assert_eq!(found[0]["labels"], json!(["Chill"]));
+    let unknown = session
+        .call("find_tracks_by_labels", json!({ "labels": ["loud"] }))
+        .unwrap_err();
+    assert!(unknown.contains("loud"), "{unknown}");
+    let tracks = session
+        .call(
+            "get_tracks",
+            json!({ "track_ids": [b.0], "include_tags": false }),
+        )
+        .unwrap();
+    assert_eq!(tracks[0]["labels"], json!([]));
+
+    let answer = session
+        .call(
+            "propose_label_changes",
+            json!({
+                "changes": [
+                    { "track_ids": [a.0, b.0], "add": ["rainy"] },
+                    { "track_ids": [b.0], "add": ["chill"] }
+                ],
+                "new_labels": [{ "name": "Rainy", "colour": "Blue" }]
+            }),
+        )
+        .unwrap();
+    assert_eq!(answer["status"], "pending");
+    let id = ChangeSetId(answer["change_set_id"].as_i64().unwrap());
+    let set = setup.library.change_set(id).unwrap().unwrap();
+    assert_eq!(set.summary.agent, "test-agent");
+    assert_eq!(set.files.len(), 2);
+    assert_eq!(set.new_labels[0].colour, "palette:blue");
+    assert!(setup.library.label_named("rainy").unwrap().is_none());
+    let status = session
+        .call("get_change_set", json!({ "change_set_id": id.0 }))
+        .unwrap();
+    assert_eq!(status["kind"], "labels");
+    assert_eq!(status["new_labels"][0]["name"], "Rainy");
+    let b_labels = &status["tracks"][1]["labels"];
+    assert_eq!(b_labels[0]["label"], "Chill");
+    assert_eq!(b_labels[0]["held_before"], false);
+    assert_eq!(b_labels[0]["asked"], true);
+
+    let colour = session
+        .call(
+            "propose_label_changes",
+            json!({
+                "changes": [{ "track_ids": [a.0], "add": ["x"] }],
+                "new_labels": [{ "name": "x", "colour": "beige" }]
+            }),
+        )
+        .unwrap_err();
+    assert!(colour.contains("teal"), "{colour}");
+    let nothing = session
+        .call(
+            "propose_label_changes",
+            json!({ "changes": [{ "track_ids": [a.0], "add": ["chill"] }] }),
+        )
+        .unwrap_err();
+    assert!(nothing.contains("at least one change"), "{nothing}");
 }
 
 #[test]

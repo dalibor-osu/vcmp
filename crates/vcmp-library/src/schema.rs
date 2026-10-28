@@ -294,6 +294,60 @@ CREATE TABLE change_values (
     PRIMARY KEY (file_id, key)
 ) STRICT, WITHOUT ROWID;
 "#,
+    r#"
+-- Labels: the owner's own names for tracks ("chill"), with a colour, kept only here
+-- and never in the files. colour is 'palette:' and a name from the UI's palette, or
+-- '#rrggbb'. Links point at tracks, which are never deleted, so they outlive a file
+-- going missing like playlist entries.
+CREATE TABLE labels (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    colour TEXT NOT NULL,
+    created_ms INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE track_labels (
+    track_id INTEGER NOT NULL REFERENCES tracks(id),
+    label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+    added_ms INTEGER NOT NULL,
+    PRIMARY KEY (track_id, label_id)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX track_labels_label ON track_labels(label_id);
+
+-- Agents' label edits are change sets of kind 'labels'. The CHECK on kind can't be
+-- altered in place, so change_sets is rebuilt; migrations run with foreign keys off,
+-- so dropping the old table leaves the files of its sets alone.
+CREATE TABLE change_sets_new (
+    id INTEGER PRIMARY KEY,
+    agent TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('tags', 'playlist_deletion', 'labels')),
+    playlist_id INTEGER,
+    playlist_name TEXT,
+    status TEXT NOT NULL CHECK (status IN
+        ('pending', 'accepted', 'partly_written', 'rejected', 'discarded', 'undone')),
+    undoes INTEGER REFERENCES change_sets(id) ON DELETE SET NULL,
+    created_ms INTEGER NOT NULL,
+    finished_ms INTEGER
+) STRICT;
+INSERT INTO change_sets_new (id, agent, kind, playlist_id, playlist_name, status, undoes,
+        created_ms, finished_ms)
+    SELECT id, agent, kind, playlist_id, playlist_name, status, undoes, created_ms,
+        finished_ms
+    FROM change_sets;
+DROP TABLE change_sets;
+ALTER TABLE change_sets_new RENAME TO change_sets;
+
+-- The labels a label set creates when accepted. created: NULL until then, 1 when
+-- the set made it, 0 when a label of that name existed by then (and was used as is).
+CREATE TABLE change_labels (
+    set_id INTEGER NOT NULL REFERENCES change_sets(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    colour TEXT NOT NULL,
+    created INTEGER,
+    PRIMARY KEY (set_id, name)
+) STRICT, WITHOUT ROWID;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;
@@ -306,6 +360,9 @@ pub(crate) fn migrate(conn: &mut Connection) -> Result<()> {
             supported: VERSION,
         });
     }
+    // Off while migrating: rebuilding a table drops the old one, which would delete
+    // the rows that refer to it. Library::open turns them on afterwards.
+    conn.pragma_update(None, "foreign_keys", false)?;
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(found as usize) {
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;

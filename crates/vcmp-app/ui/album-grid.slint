@@ -1,5 +1,6 @@
 import { Theme } from "theme.slint";
 import { FocusRing } from "components.slint";
+import { Labels } from "labels.slint";
 
 export enum ArtworkState { none, loading, loaded }
 
@@ -38,6 +39,8 @@ export component AlbumCard {
     // Drawn with a focus ring: the grid has keyboard focus and this is its current card.
     in property <bool> focused;
     callback clicked;
+    // Window position of a right click.
+    callback menu-requested(length, length);
 
     accessible-role: button;
     accessible-item-selected: root.focused;
@@ -115,6 +118,11 @@ export component AlbumCard {
             Theme.keyboard-navigation = false;
             root.clicked();
         }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                root.menu-requested(root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+            }
+        }
     }
 
     if root.focused: FocusRing {
@@ -134,10 +142,18 @@ export component AlbumGrid {
     in property <bool> round;
     // Playlists: track counts as subtitles.
     in property <bool> playlists;
+    // Albums whose cards have a menu: labels for their tracks.
+    in property <bool> album-menu;
     // The keyboard's current card.
     in-out property <int> current: 0;
     callback visible-range-changed(int, int);
     callback activated(int);
+
+    function show-menu(index: int, x: length, y: length) {
+        root.current = index;
+        Labels.prepare-album(root.albums[index].id);
+        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
+    }
 
     // Makes `index` the current card, scrolls it into view and focuses the grid.
     public function focus-album(index: int) {
@@ -182,6 +198,33 @@ export component AlbumGrid {
     accessible-role: list;
     forward-focus: focus;
 
+    // The card's menu: labels for every track of the album.
+    menu := ContextMenuArea {
+        enabled: root.album-menu;
+
+        Menu {
+            MenuItem {
+                title: @tr("Labels for every track");
+                enabled: false;
+            }
+            MenuSeparator { }
+            for choice in Labels.choices: MenuItem {
+                title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                checkable: true;
+                checked: choice.checked;
+                activated => {
+                    Labels.toggle-album(root.albums[root.current].id, choice.id);
+                }
+            }
+            if Labels.choices.length > 0: MenuSeparator { }
+            MenuItem {
+                title: @tr("New label…");
+                activated => {
+                    Labels.new-for-album(root.albums[root.current].id);
+                }
+            }
+        }
+
     focus := FocusScope {
         focus-on-click: false;
         focus-gained(reason) => {
@@ -209,11 +252,16 @@ export component AlbumGrid {
                 root.move-to(root.albums.length - 1);
             } else if event.text == Key.Return || event.text == Key.Space {
                 root.activated(root.current);
+            } else if root.album-menu && root.albums.length > 0 && (event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10)) {
+                // The menu opens on its own; it needs the album's labels first.
+                Labels.prepare-album(root.albums[root.current].id);
+                return reject;
             } else {
                 return reject;
             }
             accept
         }
+    }
     }
 
     flick := Flickable {
@@ -234,6 +282,11 @@ export component AlbumGrid {
                 root.current = self.index;
                 root.activated(self.index);
             }
+            menu-requested(x, y) => {
+                if root.album-menu {
+                    root.show-menu(self.index, x, y);
+                }
+            }
         }
     }
 }
@@ -251,8 +304,16 @@ export component CardGrid {
     in property <bool> playlists;
     in property <length> available-width;
     in property <string> label;
+    // Albums whose cards have a menu: labels for their tracks.
+    in property <bool> album-menu;
     in-out property <int> current: 0;
     callback activated(int);
+
+    function show-menu(index: int, x: length, y: length) {
+        root.current = index;
+        Labels.prepare-album(root.tiles[index].id);
+        menu.show({ x: x - menu.absolute-position.x, y: y - menu.absolute-position.y });
+    }
 
     // Makes `index` the current card and focuses the grid.
     public function focus-card(index: int) {
@@ -272,6 +333,33 @@ export component CardGrid {
     accessible-role: list;
     accessible-label: root.label;
     forward-focus: focus;
+
+    // The card's menu: labels for every track of the album.
+    menu := ContextMenuArea {
+        enabled: root.album-menu;
+
+        Menu {
+            MenuItem {
+                title: @tr("Labels for every track");
+                enabled: false;
+            }
+            MenuSeparator { }
+            for choice in Labels.choices: MenuItem {
+                title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                checkable: true;
+                checked: choice.checked;
+                activated => {
+                    Labels.toggle-album(root.tiles[root.current].id, choice.id);
+                }
+            }
+            if Labels.choices.length > 0: MenuSeparator { }
+            MenuItem {
+                title: @tr("New label…");
+                activated => {
+                    Labels.new-for-album(root.tiles[root.current].id);
+                }
+            }
+        }
 
     focus := FocusScope {
         focus-on-click: false;
@@ -296,11 +384,16 @@ export component CardGrid {
                 root.current = last;
             } else if event.text == Key.Return || event.text == Key.Space {
                 root.activated(root.current);
+            } else if root.album-menu && root.tiles.length > 0 && (event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10)) {
+                // The menu opens on its own; it needs the album's labels first.
+                Labels.prepare-album(root.tiles[root.current].id);
+                return reject;
             } else {
                 return reject;
             }
             accept
         }
+    }
     }
 
     for tile[index] in root.tiles: AlbumCard {
@@ -316,6 +409,11 @@ export component CardGrid {
         clicked => {
             root.current = index;
             root.activated(index);
+        }
+        menu-requested(x, y) => {
+            if root.album-menu {
+                root.show-menu(index, x, y);
+            }
         }
     }
 }

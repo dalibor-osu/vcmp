@@ -31,3 +31,27 @@ VCMP should be a cross plaform (Windows 10+, Linux, MacOS) music player that is 
 - Spotify connection and playback
 - Lyrics view
 - Custom themes
+
+## Improvements noticed in use (2026-10-28)
+
+- **Change review grouped by file.** The review of an agent's change set is hard to
+  navigate. Group the changes per track/file, so each file shows all of its changed
+  tags together.
+- **Agents can set album covers.** MCP agents can't add or replace album covers yet;
+  add a way for them to propose one (reviewed like tag changes).
+- **Scroll wheel on the volume slider.** Scrolling while hovering the volume slider
+  does nothing; it should change the volume.
+- **Format and scrobbling indicators in the player bar.** Small icons showing that the
+  playing file is lossless, and that Last.fm scrobbling is on for the track.
+- **Zoom setting.** On a big 2K monitor the app looks scaled down. Add a zoom (UI
+  scale) option to Settings.
+- **Overflow menu on album and artist pages.** The buttons under the cover ("Add to
+  playlist…", "Edit tags…") are distracting and rarely used. Replace them with a
+  three-dot button next to Play and Shuffle that opens a menu with:
+  - albums: Find cover online, Add to playlist, Edit tags;
+  - artists: Find photo online, Choose photo.
+
+  Use the freed space for a bigger cover, and make the title and other text a little
+  larger.
+- **Agent changes in their own dialog.** Many agent change sets and undos clutter the
+  Settings page. Show them in a modal opened by a button in Settings instead.

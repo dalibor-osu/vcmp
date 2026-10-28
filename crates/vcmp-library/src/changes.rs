@@ -1,14 +1,16 @@
-//! Change sets: the tag edits and playlist deletions AI agents ask for, kept as a log
-//! the owner reviews and can undo.
+//! Change sets: the tag edits, label edits and playlist deletions AI agents ask for,
+//! kept as a log the owner reviews and can undo.
 //!
 //! A tag set records, for every file, what was asked and the values of every tag the
 //! edit may change as the database had them, so accepting it can leave alone a file
 //! that changed since (a conflict) instead of overwriting it. Undoing builds a new
 //! set that writes those values back raw, all of them, checked against what the
 //! first set wrote. Covers a set replaces or brings are kept under `images/undo/`.
-//! Finished sets are kept for 30 days.
+//! A label set works the same way on the database alone: per track, whether it held
+//! each label it changes, under the key `label:` and the name. Finished sets are kept
+//! for 30 days.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,6 +19,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::edit::{self, Expected, FieldEdit, TagEdit, TagWriteError};
 use crate::error::io_error;
+use crate::labels::{self, LabelId, valid_label_colour};
 use crate::other_tags;
 use crate::tags;
 use crate::{Error, Library, PlaylistId, Result, TrackId, path_codec, scan};
@@ -74,6 +77,33 @@ pub enum ChangeKind {
         playlist: PlaylistId,
         name: String,
     },
+    /// Labels put on and taken off tracks, in the database only.
+    Labels,
+}
+
+/// What a label set asks for one track: labels to put on and take off, by name.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LabelEdit {
+    pub add: Vec<String>,
+    pub remove: Vec<String>,
+}
+
+/// A label an agent asks to create along with a label set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewLabel {
+    pub name: String,
+    /// As [`crate::Label::colour`].
+    pub colour: String,
+}
+
+/// A label a set creates once accepted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProposedLabel {
+    pub name: String,
+    pub colour: String,
+    /// None until accepted; then whether the set made it, or found a label of that
+    /// name (ignoring case) and used it as it was.
+    pub created: Option<bool>,
 }
 
 /// A set as the history lists it.
@@ -95,9 +125,11 @@ pub struct ChangeSetSummary {
 pub struct ChangeSet {
     pub summary: ChangeSetSummary,
     pub files: Vec<ChangedFile>,
+    /// The labels a label set creates.
+    pub new_labels: Vec<ProposedLabel>,
 }
 
-/// One file of a tag set.
+/// One file of a tag set, or one track of a label set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChangedFile {
     pub track: TrackId,
@@ -106,7 +138,8 @@ pub struct ChangedFile {
     /// `album`, `album_artist`, `track_number`, `disc_number`, `year`, `genre`,
     /// `cover`) or `tag:` and a [`crate::Library::track_tags`] key. None removes.
     /// A cover's value is the name of the image the set keeps
-    /// ([`Library::kept_cover`]).
+    /// ([`Library::kept_cover`]). In a label set: `label:` and the label's name, with
+    /// the name as the value to put it on and None to take it off.
     pub edits: Vec<(String, Option<Vec<String>>)>,
     /// Every tag the edits may change.
     pub values: Vec<ValueChange>,
@@ -120,6 +153,8 @@ pub struct ChangedFile {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValueChange {
+    /// A tag key, or in a label set `label:` and the name; the label's values are
+    /// its name when the track holds it and nothing when it doesn't.
     pub key: String,
     /// As the database had them when the set was made.
     pub before: Vec<String>,
@@ -196,7 +231,116 @@ impl Library {
                 cover_before,
             });
         }
-        self.insert_set(agent, "tags", None, None, &files)
+        self.insert_set(agent, "tags", None, None, &files, &[])
+    }
+
+    /// Records a label set for review: every label named must exist or be among
+    /// `new_labels`, and every track must be in the library (its file may be gone).
+    /// Edits that change nothing (a label the track holds already) are left out, and
+    /// only the new labels some track gets are kept. Nothing changes until
+    /// [`Library::accept_change_set`].
+    pub fn submit_label_changes(
+        &self,
+        agent: &str,
+        edits: &[(TrackId, LabelEdit)],
+        new_labels: &[NewLabel],
+    ) -> Result<ChangeSetId> {
+        let existing = self.labels()?;
+        let mut created: Vec<(String, String)> = Vec::new();
+        for label in new_labels {
+            let name = labels::label_name(&label.name)?;
+            if !valid_label_colour(&label.colour) {
+                return Err(Error::InvalidLabelColour(label.colour.clone()));
+            }
+            let lower = name.to_lowercase();
+            if let Some(taken) = existing
+                .iter()
+                .map(|label| &label.name)
+                .chain(created.iter().map(|(name, _)| name))
+                .find(|taken| taken.to_lowercase() == lower)
+            {
+                return Err(Error::LabelNameTaken(taken.clone()));
+            }
+            created.push((name, label.colour.clone()));
+        }
+        let canonical = |name: &str| -> Result<String> {
+            let wanted = name.trim().to_lowercase();
+            existing
+                .iter()
+                .map(|label| &label.name)
+                .chain(created.iter().map(|(name, _)| name))
+                .find(|known| known.to_lowercase() == wanted)
+                .cloned()
+                .ok_or_else(|| Error::UnknownLabel(name.trim().to_owned()))
+        };
+        let names: HashMap<LabelId, String> = existing
+            .iter()
+            .map(|label| (label.id, label.name.to_lowercase()))
+            .collect();
+        let links = self.label_links()?;
+        let mut seen = HashSet::new();
+        let mut files = Vec::new();
+        for (id, edit) in edits {
+            if !seen.insert(*id) {
+                return Err(Error::RepeatedTrack(*id));
+            }
+            let track = self.track(*id)?.ok_or(Error::UnknownTrack(*id))?;
+            let held: HashSet<&str> = links
+                .get(id)
+                .into_iter()
+                .flatten()
+                .filter_map(|label| names.get(label).map(String::as_str))
+                .collect();
+            let mut wanted: BTreeMap<String, bool> = BTreeMap::new();
+            for name in &edit.add {
+                wanted.insert(canonical(name)?, true);
+            }
+            for name in &edit.remove {
+                let name = canonical(name)?;
+                if wanted.get(&name) == Some(&true) {
+                    return Err(Error::ContradictoryLabelEdit {
+                        track: *id,
+                        label: name,
+                    });
+                }
+                wanted.insert(name, false);
+            }
+            let changes: Vec<(String, bool)> = wanted
+                .into_iter()
+                .filter(|(name, on)| held.contains(name.to_lowercase().as_str()) != *on)
+                .collect();
+            if changes.is_empty() {
+                continue;
+            }
+            files.push(NewFile {
+                track: *id,
+                path: track.path,
+                edits: changes
+                    .iter()
+                    .map(|(name, on)| (format!("label:{name}"), on.then(|| vec![name.clone()])))
+                    .collect(),
+                values: changes
+                    .iter()
+                    .map(|(name, on)| {
+                        let before = if *on { Vec::new() } else { vec![name.clone()] };
+                        (format!("label:{name}"), before)
+                    })
+                    .collect(),
+                cover_before: None,
+            });
+        }
+        if files.is_empty() {
+            return Err(Error::EmptyChangeSet);
+        }
+        created.retain(|(name, _)| {
+            let target = format!("label:{name}");
+            files.iter().any(|file| {
+                file.edits
+                    .iter()
+                    .any(|(edit, values)| *edit == target && values.is_some())
+            })
+        });
+        self.insert_set(agent, "labels", None, None, &files, &created)
     }
 
     /// Records a request to delete a playlist, for review. Deleting can't be undone.
@@ -214,15 +358,18 @@ impl Library {
             Some(playlist),
             Some(&found.name),
             &[],
+            &[],
         )
     }
 
-    /// Records the undo of an accepted tag set, for review like any set. It puts back
-    /// the values every written file had before, provided the file still holds what
-    /// the set wrote.
+    /// Records the undo of an accepted tag or label set, for review like any set. It
+    /// puts back the values every written file (or labels every changed track) had
+    /// before, provided it still holds what the set wrote. Undoing a label set also
+    /// deletes the labels it created that no track holds any more.
     pub fn submit_undo(&self, id: ChangeSetId, agent: &str) -> Result<ChangeSetId> {
         let set = self.change_set(id)?.ok_or(Error::UnknownChangeSet(id))?;
-        let undoable = set.summary.kind == ChangeKind::Tags
+        let labels = set.summary.kind == ChangeKind::Labels;
+        let undoable = matches!(set.summary.kind, ChangeKind::Tags | ChangeKind::Labels)
             && matches!(
                 set.summary.status,
                 ChangeStatus::Accepted | ChangeStatus::PartlyWritten
@@ -245,7 +392,12 @@ impl Library {
                     .iter()
                     .map(|value| {
                         let before = (!value.before.is_empty()).then(|| value.before.clone());
-                        (format!("tag:{}", value.key), before)
+                        let target = if labels {
+                            value.key.clone()
+                        } else {
+                            format!("tag:{}", value.key)
+                        };
+                        (target, before)
                     })
                     .collect();
                 if let Some(before) = &file.cover_before {
@@ -272,7 +424,8 @@ impl Library {
         if files.is_empty() {
             return Err(Error::NotUndoable(id));
         }
-        let undo = self.insert_set(agent, "tags", None, None, &files)?;
+        let kind = if labels { "labels" } else { "tags" };
+        let undo = self.insert_set(agent, kind, None, None, &files, &[])?;
         self.conn.execute(
             "UPDATE change_sets SET undoes = ?2 WHERE id = ?1",
             params![undo.0, id.0],
@@ -293,6 +446,9 @@ impl Library {
             self.delete_playlist(playlist)?;
             self.finish(id, ChangeStatus::Accepted)?;
             return self.change_set(id)?.ok_or(Error::UnknownChangeSet(id));
+        }
+        if set.summary.kind == ChangeKind::Labels {
+            return self.accept_labels(set, progress);
         }
         // An undo puts back the values the nine fields' keys had, raw.
         let raw = set.summary.undoes.is_some();
@@ -417,7 +573,23 @@ impl Library {
             file.values = self.file_values(file_id)?;
             files.push(file);
         }
-        Ok(Some(ChangeSet { summary, files }))
+        let mut statement = self.conn.prepare_cached(
+            "SELECT name, colour, created FROM change_labels WHERE set_id = ?1 ORDER BY name",
+        )?;
+        let new_labels = statement
+            .query_map([id.0], |row| {
+                Ok(ProposedLabel {
+                    name: row.get(0)?,
+                    colour: row.get(1)?,
+                    created: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(Some(ChangeSet {
+            summary,
+            files,
+            new_labels,
+        }))
     }
 
     /// Deletes the sets finished longer ago than [`CHANGE_SETS_KEPT`], with the covers
@@ -529,6 +701,7 @@ impl Library {
         playlist: Option<PlaylistId>,
         playlist_name: Option<&str>,
         files: &[NewFile],
+        new_labels: &[(String, String)],
     ) -> Result<ChangeSetId> {
         // Unchecked: &self keeps the app's shared connection usable; nothing else
         // runs a transaction on this connection meanwhile.
@@ -569,6 +742,12 @@ impl Library {
                     params![file_id, key, to_json(before)],
                 )?;
             }
+        }
+        for (name, colour) in new_labels {
+            tx.execute(
+                "INSERT INTO change_labels (set_id, name, colour) VALUES (?1, ?2, ?3)",
+                params![id, name, colour],
+            )?;
         }
         tx.commit()?;
         Ok(ChangeSetId(id))
@@ -620,6 +799,130 @@ impl Library {
             }),
         };
         Ok(edit::write(&track.path, &edit, raw, Some(&expected)).map(|()| edit))
+    }
+
+    /// Accepts a pending label set: creates its new labels (or takes a label of the
+    /// same name that exists by then), then changes each track whose labels are still
+    /// as the set found them. A track whose labels changed since, or that would get a
+    /// label deleted since, is a conflict and left alone.
+    fn accept_labels(
+        &self,
+        set: ChangeSet,
+        mut progress: impl FnMut(usize, usize),
+    ) -> Result<ChangeSet> {
+        let id = set.summary.id;
+        // Unchecked: &self keeps the app's shared connection usable; nothing else
+        // runs a transaction on this connection meanwhile.
+        let tx = self.conn.unchecked_transaction()?;
+        for label in &set.new_labels {
+            let created = match self.label_named(&label.name)? {
+                Some(_) => false,
+                None => {
+                    self.create_label(&label.name, &label.colour)?;
+                    true
+                }
+            };
+            tx.execute(
+                "UPDATE change_labels SET created = ?3 WHERE set_id = ?1 AND name = ?2",
+                params![id.0, label.name, created],
+            )?;
+        }
+        let known: HashMap<String, LabelId> = self
+            .labels()?
+            .into_iter()
+            .map(|label| (label.name.to_lowercase(), label.id))
+            .collect();
+        let find = |key: &str| {
+            let name = key.strip_prefix("label:").unwrap_or(key);
+            known.get(&name.to_lowercase()).copied()
+        };
+        let links = self.label_links()?;
+        let total = set.files.len();
+        let mut all_written = true;
+        for (done, file) in set.files.iter().enumerate() {
+            progress(done, total);
+            let held: HashSet<LabelId> = links
+                .get(&file.track)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect();
+            let holds = |key: &str| find(key).is_some_and(|label| held.contains(&label));
+            let changed = file
+                .values
+                .iter()
+                .any(|value| holds(&value.key) == value.before.is_empty());
+            let gone = file
+                .edits
+                .iter()
+                .find(|(target, values)| values.is_some() && find(target).is_none());
+            let conflict = if changed {
+                Some("its labels changed since the set was made".to_owned())
+            } else {
+                gone.map(|(target, _)| {
+                    let name = target.strip_prefix("label:").unwrap_or(target);
+                    format!("the label {name:?} no longer exists")
+                })
+            };
+            let (result, detail) = match &conflict {
+                Some(detail) => ("conflict", Some(detail.as_str())),
+                None => ("written", None),
+            };
+            if conflict.is_some() {
+                all_written = false;
+            } else {
+                for (target, values) in &file.edits {
+                    let Some(label) = find(target) else { continue };
+                    self.set_link(label, file.track, values.is_some())?;
+                }
+            }
+            tx.execute(
+                "UPDATE change_files SET result = ?3, detail = ?4
+                 WHERE set_id = ?1 AND track_id = ?2",
+                params![id.0, file.track.0, result, detail],
+            )?;
+            if conflict.is_none() {
+                let file_id: i64 = tx.query_row(
+                    "SELECT id FROM change_files WHERE set_id = ?1 AND track_id = ?2",
+                    params![id.0, file.track.0],
+                    |row| row.get(0),
+                )?;
+                for (target, values) in &file.edits {
+                    tx.execute(
+                        "UPDATE change_values SET after = ?3 WHERE file_id = ?1 AND key = ?2",
+                        params![file_id, target, to_json(values.as_deref().unwrap_or(&[]))],
+                    )?;
+                }
+            }
+        }
+        progress(total, total);
+        let status = if all_written {
+            ChangeStatus::Accepted
+        } else {
+            ChangeStatus::PartlyWritten
+        };
+        tx.execute(
+            "UPDATE change_sets SET status = ?2, finished_ms = ?3 WHERE id = ?1",
+            params![id.0, status.as_str(), now_ms()],
+        )?;
+        if let Some(undone) = set.summary.undoes {
+            if all_written {
+                tx.execute(
+                    "UPDATE change_sets SET status = 'undone' WHERE id = ?1",
+                    [undone.0],
+                )?;
+            }
+            // The labels the undone set made go with it, unless a track holds them.
+            tx.execute(
+                "DELETE FROM labels WHERE id IN (
+                     SELECT l.id FROM labels l JOIN change_labels c ON c.name = l.name
+                     WHERE c.set_id = ?1 AND c.created = 1)
+                 AND NOT EXISTS (SELECT 1 FROM track_labels tl WHERE tl.label_id = labels.id)",
+                [undone.0],
+            )?;
+        }
+        tx.commit()?;
+        self.change_set(id)?.ok_or(Error::UnknownChangeSet(id))
     }
 
     /// Stores what a written file's tags read back as.
@@ -802,6 +1105,7 @@ fn summary_from(row: &rusqlite::Row) -> rusqlite::Result<ChangeSetSummary> {
             playlist: PlaylistId(row.get::<_, Option<i64>>(3)?.unwrap_or_default()),
             name: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
         },
+        "labels" => ChangeKind::Labels,
         _ => ChangeKind::Tags,
     };
     Ok(ChangeSetSummary {

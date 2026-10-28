@@ -1,0 +1,389 @@
+// The Labels section: every label as a list, and the page of one label with its
+// tracks, Play and Shuffle. Labels are made and edited in Settings, or from any
+// track's menu (labels.slint).
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Button, FocusRing } from "components.slint";
+import { BackButton, TrackList, TrackRow } from "album-page.slint";
+import { LabelDot, LabelEntry, Labels } from "labels.slint";
+
+export struct LabelDetail {
+    name: string,
+    light: color,
+    dark: color,
+    // Available tracks holding it.
+    track-count: int,
+    minutes: int,
+    // The label was deleted while its page was open.
+    missing: bool,
+}
+
+// A label in the Labels section's list: its dot, name and number of tracks. Opens
+// the label's page.
+component LabelLine {
+    in property <LabelEntry> label;
+    callback activated();
+
+    min-height: Theme.target-height + Theme.space-s;
+    accessible-role: button;
+    accessible-label: @tr("{0}, {n} track" | "{0}, {n} tracks" % root.label.count, root.label.name);
+    accessible-action-default => {
+        root.activated();
+    }
+    forward-focus: focus;
+
+    Rectangle {
+        border-radius: Theme.radius-m;
+        background: touch.has-hover ? Theme.colors.surface : transparent;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-l;
+        padding-right: Theme.space-l;
+        spacing: Theme.space-m;
+
+        VerticalLayout {
+            alignment: center;
+
+            LabelDot {
+                light: root.label.light;
+                dark: root.label.dark;
+                size: 14px;
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.label.name;
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            font-weight: Theme.weight-strong;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: none;
+        }
+        Text {
+            text: @tr("{n} track" | "{n} tracks" % root.label.count);
+            color: touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            Theme.keyboard-navigation = false;
+            root.activated();
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == Key.Space {
+                root.activated();
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-m;
+    }
+}
+
+// One label: its colour and name, its tracks in the library's order, Play and
+// Shuffle. The tracks' menus put labels on and take them off, this one included.
+export component LabelView {
+    in property <LabelDetail> label;
+    in property <[TrackRow]> tracks;
+    in property <string> playing-path;
+    callback back();
+    // Plays the label's tracks from `start` (-1: from the first, or shuffled).
+    callback play(int, bool);
+    callback queue-track(int, bool);
+
+    public function focus-back() {
+        back-button.focus();
+    }
+
+    // Scrolls so the row at window y `top` with `height` is inside the view.
+    function ensure-visible(top: length, height: length) {
+        let view-top = scroll.absolute-position.y;
+        let view-bottom = view-top + scroll.visible-height;
+        if top < view-top {
+            scroll.content-y = min(0px, scroll.content-y + (view-top - top));
+        } else if top + height > view-bottom {
+            scroll.content-y = scroll.content-y - (top + height - view-bottom);
+        }
+    }
+
+    forward-focus: back-button;
+
+    // Handles Escape for everything on the page; not a tab stop itself.
+    FocusScope {
+        width: parent.width;
+        height: parent.height;
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.back();
+                return accept;
+            }
+            reject
+        }
+
+        scroll := ScrollView {
+            width: parent.width;
+            height: parent.height;
+
+            VerticalLayout {
+                padding: Theme.space-xxl;
+                padding-top: Theme.space-xl;
+                spacing: Theme.space-xl;
+                alignment: start;
+
+                HorizontalLayout {
+                    alignment: start;
+
+                    back-button := BackButton {
+                        label: @tr("Labels");
+                        clicked => {
+                            root.back();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-xl;
+                    alignment: start;
+
+                    VerticalLayout {
+                        alignment: center;
+
+                        LabelDot {
+                            light: root.label.light;
+                            dark: root.label.dark;
+                            size: 48px;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: Theme.space-s;
+                        alignment: end;
+                        max-width: Theme.content-max-width;
+
+                        Text {
+                            text: @tr("Label");
+                            color: Theme.colors.text-muted;
+                            font-size: Theme.font-small;
+                        }
+                        Text {
+                            text: root.label.name;
+                            color: Theme.colors.text;
+                            font-size: Theme.font-title;
+                            font-weight: Theme.weight-strong;
+                            wrap: word-wrap;
+                            min-height: self.preferred-height;
+                        }
+                        HorizontalLayout {
+                            spacing: Theme.space-l;
+                            alignment: start;
+
+                            Text {
+                                text: @tr("{n} track" | "{n} tracks" % root.label.track-count);
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                            if root.label.track-count > 0: Text {
+                                text: @tr("{} min", root.label.minutes);
+                                color: Theme.colors.text-muted;
+                                font-size: Theme.font-small;
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-top: Theme.space-s;
+                            spacing: Theme.space-m;
+                            alignment: start;
+
+                            if root.tracks.length > 0: Button {
+                                text: @tr("Play");
+                                label: @tr("Play {}", root.label.name);
+                                primary: true;
+                                clicked => {
+                                    root.play(-1, false);
+                                }
+                            }
+                            if root.tracks.length > 0: Button {
+                                text: @tr("Shuffle");
+                                label: @tr("Shuffle {}", root.label.name);
+                                clicked => {
+                                    root.play(-1, true);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if root.label.missing: Text {
+                    text: @tr("This label was deleted.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+
+                if !root.label.missing && root.tracks.length == 0: Text {
+                    text: @tr("No track has this label yet. To put it on one, open the track's menu with a right click or the Menu key, and choose Labels.");
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                    max-width: Theme.content-max-width;
+                }
+
+                TrackList {
+                    label: @tr("Tracks");
+                    detail-heading: @tr("Artist and album");
+                    tracks: root.tracks;
+                    playing-path: root.playing-path;
+                    play(index) => {
+                        root.play(index, false);
+                    }
+                    queue(index, next) => {
+                        root.queue-track(index, next);
+                    }
+                    shown-focused(top, height) => {
+                        root.ensure-visible(top, height);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The Labels section: every label, and the page of the one chosen.
+export component LabelsPage inherits Rectangle {
+    in property <bool> shown;
+    in property <bool> library-failed;
+    in-out property <bool> label-open;
+    in property <LabelDetail> label;
+    in property <[TrackRow]> tracks;
+    in property <string> playing-path;
+    // Opens label `n` of `Labels.all`.
+    callback activated(int);
+    callback play(int, bool);
+    callback queue-track(int, bool);
+
+    public function close-label() {
+        root.label-open = false;
+    }
+
+    changed label-open => {
+        if self.label-open {
+            view.focus-back();
+        }
+    }
+
+    visible: root.shown;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+        visible: !root.label-open;
+
+        HorizontalLayout {
+            vertical-stretch: 0;
+            padding-left: Theme.space-xxl;
+            padding-right: Theme.space-xxl;
+            padding-top: Theme.space-xxl;
+            padding-bottom: Theme.space-l;
+            spacing: Theme.space-xl;
+
+            Text {
+                text: @tr("Labels");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            if !root.library-failed: Button {
+                text: @tr("New label…");
+                clicked => {
+                    Labels.edit(-1);
+                }
+            }
+        }
+
+        // Takes the room below the title, as the list does once there are labels;
+        // without it the layout shares the room out and the title moves down.
+        if Labels.all.length == 0: VerticalLayout {
+            vertical-stretch: 1;
+            padding: Theme.space-xxl;
+            padding-top: Theme.space-l;
+            alignment: start;
+
+            Text {
+                text: root.library-failed ? @tr("The music library could not be opened, so no labels can be shown.")
+                    : @tr("No labels yet. Labels are your own names for tracks, such as chill or workout. Make one with New label, or from any track's menu: right-click a track or an album, or press the Menu key, and choose Labels.");
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+                max-width: Theme.content-max-width;
+            }
+        }
+
+        if Labels.all.length > 0: ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                padding-left: Theme.space-xxl - Theme.space-l;
+                padding-right: Theme.space-xxl - Theme.space-l;
+                padding-bottom: Theme.space-xxl;
+                spacing: Theme.space-xs;
+                alignment: start;
+                accessible-role: list;
+                accessible-label: @tr("Labels");
+
+                for label[index] in Labels.all: LabelLine {
+                    max-width: Theme.column-max-width;
+                    label: label;
+                    activated => {
+                        root.activated(index);
+                    }
+                }
+            }
+        }
+    }
+
+    view := LabelView {
+        width: parent.width;
+        height: parent.height;
+        visible: root.label-open;
+        label: root.label;
+        tracks: root.tracks;
+        playing-path: root.playing-path;
+        back => {
+            root.close-label();
+        }
+        play(start, shuffle) => {
+            root.play(start, shuffle);
+        }
+        queue-track(index, next) => {
+            root.queue-track(index, next);
+        }
+    }
+}

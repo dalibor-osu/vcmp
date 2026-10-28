@@ -29,7 +29,7 @@ become are in [library.md](library.md#change-sets), and their review in
 | Every request needs `Authorization: Bearer <token>`, else 401 | Other programs and users on the computer can't use the library without the token. The token is 32 random bytes as hex (`mcp.token`), made when the server first starts; New token replaces it. The comparison takes the same time wherever the first difference is |
 | A request with an `Origin` header gets 403 (rmcp's Origin check with an empty allow list, enforced) | Browsers send `Origin` on cross-site requests and MCP clients don't, so a web page can't drive the server through the browser |
 | `Host` must be a loopback name (rmcp's default) | Against DNS rebinding |
-| No write to the library from the server's thread | Tag changes, undos and playlist deletions become change sets the owner reviews; playlist edits go through the app |
+| No write to the library from the server's thread | Tag changes, label changes, undos and playlist deletions become change sets the owner reviews; playlist edits go through the app |
 | A cover an agent gives by web address is fetched only for `propose_tag_changes`: http or https, up to 5 redirects, 30 s, at most 10 MB, and it must start like a JPEG or PNG | The download asks nothing of the library; what it brings goes into files only once the owner has seen the picture in the review and accepted it. A cover from a file must be given by its absolute path, with the same size and format checks |
 
 The token is in the library database like the other settings, readable by any program
@@ -48,15 +48,20 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 | `get_tracks` | Tracks by id with the nine fields, path, availability and every tag by key |
 | `list_tag_keys` | Every key with how many tracks hold it |
 | `find_tracks_by_tag` | Tracks holding a key (and value), or lacking it |
+| `list_labels` | The owner's labels with their colour (a palette name or `#rrggbb`) and how many available tracks hold each |
+| `find_tracks_by_labels` | Available tracks holding every label named (ignoring case) |
 | `list_playlists`, `get_playlist` | Playlists and their entries with positions |
 | `propose_tag_changes` | Records a change set of up to 500 tracks: the nine fields by name (`remove` clears them), the cover among them as `{"file": "<absolute path>"}` or `{"url": "<http or https address>"}`, and any other tag by key (an empty list removes it). Each image is read or downloaded once, however many tracks it goes into |
-| `get_change_set`, `list_change_sets` | Status, and per file the values before, asked for and after, and whether the cover is replaced or removed |
-| `propose_undo` | Records the undo of an accepted change |
+| `propose_label_changes` | Records a label set: groups of tracks with labels to add and remove (a track in several groups gets them all), and new labels with a colour (a palette name or `#rrggbb`); at most 500 tracks |
+| `get_change_set`, `list_change_sets` | Status, and per file the values before, asked for and after, and whether the cover is replaced or removed; for a label set, per track each label held before, asked, and held after |
+| `propose_undo` | Records the undo of an accepted change of tags or labels |
 | `propose_playlist_deletion` | Records a deletion for review |
 | `create_playlist`, `rename_playlist`, `add_to_playlist`, `remove_from_playlist`, `move_in_playlist` | Done at once |
 
-The server's instructions, sent when an agent connects, explain the key naming, the
-review and what each of the nine fields does in VCMP (grouping by album and album
+Every track an answer lists carries its labels by name. The server's instructions,
+sent when an agent connects, explain the key naming, the review, that labels are the
+owner's own names kept in VCMP and not tags (look at them first when asked for music
+by mood), and what each of the nine fields does in VCMP (grouping by album and album
 artist, Unknown albums, MusicBrainz release IDs). The agent's name in the history is
 the client's title or name from its handshake.
 
@@ -124,5 +129,7 @@ client is in [manual-testing.md](manual-testing.md).
   through the relay, the error says that VCMP was restarted.
 - A cover by web address is downloaded on the server's thread pool while the agent
   waits; a slow site holds that request up to 30 seconds.
+- Agents can't play anything yet: playback control is the labels spec's second
+  pull request.
 - A change waits for the window's event loop to take it; when that takes more than
   30 seconds, the agent is told that VCMP didn't answer in time.

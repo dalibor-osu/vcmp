@@ -3,7 +3,7 @@
 //! sidebar while one waits.
 //!
 //! Nothing an agent asks to write is written until the owner accepts it in the review
-//! dialog. Accepting writes the files on a library connection of its own in the
+//! dialog, and nor are the labels an agent asks to put on tracks or take off. Accepting writes the files on a library connection of its own in the
 //! background, like the tag editor, then the library views, the playlists and the
 //! player show the result. An undo, whether the owner or an agent asks for it, is a
 //! change of its own and is reviewed the same way.
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant, SystemTime};
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use vcmp_library::{
     ChangeKind as Kind, ChangeSet, ChangeSetId, ChangeSetSummary, ChangeStatus as Status,
-    ChangedFile, FileResult, Library, PlaylistId, TagEdit, TrackId,
+    ChangedFile, FileResult, LabelEdit, Library, NewLabel, PlaylistId, TagEdit, TrackId,
 };
 use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig};
 
@@ -245,6 +245,20 @@ impl AgentService {
         edits: &[(TrackId, TagEdit)],
     ) -> vcmp_library::Result<ChangeSetId> {
         let id = self.library.submit_tag_changes(agent, edits)?;
+        self.refresh();
+        Ok(id)
+    }
+
+    /// Records a change of labels an agent asks for, and shows that it waits.
+    pub fn submit_labels(
+        &self,
+        agent: &str,
+        edits: &[(TrackId, LabelEdit)],
+        new_labels: &[NewLabel],
+    ) -> vcmp_library::Result<ChangeSetId> {
+        let id = self
+            .library
+            .submit_label_changes(agent, edits, new_labels)?;
         self.refresh();
         Ok(id)
     }
@@ -522,15 +536,26 @@ impl AgentService {
         };
         let state = window.global::<AgentState>();
         self.reviewing.set(Some(set.summary.id));
-        *self.reviewing_paths.borrow_mut() =
-            set.files.iter().map(|file| file.path.clone()).collect();
+        // A change of labels writes no file, so playback holds none open for it.
+        *self.reviewing_paths.borrow_mut() = if set.summary.kind == Kind::Labels {
+            Vec::new()
+        } else {
+            set.files.iter().map(|file| file.path.clone()).collect()
+        };
         state.set_review_kind(kind(&set.summary));
         state.set_review_agent(set.summary.agent.as_str().into());
         state.set_review_files(set.files.len() as i32);
         state.set_review_playlist(match &set.summary.kind {
             Kind::PlaylistDeletion { name, .. } => name.as_str().into(),
-            Kind::Tags => SharedString::default(),
+            Kind::Tags | Kind::Labels => SharedString::default(),
         });
+        // Names, joined as a list; the comma is not a word to translate.
+        let new_labels: Vec<&str> = set
+            .new_labels
+            .iter()
+            .map(|label| label.name.as_str())
+            .collect();
+        state.set_review_new_labels(new_labels.join(", ").into());
         let (shared, groups) = review_groups(&self.library, &set.files);
         state.set_review_shared(ModelRc::new(VecModel::from(shared)));
         state.set_review_groups(ModelRc::new(VecModel::from(groups)));
@@ -676,12 +701,19 @@ impl AgentService {
                 self.writing.set(false);
                 match result {
                     Ok(set) => {
+                        let written = set
+                            .files
+                            .iter()
+                            .any(|file| file.result == Some(FileResult::Written));
                         let changed = match set.summary.kind {
                             Kind::PlaylistDeletion { .. } => true,
-                            Kind::Tags => set
-                                .files
-                                .iter()
-                                .any(|file| file.result == Some(FileResult::Written)),
+                            Kind::Tags => written,
+                            Kind::Labels => {
+                                // Labels live in the database only: the lists show
+                                // them, and no file was rewritten.
+                                self.view.labels().changed();
+                                false
+                            }
                         };
                         if changed {
                             self.view.reload();
@@ -779,6 +811,16 @@ impl Changes for AppChanges {
         Self::on_ui(move |service| service.submit_tags(&agent, &edits))
     }
 
+    fn submit_labels(
+        &self,
+        agent: &str,
+        edits: Vec<(TrackId, LabelEdit)>,
+        new_labels: Vec<NewLabel>,
+    ) -> Result<ChangeSetId, String> {
+        let agent = agent.to_owned();
+        Self::on_ui(move |service| service.submit_labels(&agent, &edits, &new_labels))
+    }
+
     fn submit_playlist_deletion(
         &self,
         agent: &str,
@@ -803,6 +845,8 @@ fn kind(summary: &ChangeSetSummary) -> ChangeKind {
         Kind::PlaylistDeletion { .. } => ChangeKind::Playlist,
         Kind::Tags if summary.undoes.is_some() => ChangeKind::Undo,
         Kind::Tags => ChangeKind::Tags,
+        Kind::Labels if summary.undoes.is_some() => ChangeKind::LabelUndo,
+        Kind::Labels => ChangeKind::Labels,
     }
 }
 
@@ -822,7 +866,7 @@ fn entry(
         files: set.file_count as i32,
         playlist: match &set.kind {
             Kind::PlaylistDeletion { name, .. } => name.as_str().into(),
-            Kind::Tags => SharedString::default(),
+            Kind::Tags | Kind::Labels => SharedString::default(),
         },
         agent: set.agent.as_str().into(),
         minutes_ago: i32::try_from(minutes).unwrap_or(i32::MAX),
@@ -834,7 +878,7 @@ fn entry(
             Status::Discarded => ChangeStatus::Discarded,
             Status::Undone => ChangeStatus::Undone,
         },
-        can_undo: set.kind == Kind::Tags
+        can_undo: matches!(set.kind, Kind::Tags | Kind::Labels)
             && matches!(set.status, Status::Accepted | Status::PartlyWritten)
             && !undo_waiting.contains(&set.id),
     }
@@ -967,10 +1011,16 @@ fn file_changes(library: &Library, file: &ChangedFile) -> Vec<Change> {
                     after_cover,
                 };
             }
+            // A label's values are listed under its whole target, `label:` and name.
+            let listed = if field == ChangeField::Label {
+                target.as_str()
+            } else {
+                key.as_str()
+            };
             Change {
                 order,
                 before: before
-                    .get(key.as_str())
+                    .get(listed)
                     .map(|values| values.join("; "))
                     .unwrap_or_default(),
                 after: values
@@ -989,8 +1039,12 @@ fn file_changes(library: &Library, file: &ChangedFile) -> Vec<Change> {
 }
 
 /// A target's field, the key its values are listed under, and its place in form order
-/// (the other tags after the nine fields). An undo names the nine fields by their keys.
+/// (the other tags after the nine fields, labels last). An undo names the nine fields
+/// by their keys.
 fn field_of(target: &str) -> (ChangeField, String, i32) {
+    if let Some(name) = target.strip_prefix("label:") {
+        return (ChangeField::Label, name.to_owned(), FIELDS.len() as i32 + 1);
+    }
     if let Some(key) = target.strip_prefix("tag:") {
         return match FIELDS
             .iter()

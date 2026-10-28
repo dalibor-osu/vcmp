@@ -22,7 +22,7 @@ pub enum Error {
     Watch(#[from] notify::Error),
     #[error("{0} is not an image VCMP can read")]
     UnreadableImage(PathBuf),
-    #[error("a change set needs at least one file")]
+    #[error("a change set needs at least one change")]
     EmptyChangeSet,
     #[error("track {0:?} is not in the library")]
     UnknownTrack(crate::TrackId),
@@ -39,9 +39,22 @@ pub enum Error {
     #[error("change set {0:?} is not waiting for review")]
     ChangeSetNotPending(crate::ChangeSetId),
     #[error(
-        "change set {0:?} can't be undone: only an accepted tag set with written files can, once"
+        "change set {0:?} can't be undone: only an accepted tag or label set with written files can, once"
     )]
     NotUndoable(crate::ChangeSetId),
+    #[error("{0:?} can't be a label's name: it needs 1 to 40 characters")]
+    InvalidLabelName(String),
+    #[error("a label named {0:?} exists already")]
+    LabelNameTaken(String),
+    #[error("{0:?} is not a label colour: use palette: and a palette name, or #rrggbb")]
+    InvalidLabelColour(String),
+    #[error("there is no label named {0:?}")]
+    UnknownLabel(String),
+    #[error("track {track:?} would both get and lose the label {label:?}")]
+    ContradictoryLabelEdit {
+        track: crate::TrackId,
+        label: String,
+    },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

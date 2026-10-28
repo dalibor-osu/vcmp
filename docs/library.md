@@ -27,14 +27,19 @@ instead, because nothing could rebuild them. The database runs in
 WAL mode, so one connection can scan while others read. Open one `Library` per
 thread.
 
+Labels (see [Labels](#labels)) live in the database only and never touch a file.
+
 Music files are only read, except by `Library::write_tags`, the tag editor's write
 path (see [Writing tags](#writing-tags)), and `Library::accept_change_set` (see
 [Change sets](#change-sets)), which writes through the same path.
 
 ## Schema
 
-Version 11, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 12, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
+Migrations run with foreign keys off (`Library::open` turns them on afterwards), so
+a migration that rebuilds a table, as version 12 rebuilds `change_sets` to widen
+the CHECK on its kind, doesn't delete the rows that refer to it.
 
 | Table | Holds |
 |---|---|
@@ -52,10 +57,13 @@ migrations; a database from a newer build is refused instead of being altered.
 | `folder_art` | Each music folder's cover images (`cover.jpg` and the like) as a fingerprint of their names, sizes and modification times, so a scan notices one added, replaced or removed (version 7) |
 | `artist_photos` | The photo chosen for an artist: the file under `images/artists/`, the web address it came from (NULL for a file of the owner's) and when. Keyed by the artist's name, ignoring case, so it outlives artist rows a scan removes and adds (version 8) |
 | `track_tags` | Every text item of the tag VCMP reads from each track's file, by key, in order (version 10; see [All tags](#all-tags)) |
-| `change_sets` | Tag edits and playlist deletions agents asked for: who, what kind, status, the set an undo reverses, when made and finished (version 11; see [Change sets](#change-sets)) |
+| `change_sets` | Tag edits, label edits and playlist deletions agents asked for: who, what kind (`tags`, `labels`, `playlist_deletion`), status, the set an undo reverses, when made and finished (version 11; `labels` since 12; see [Change sets](#change-sets)) |
 | `change_files` | A tag set's files: track, path, the cover before and after (file names under `images/undo/`) and each file's result (version 11) |
 | `change_edits` | What a set asks for each file, by field name or `tag:` and a key, the values as a JSON array (version 11) |
 | `change_values` | The values of every tag a set may change in each file, as JSON arrays: before (when the set was made) and after (once written) (version 11) |
+| `labels` | The owner's labels: name (unique, case-insensitive), colour (`palette:` and a name, or `#rrggbb`), when made (version 12; see [Labels](#labels)) |
+| `track_labels` | Which track holds which label, and since when; deleting a label deletes its rows (version 12) |
+| `change_labels` | The labels a label set creates when accepted, and whether it did or found one of that name (version 12) |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
 aren't valid UTF-8 keep working.
@@ -278,9 +286,11 @@ cargo run --release -p vcmp-library --example edit_check -- /path/to/music 40
 
 ## Change sets
 
-`src/changes.rs`. The tag edits and playlist deletions AI agents ask for (see the
-[MCP spec](specs/2026-10-19-mcp-library-server.md)) are recorded as change sets,
-which the owner reviews; nothing is written or deleted before a set is accepted.
+`src/changes.rs`. The tag edits, label edits and playlist deletions AI agents ask
+for (see the [MCP spec](specs/2026-10-19-mcp-library-server.md) and the
+[labels spec](specs/2026-10-28-user-labels.md)) are recorded as change sets, which
+the owner reviews; nothing is written, labelled or deleted before a set is
+accepted.
 
 - **Submitting** (`Library::submit_tag_changes`) checks every edit (`TagEdit::validate`),
   that every track is in the library and available and listed once, and that every
@@ -306,6 +316,20 @@ which the owner reviews; nothing is written or deleted before a set is accepted.
   follows from them. The files must still hold the `after` values, or they are
   conflicts. Once every file is written, the first set is `undone`. A set is undone
   at most once; a set with an undo pending can't get a second one.
+- **Label sets** (`Library::submit_label_changes`) take, per track, labels to put on
+  and take off by name, and the new labels to create. Every name must be a label
+  or one of the new ones (ignoring case; stored as the label spells it), a new name
+  must be free, a track may be named once and can't both get and lose a label.
+  Edits that change nothing are left out, and so is a new label no track gets.
+  They reuse the tag sets' tables: a track is a `change_files` row (with its path),
+  each label `label:` and the name in `change_edits` (the name to put it on, NULL
+  to take it off) and `change_values` (the name when the track holds it, `[]` when
+  not). Accepting (in one transaction) creates the new labels, or takes a label of
+  that name made meanwhile as it is (`change_labels.created` 0), then changes each
+  track whose labels are still as the set found them. A track whose labels
+  changed, or that would get a label deleted since, is a `conflict`. Undo works as
+  for tags, and accepting the undo also deletes the labels the first set created
+  that no track holds any more. Sets never mix tags and labels.
 - **Playlist deletions** (`Library::submit_playlist_deletion`) wait for review too, and
   can't be undone.
 - **Rejected and discarded.** `Library::reject_change_set` finishes a set unwritten.
@@ -390,6 +414,29 @@ tracks are searched separately.
   covers deletes the owner's file.
 - **Search:** `Library::search_playlists` keeps the playlists whose name holds every
   typed word, ignoring case.
+
+## Labels
+
+`src/labels.rs`. A label is the owner's own name for tracks ("chill", "workout") with
+a colour, kept in the database only: nothing is read from or written into files.
+The agreed decisions are in the [labels spec](specs/2026-10-28-user-labels.md).
+
+- **Tracks only.** A label belongs to tracks; labelling an album labels the tracks it
+  has now (`Library::album_tracks`), so a track added to the album later has none.
+- **Links outlive files**, like playlist entries: tracks are never deleted, so a
+  label stays on a track whose file is gone and shows again with it; a re-linked
+  file keeps its labels (a test checks both). Counts (`Label::track_count`), label
+  pages (`Library::label_tracks`) and the filters' queries count available tracks.
+- **Names** are trimmed, 1 to 40 characters (`LABEL_NAME_MAX`), and unique ignoring
+  case. SQLite's `COLLATE NOCASE` folds ASCII only, so `create_label` and
+  `rename_label` also compare lowercased names in Rust (`Library::label_named`).
+- **Colours** are a name from `LABEL_PALETTE` behind `palette:`, which the UI draws
+  in a light and a dark variant, or `#rrggbb` in lower case, drawn as it is
+  (`valid_label_colour`).
+- **Reads for the window:** `label_links` (every link, for the chips rows show),
+  `album_labels` (for each album the labels any of its available tracks hold, for
+  the album filter), `tracks_with_labels` (tracks holding every label given, for
+  agents).
 
 ## Measured
 
@@ -494,3 +541,7 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   `mosaics/` until the cache is deleted. Each is about 30 KB.
 - Playlist search compares names in Rust after reading every playlist, and lowercases
   them the simple way, so it ignores case but not diacritics.
+- Labels are in the database only. Deleting `library.sqlite3` (or losing it) loses
+  every label, and nothing in the files can bring them back.
+- The owner's own label edits keep no history and can't be undone; only agents'
+  label sets can.

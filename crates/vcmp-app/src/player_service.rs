@@ -19,7 +19,9 @@ use std::time::{Duration, Instant, SystemTime};
 use slint::{
     ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
-use vcmp_library::{Album, AlbumId, ArtistId, CoverArtId, CoverLookup, Library, PlaylistId, Track};
+use vcmp_library::{
+    Album, AlbumId, ArtistId, CoverArtId, CoverLookup, LabelId, Library, PlaylistId, Track,
+};
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackSnapshot, PlaybackState, Player, QueueEntry,
     QueueView, RepeatMode, ShuffleMode, TrackRef,
@@ -542,6 +544,22 @@ impl PlayerService {
                 }
             }
         });
+        window.on_play_label({
+            let weak = weak.clone();
+            move |start, shuffle| {
+                if let Some(service) = weak.upgrade() {
+                    service.play_label(start, shuffle);
+                }
+            }
+        });
+        window.on_queue_label_track({
+            let weak = weak.clone();
+            move |index, next| {
+                if let Some(service) = weak.upgrade() {
+                    service.queue_label_track(index, next);
+                }
+            }
+        });
         window.on_play_album(move |start, shuffle| {
             if let Some(service) = weak.upgrade() {
                 service.play_album(start, shuffle);
@@ -750,6 +768,37 @@ impl PlayerService {
             .map(|entry| entry.track)
             .collect();
         self.queue_chosen(&window.get_playlist_tracks(), index, &tracks, next);
+    }
+
+    /// Plays the open label's tracks from track `start` (-1: from the first), or
+    /// shuffled, as a context of its own named after the label.
+    pub fn play_label(&self, start: i32, shuffle: bool) {
+        let Some(label) = self.view.labels().shown() else {
+            return;
+        };
+        let entries: Vec<QueueEntry> = label.tracks.iter().filter_map(entry).collect();
+        let start = usize::try_from(start).ok();
+        if entries.is_empty() || start.is_some_and(|start| start >= entries.len()) {
+            return;
+        }
+        if shuffle {
+            self.set_shuffle(Shuffle::On);
+        }
+        self.player.send(Command::PlayContext {
+            entries,
+            origin: Some(format!("label:{}", label.id.0)),
+            start: if shuffle { None } else { start },
+        });
+    }
+
+    /// Puts track `index` of the open label (or the selected tracks, when it is one
+    /// of them) into Up next.
+    pub fn queue_label_track(&self, index: i32, next: bool) {
+        let (Some(window), Some(label)) = (self.window.upgrade(), self.view.labels().shown())
+        else {
+            return;
+        };
+        self.queue_chosen(&window.get_label_tracks(), index, &label.tracks, next);
     }
 
     /// Puts the tracks a list's menu acts on into Up next, at its front (`next`) or
@@ -973,6 +1022,12 @@ impl PlayerService {
                     .ok()
                     .flatten()
                     .map(|playlist| playlist.name),
+                "label" => self
+                    .library
+                    .label(LabelId(key.parse().ok()?))
+                    .ok()
+                    .flatten()
+                    .map(|label| label.name),
                 _ => None,
             })
             .unwrap_or_default();

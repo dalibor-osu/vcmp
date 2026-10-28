@@ -5,6 +5,10 @@
 //! backgrounds, so the light accent is a darker shade of the same hue. Latte's red
 //! reaches 4.5:1 only on base, which is where errors are written. The scrim behind a
 //! dialog is the palette's darkest colour, translucent.
+//!
+//! Labels take their colours from Catppuccin too: Mocha's as they are on the dark
+//! theme, and Latte's darkened, in the same hue, until a label's dot reaches 3:1 on
+//! the surface fill of a hovered row (most of Latte's are paler than that).
 
 use slint::{Color, ComponentHandle};
 
@@ -46,6 +50,44 @@ pub fn dark() -> ThemePalette {
         error: rgb(0xf38ba8),
         scrim: rgba(0x11111b, 0xb3),
     }
+}
+
+/// The colours a label can have by name (`vcmp_library::LABEL_PALETTE`, in order):
+/// the light theme's and the dark theme's.
+pub const LABEL_COLOURS: [(&str, Color, Color); 10] = [
+    ("pink", rgb(0xd220a3), rgb(0xf5c2e7)),
+    ("mauve", rgb(0x8839ef), rgb(0xcba6f7)),
+    ("red", rgb(0xd20f39), rgb(0xf38ba8)),
+    ("peach", rgb(0xc84a01), rgb(0xfab387)),
+    ("yellow", rgb(0xa26715), rgb(0xf9e2af)),
+    ("green", rgb(0x358423), rgb(0xa6e3a1)),
+    ("teal", rgb(0x148187), rgb(0x94e2d5)),
+    ("sky", rgb(0x037bab), rgb(0x89dceb)),
+    ("blue", rgb(0x1e66f5), rgb(0x89b4fa)),
+    ("lavender", rgb(0x4763fc), rgb(0xb4befe)),
+];
+
+/// A label's colour as stored (`palette:` and a name, or `#rrggbb`) in the light and
+/// the dark theme. A colour that can't be read is drawn in the outline's grey.
+pub fn label_colours(colour: &str) -> (Color, Color) {
+    if let Some(name) = colour.strip_prefix("palette:")
+        && let Some((_, light, dark)) = LABEL_COLOURS.iter().find(|(known, _, _)| *known == name)
+    {
+        return (*light, *dark);
+    }
+    match parse_hex(colour) {
+        Some(colour) => (colour, colour),
+        None => (light().outline, dark().outline),
+    }
+}
+
+/// `#rrggbb` as a colour.
+pub fn parse_hex(text: &str) -> Option<Color> {
+    let digits = text.trim().strip_prefix('#')?;
+    if digits.len() != 6 {
+        return None;
+    }
+    u32::from_str_radix(digits, 16).ok().map(rgb)
 }
 
 /// Hands both palettes to the UI; the UI picks one from the theme mode.
@@ -117,5 +159,30 @@ mod tests {
     #[test]
     fn dark_palette_meets_contrast() {
         assert_pairs("dark", &dark());
+    }
+
+    /// A label's dot is a graphic beside its name: 3:1 on every fill a row can have.
+    #[test]
+    fn label_colours_stand_out_on_rows() {
+        for (name, light_colour, dark_colour) in LABEL_COLOURS {
+            for (theme, colour, palette) in [
+                ("light", light_colour, light()),
+                ("dark", dark_colour, dark()),
+            ] {
+                for (fill, background) in [
+                    ("base", palette.base),
+                    ("mantle", palette.mantle),
+                    ("surface", palette.surface),
+                ] {
+                    let ratio = contrast(colour, background);
+                    assert!(
+                        ratio >= 3.0,
+                        "{theme}: label {name} on {fill} is {ratio:.2}:1, needs 3:1"
+                    );
+                }
+            }
+        }
+        let names: Vec<&str> = LABEL_COLOURS.iter().map(|(name, _, _)| *name).collect();
+        assert_eq!(names, vcmp_library::LABEL_PALETTE);
     }
 }

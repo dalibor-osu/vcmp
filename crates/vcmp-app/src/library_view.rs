@@ -1,7 +1,8 @@
 //! Connects the library to the window: the album grid and the album page that
 //! opens from it, the artist grid with the artist page and its albums, search, the
-//! songs table, the folder browser and the playlists.
-//! All of them are reloaded after every library change.
+//! songs table, the folder browser, the playlists and the labels.
+//! All of them are reloaded after every library change, and their rows after every
+//! change of labels.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -14,9 +15,11 @@ use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Playlist, Track};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, album_initial, cards, initial};
 use crate::folders::FolderBrowser;
+use crate::labels::{self, LabelBrowser};
 use crate::playlists::{self, PlaylistBrowser};
 use crate::{
-    AlbumDetail, AlbumTile, AppWindow, ArtistDetail, Playlists, SongColumn, SongRow, TrackRow,
+    AlbumDetail, AlbumTile, AppWindow, ArtistDetail, LabelFilterPage, Playlists, SongColumn,
+    SongRow, TrackRow,
 };
 
 pub struct LibraryView {
@@ -47,6 +50,7 @@ pub struct LibraryView {
     songs_filter_timer: Timer,
     folders: Rc<FolderBrowser>,
     playlists: Rc<PlaylistBrowser>,
+    labels: Rc<LabelBrowser>,
 }
 
 /// Setting key: the Songs page's sort, as "<column>" or "<column>:reverse".
@@ -87,6 +91,8 @@ impl LibraryView {
     /// Shows the library's albums. Keep the view alive as long as the window.
     pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<Rc<Self>> {
         let albums = library.albums()?;
+        // First, so the rows the others make show their labels.
+        let labels = LabelBrowser::connect(window, library.clone());
         let browser = AlbumBrowser::connect(window, &albums);
         let folders = FolderBrowser::connect(window, library.clone());
         let playlists = PlaylistBrowser::connect(window, library.clone());
@@ -118,7 +124,9 @@ impl LibraryView {
             songs_filter_timer: Timer::default(),
             folders,
             playlists,
+            labels,
         });
+        view.labels.set_view(Rc::downgrade(&view));
         if let Some((column, descending)) = view
             .library
             .setting(SETTING_SONGS_SORT)
@@ -310,6 +318,7 @@ impl LibraryView {
             }
         };
         *self.all_albums.borrow_mut() = albums.clone();
+        self.labels.library_changed();
         self.show_albums();
         self.show_artists();
         self.search();
@@ -341,6 +350,39 @@ impl LibraryView {
                 }
             }
         }
+    }
+
+    /// Labels or the tracks they are on changed: every row shows its labels again,
+    /// and the label filters keep what they now match. Nothing is read again but the
+    /// open pages' tracks.
+    pub fn labels_changed(&self) {
+        self.show_albums();
+        self.search();
+        self.show_songs();
+        self.folders.reload();
+        self.playlists.reload();
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        if window.get_artist_open() {
+            self.reload_artist(&window);
+        }
+        let album_open = window.get_album_open() || window.get_artist_album_open();
+        if let (true, Some(open)) = (album_open, self.open.borrow().clone()) {
+            show_album(&window, &self.library, &open);
+        }
+    }
+
+    /// A page's label filter changed.
+    pub fn label_filter_changed(&self, page: LabelFilterPage) {
+        match page {
+            LabelFilterPage::Songs => self.show_songs(),
+            LabelFilterPage::Albums => self.show_albums(),
+        }
+    }
+
+    pub fn labels(&self) -> &Rc<LabelBrowser> {
+        &self.labels
     }
 
     /// The album most of the open album page's tracks belong to now, after a change
@@ -527,6 +569,7 @@ impl LibraryView {
                 artist: playlists::source(track).into(),
                 duration: format_duration(track.duration).into(),
                 path: track.path.to_string_lossy().as_ref().into(),
+                labels: labels::chips(track.id),
                 ..TrackRow::default()
             })
             .collect();
@@ -546,6 +589,7 @@ impl LibraryView {
             .iter()
             .filter(|album| {
                 filter.matches(&[&album.title, album.artist.as_deref().unwrap_or_default()])
+                    && self.labels.album_passes(album.id)
             })
             .cloned()
             .collect();
@@ -587,7 +631,7 @@ impl LibraryView {
                     &track.title,
                     track.artist.as_deref().unwrap_or_default(),
                     track.album.as_deref().unwrap_or_default(),
-                ])
+                ]) && self.labels.song_passes(track.id)
             })
             .cloned()
             .collect();
@@ -605,6 +649,7 @@ impl LibraryView {
                 duration: format_duration(track.duration).into(),
                 path: track.path.to_string_lossy().as_ref().into(),
                 selected: false,
+                labels: labels::chips(track.id),
             })
             .collect();
         window.set_songs(ModelRc::new(VecModel::from(rows)));
@@ -877,6 +922,7 @@ fn show_artist_details(
             artist: track.album.clone().unwrap_or_default().into(),
             duration: format_duration(track.duration).into(),
             path: track.path.to_string_lossy().as_ref().into(),
+            labels: labels::chips(track.id),
             ..TrackRow::default()
         })
         .collect();
@@ -929,6 +975,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
                 path: track.path.to_string_lossy().as_ref().into(),
                 unavailable: false,
                 selected: false,
+                labels: labels::chips(track.id),
             }
         })
         .collect();
@@ -938,6 +985,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
         .as_ref()
         .and_then(|artwork| Image::load_from_path(&artwork.thumbnail).ok());
     window.set_album_detail(AlbumDetail {
+        id: album.id.0 as i32,
         title: album.title.as_str().into(),
         artist: album.artist.clone().unwrap_or_default().into(),
         year: album

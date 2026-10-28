@@ -111,9 +111,9 @@ fn everything_works_from_the_keyboard() {
     let window = open_window();
     let theme = window.global::<Theme>();
 
-    // Tab order follows the visual order: Search, Albums, Artists, Playlists, Songs,
-    // Folders, Settings, About, then the page.
-    for _ in 0..8 {
+    // Tab order follows the visual order: Search, Albums, Artists, Playlists, Labels,
+    // Songs, Folders, Settings, About, then the page.
+    for _ in 0..9 {
         press(&window, Key::Tab);
     }
     press(&window, Key::Return);
@@ -390,7 +390,7 @@ fn smallest_window_keeps_everything_inside() {
     lastfm.set_status(vcmp_app::LastfmStatus::Waiting);
 
     // Every page, with the queue panel closed and open, and the now playing view.
-    for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6, 7]
+    for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6, 7, 8]
         .into_iter()
         .flat_map(|page| [(page, false, false), (page, true, false)])
         .chain([(1, false, true)])
@@ -480,9 +480,9 @@ fn a_short_window_scrolls_the_sidebar_to_the_focused_section() {
         about().is_none_or(|about| bottom(&about) > bottom(&sections)),
         "the last section starts out of view in the smallest window"
     );
-    // From the start: Search, Albums, Artists, Playlists, Songs, Folders, Settings,
-    // About.
-    for _ in 0..8 {
+    // From the start: Search, Albums, Artists, Playlists, Labels, Songs, Folders,
+    // Settings, About.
+    for _ in 0..9 {
         press(&window, Key::Tab);
     }
     let about = about().expect("About in view");

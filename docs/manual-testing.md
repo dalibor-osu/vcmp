@@ -158,6 +158,29 @@ reading the code or with a simulated system, so they are the most likely to fail
       go back.
 - [ ] Delete one of the files: its entry is dimmed and skipped while playing.
 
+### Labels
+
+- [ ] Settings → Labels → New label…: name it, pick a palette colour, Make label.
+      Make another with Custom: drag in the shades and the hue strip, type a hex
+      code; a wrong code says so. Both show in Settings, the sidebar and the Labels
+      page with their dots, in the light and the dark theme.
+- [ ] Right-click a track → Labels → the label: its chip shows after the title, in
+      every list it is in, and in the Songs table's Labels column. Select three
+      tracks, one of them labelled: the menu says "(on some)"; choosing it labels
+      all three, choosing it again takes it off all.
+- [ ] With the keyboard: focus a track list, press the Menu key (and Shift+F10),
+      open Labels: the check marks match the current track.
+- [ ] Right-click an album card on the Albums page and on an artist's page, and
+      open an album page's three-dot menu → Labels: the label goes on every track
+      of the album. New label… from there makes one and puts it on them.
+- [ ] Songs → Labels: pick one label, then two: only songs with both stay; the
+      chips beside the button take a label out. Albums → Labels: albums with at
+      least one labelled track stay.
+- [ ] Open a label from the sidebar: its tracks, Play, Shuffle; the queue panel
+      names the label. Back, Escape and the mouse's back button return.
+- [ ] Edit… renames and recolours; a taken name says so. Delete… asks, saying how
+      many tracks lose it.
+
 ### Covers and artist photos
 
 - [ ] An album page's More button ("…" beside Shuffle) opens a menu below it, by
@@ -275,6 +298,12 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       Escape, Close and a click beside it close it. Undo… there opens a review of
       the undo; writing it puts every value back, a file with two artists too, and
       closing the review brings the list back.
+- [ ] Make a label "chill" and put it on a few tracks. Ask Claude Code which
+      tracks are chill: it finds them by the label. Ask it to label a calm album
+      "chill" and to make a new label for another: the review lists the labels put
+      on (once for what every track gets, then per track) and the new label.
+      Change puts them on; the chips show at once. Undo… in Show changes… takes
+      them off and removes the new label.
 - [ ] Ask it to make a playlist and fill it: it appears at once. Ask it to delete
       one: the review warns that it can't be undone; Delete playlist deletes it.
       The playlist page's own Delete says the same.

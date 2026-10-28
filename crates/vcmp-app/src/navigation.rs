@@ -1,7 +1,7 @@
 //! Back and forward through the places the window showed, as a browser does: the
 //! mouse's back and forward buttons (caught in `src/shortcuts.rs`) and Alt+Left and
-//! Alt+Right. A place is a section on its grid, or the album, artist or playlist
-//! page open in it.
+//! Alt+Right. A place is a section on its grid, or the album, artist, playlist or
+//! label page open in it.
 //!
 //! The window calls `navigated` whenever the section or the page open in it changes,
 //! however that came about (the sidebar, a card, a back button, Escape, a link in the
@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use slint::ComponentHandle;
-use vcmp_library::{AlbumId, ArtistId, PlaylistId};
+use vcmp_library::{AlbumId, ArtistId, LabelId, PlaylistId};
 
 use crate::library_view::LibraryView;
 use crate::{AppWindow, Page};
@@ -31,6 +31,7 @@ pub enum Place {
     /// An album opened from an artist's page.
     ArtistAlbum(ArtistId, AlbumId),
     Playlist(PlaylistId),
+    Label(LabelId),
 }
 
 pub struct History {
@@ -88,6 +89,7 @@ impl History {
             Page::Playlists if window.get_playlist_open() => {
                 Place::Playlist(self.view.playlists().shown()?.id)
             }
+            Page::Labels if window.get_label_open() => Place::Label(self.view.labels().shown()?.id),
             other => Place::Section(other),
         };
         Some(place)
@@ -153,6 +155,10 @@ impl History {
                 window.invoke_show_section(section(Page::Playlists));
                 self.view.playlists().open(playlist);
             }
+            Place::Label(label) => {
+                window.invoke_show_section(section(Page::Labels));
+                self.view.labels().open(label);
+            }
         }
         // A page that is gone (an album removed meanwhile) leaves the window where
         // it ended up; that is where the history is now.
@@ -169,9 +175,10 @@ fn section(page: Page) -> i32 {
         Page::Albums => 1,
         Page::Artists => 2,
         Page::Playlists => 3,
-        Page::Songs => 4,
-        Page::Folders => 5,
-        Page::Settings => 6,
-        Page::About => 7,
+        Page::Labels => 4,
+        Page::Songs => 5,
+        Page::Folders => 6,
+        Page::Settings => 7,
+        Page::About => 8,
     }
 }

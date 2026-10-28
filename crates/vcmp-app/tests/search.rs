@@ -147,7 +147,7 @@ fn ctrl_f_filters_the_page_or_opens_search_and_typing_searches_after_a_pause() {
     app.window.invoke_release_focus();
 
     // Elsewhere, Search opens.
-    app.window.set_selected_index(6);
+    app.window.set_selected_index(7);
     ctrl_f();
     assert_eq!(app.window.get_current_page(), Page::Search);
 

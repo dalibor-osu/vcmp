@@ -16,6 +16,7 @@ import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
 import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
 import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
 import { AgentsSection } from "agents.slint";
+import { LabelFilter, LabelFilterPage, Labels, LabelsSection } from "labels.slint";
 
 // Shared frame of Settings and About: title plus content in a column in the middle of
 // the page, fading in when the page is opened. The column takes 60 % of a wide page,
@@ -221,6 +222,8 @@ export component SettingsPage inherits Page {
             }
         }
     }
+
+    LabelsSection { }
 
     AgentsSection { }
 
@@ -436,6 +439,10 @@ export component AlbumsPage inherits Rectangle {
                 horizontal-stretch: 1;
             }
 
+            if Labels.all.length > 0: LabelFilter {
+                page: LabelFilterPage.albums;
+            }
+
             filter-field := SearchField {
                 compact: true;
                 horizontal-stretch: 0;
@@ -459,6 +466,7 @@ export component AlbumsPage inherits Rectangle {
             Text {
                 text: root.library-failed ? @tr("The music library could not be opened, so no albums can be shown.")
                     : root.filter != "" ? @tr("No albums match “{}”.", root.filter)
+                    : Labels.albums-filter.length > 0 ? @tr("No album has a track with every label picked.")
                     : LibraryState.scanning ? @tr("Looking for albums in your music folders. They appear here as they are found.")
                     : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in, and VCMP finds your albums.")
                     : @tr("No albums found in your music folders.");
@@ -476,6 +484,7 @@ export component AlbumsPage inherits Rectangle {
         grid := AlbumGrid {
             visible: root.albums.length > 0;
             vertical-stretch: 1;
+            album-menu: true;
             albums: root.albums;
             visible-range-changed(first, count) => {
                 root.range-changed(first, count);
@@ -986,6 +995,7 @@ export component SearchPage inherits Rectangle {
                 }
                 if root.albums.length > 0: CardGrid {
                     tiles: root.albums;
+                    album-menu: true;
                     label: @tr("Albums");
                     available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
                     activated(index) => {
@@ -1091,6 +1101,10 @@ export component SongsPage inherits Rectangle {
                 horizontal-stretch: 1;
             }
 
+            if Labels.all.length > 0: LabelFilter {
+                page: LabelFilterPage.songs;
+            }
+
             filter-field := SearchField {
                 compact: true;
                 horizontal-stretch: 0;
@@ -1111,6 +1125,7 @@ export component SongsPage inherits Rectangle {
             Text {
                 text: root.library-failed ? @tr("The music library could not be opened, so no songs can be shown.")
                     : root.filter != "" ? @tr("No songs match “{}”.", root.filter)
+                    : Labels.songs-filter.length > 0 ? @tr("No song has every label picked.")
                     : LibraryState.scanning ? @tr("Looking for songs in your music folders. They appear here as they are found.")
                     : LibraryState.folders.length == 0 ? @tr("Your library is empty. Add the folder your music is in, and VCMP finds your songs.")
                     : @tr("No songs found in your music folders.");

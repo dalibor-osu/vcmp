@@ -8,9 +8,9 @@
 //! library on a connection of its own.
 //!
 //! The server never writes to the library itself. Changes go through [`Changes`],
-//! which the app implements: tag changes, undos and playlist deletions become change
-//! sets that wait for the owner's review, and playlist edits show in the window at
-//! once. See `docs/specs/2026-10-19-mcp-library-server.md`.
+//! which the app implements: tag changes, label changes, undos and playlist
+//! deletions become change sets that wait for the owner's review, and playlist edits
+//! show in the window at once. See `docs/specs/2026-10-19-mcp-library-server.md`.
 
 pub mod relay;
 mod tools;
@@ -27,7 +27,7 @@ use axum::response::{IntoResponse, Response};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tokio_util::sync::CancellationToken;
-use vcmp_library::{ChangeSetId, Library, PlaylistId, TagEdit, TrackId};
+use vcmp_library::{ChangeSetId, LabelEdit, Library, NewLabel, PlaylistId, TagEdit, TrackId};
 
 pub use tools::MAX_FILES;
 
@@ -47,6 +47,13 @@ pub trait Changes: Send + Sync + 'static {
         &self,
         agent: &str,
         edits: Vec<(TrackId, TagEdit)>,
+    ) -> Result<ChangeSetId, String>;
+    /// Records a change of labels for the owner's review, with the labels it creates.
+    fn submit_labels(
+        &self,
+        agent: &str,
+        edits: Vec<(TrackId, LabelEdit)>,
+        new_labels: Vec<NewLabel>,
     ) -> Result<ChangeSetId, String>;
     /// Records a request to delete a playlist, for the owner's review.
     fn submit_playlist_deletion(

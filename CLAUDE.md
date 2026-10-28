@@ -39,7 +39,7 @@ Workspace layout:
 | Crate | Role |
 |---|---|
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
-| `crates/vcmp-library` | Source directories, scanning, tags (reading every tag, writing any), SQLite database, artwork cache, search, playlists, change sets agents ask for (review, undo, retention), watcher |
+| `crates/vcmp-library` | Source directories, scanning, tags (reading every tag, writing any), SQLite database, artwork cache, search, playlists, labels, change sets agents ask for (review, undo, retention), watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
 | `crates/vcmp-integrations` | OS media controls, the OS reduce-motion setting, Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online", artist photos from fanart.tv, the update check, Last.fm scrobbling |
 | `crates/vcmp-mcp` | The MCP server AI agents connect to: its tools, the token and Origin checks; changes go to the app through its `Changes` trait |
@@ -165,7 +165,7 @@ cargo run -p vcmp-playback --example play -- path/to/album
 | `docs/playback.md` | Playback engine: threads, data path, queue and shuffle rules, known limits |
 | `docs/mcp.md` | The MCP server for AI agents: running, security, tools, how changes reach the app, known limits |
 | `docs/manual-testing.md` | What only a person can check: real devices, online services, Windows and macOS |
-| `ideas.md` | The owner's original idea list |
+| `ideas.md` | The owner's original idea list and improvements noticed in use |
 
 Keep the technical documentation up to date: when a change alters behaviour,
 structure, commands or conventions described in these files, update the files in the
