@@ -157,9 +157,10 @@ const B: &str = "https://assets.fanart.tv/fanart/music/x/artistthumb/b.jpg";
 fn a_photo_found_online_shows_on_the_page_and_the_card() {
     let app = open(true);
     assert!(!app.window.get_artist_detail().has_photo);
-    app.button("Find a photo of Band online")
-        .expect("the action is offered")
-        .invoke_accessible_default_action();
+    // Find photo online, in the More menu: Slint's menus are not in the tree the
+    // tests search, so the item's action runs directly.
+    app.button("More for Band").expect("the menu is offered");
+    app.state().invoke_find();
     assert!(app.state().get_open());
     assert_eq!(app.state().get_status(), PhotoSearchStatus::Searching);
     app.frame();
@@ -247,7 +248,7 @@ fn nothing_found_failures_and_cancel_are_said() {
 fn a_photo_from_a_file_can_be_removed_again() {
     let app = open(false);
     assert!(
-        app.button("Find a photo of Band online").is_none(),
+        !app.state().get_available(),
         "no online search without fanart.tv's key"
     );
     app.photos.use_file(b"not a picture");
@@ -263,12 +264,10 @@ fn a_photo_from_a_file_can_be_removed_again() {
     );
     assert!(app.window.get_artist_detail().has_picture);
 
-    app.button("Remove the photo of Band")
-        .expect("removing is offered")
-        .invoke_accessible_default_action();
+    // Remove photo, in the More menu.
+    app.state().invoke_remove();
     assert!(!app.window.get_artist_detail().has_photo);
     assert_eq!(app.library.artist_photo(app.band()).unwrap(), None);
-    assert!(app.button("Remove the photo of Band").is_none());
 }
 
 #[test]

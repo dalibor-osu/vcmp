@@ -65,6 +65,14 @@ reading the code or with a simulated system, so they are the most likely to fail
       no freeze. A touchpad still flicks.
 - [ ] Seek with the slider and with the keyboard; pause, resume, previous and next;
       volume and mute; repeat off, all and one.
+- [ ] Turn the mouse wheel over the volume slider: up raises the volume, down lowers
+      it, a notch at a time, also with a free-spinning wheel and a touchpad. Over
+      the position slider the wheel doesn't seek. Restart: the volume set by wheel
+      is kept.
+- [ ] Play a FLAC or WAV file: a small waveform mark follows the artist in the
+      player bar, and pointing at it says "Lossless (FLAC)". An MP3 or Ogg file has
+      none. With Last.fm connected, a longer track shows the Last.fm mark, which
+      turns to a tick once half of it (or 4 minutes) has played.
 - [ ] Shuffle, "Fewer repeats" and "Fully random": no track comes back before the
       rest have played with Fewer repeats.
 - [ ] Space plays and pauses from anywhere except a text field, also after
@@ -152,6 +160,14 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 ### Covers and artist photos
 
+- [ ] An album page's More button ("…" beside Shuffle) opens a menu below it, by
+      click and by Enter: Find cover online (or Find another cover and Remove cover),
+      Add to playlist with every playlist, and Edit tags…. An artist page's holds
+      Find photo online, Choose photo… and Remove photo. Nothing is left under the
+      cover but the fanart.tv credit.
+- [ ] On a full screen the cover of an album, artist and playlist page is 280 px,
+      with the larger title beside it; narrowing the window to 720 px shrinks the
+      cover first, and Play, Shuffle and More stay beside it.
 - [ ] An album without a cover: Find cover online shows choices, the one picked
       stays after a restart, and Find another cover and Remove cover work.
 - [ ] The cover and photo pickers are dialogs in the middle of the window that
@@ -172,6 +188,12 @@ reading the code or with a simulated system, so they are the most likely to fail
 ### Window, look and keyboard
 
 - [ ] Light, dark and system theme, with the system switched while VCMP runs.
+- [ ] Settings → Zoom on a large monitor: + and − step through 80 to 200 %, the
+      whole window grows and shrinks, and clicks still land where they point.
+      Ctrl+=, Ctrl+- and Ctrl+0 do the same from any page (not while typing in a
+      field is fine too). Restart: the zoom is kept. Move the window to a monitor
+      with another scale: the zoom stays on top of it. **(never seen on a real
+      monitor; tested headless)**
 - [ ] Light theme: hover over track rows, Songs table rows and headings, folder
       rows and queue rows: the grey text turns dark and stays easy to read.
 - [ ] With no music folder, Albums, Artists, Songs and Folders each say so and
@@ -235,15 +257,22 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       local scope, not yet seen in user scope)**
 - [ ] Ask Claude Code to list your albums, to show every tag of a track, and to
       find tracks without a MusicBrainz release ID. The answers match the library.
-- [ ] Ask it to fix something across an album (the album artist, the genre). The
-      sidebar says a change waits. Review shows each tag before and after, the same
-      change in several files once with their count. Decide later and Escape leave
-      it waiting; Write writes it, the album and the player show the new tags, and
-      Claude Code's get_change_set says accepted.
+- [ ] Ask it to fix something across an album (the album artist, the genre) and
+      the titles of a few tracks. The sidebar says a change waits. Review shows
+      Before and After in two columns: what every file gets once ("In all 12
+      files"), then each file with its own changes under its title and file name.
+      Decide later and Escape leave it waiting; Write writes it, the album and the
+      player show the new tags, and Claude Code's get_change_set says accepted.
+- [ ] Ask it to give an album a cover from the web (a Cover Art Archive address) and
+      another from a file it downloaded. The review shows the picture once for the
+      album; writing it shows the cover on the album page, in the grid and in the
+      player bar. A web page address or a text file is refused with a reason.
 - [ ] Ask for another change, then edit one of its files in the tag editor before
       accepting: that file is left as it was and named in the result.
-- [ ] Settings → Changes by agents → Undo… opens a review of the undo; writing it
-      puts every value back, a file with two artists too.
+- [ ] Settings → Changes by agents → Show changes… opens the list in a dialog;
+      Escape, Close and a click beside it close it. Undo… there opens a review of
+      the undo; writing it puts every value back, a file with two artists too, and
+      closing the review brings the list back.
 - [ ] Ask it to make a playlist and fill it: it appears at once. Ask it to delete
       one: the review warns that it can't be undone; Delete playlist deletes it.
       The playlist page's own Delete says the same.

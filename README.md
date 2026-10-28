@@ -26,10 +26,12 @@ macOS.
   playlists one too.
 - Works with media keys and your system's media controls, shows what you play on
   Discord and scrobbles to Last.fm.
-- Has light and dark themes, and uses less motion when your system asks for it.
+- Has light and dark themes, a zoom for large monitors, and uses less motion when
+  your system asks for it.
 - Tells you when a new version is out, unless you turn that off in Settings.
 - Lets AI agents such as Claude Code look through your library, suggest fixes to its
-  tags and build playlists, if you turn it on. Tag changes wait for your review.
+  tags and covers and build playlists, if you turn it on. Tag changes wait for your
+  review.
 
 ## Download
 
@@ -75,10 +77,11 @@ agents, and it works only while VCMP is open.
 
 - An agent reads your library and every tag of your files, and makes and edits
   playlists right away.
-- Changing tags, undoing such a change and deleting a playlist wait for you. The
-  sidebar says when something waits; you see every value before and after, then
-  write the change or reject it. A file that changed meanwhile is left alone, and a
-  written change can be undone for 30 days.
+- Changing tags (covers included), undoing such a change and deleting a playlist
+  wait for you. The sidebar says when something waits; you see every value before
+  and after, file by file, and a new cover as the picture itself, then write the
+  change or reject it. A file that changed meanwhile is left alone, and a written
+  change can be undone for 30 days from Settings, under Show changes….
 - Agents connect to an address on your own computer and need the token Settings
   shows. Anyone with the token can read your library while VCMP is open, so keep it
   to yourself; New token replaces it.

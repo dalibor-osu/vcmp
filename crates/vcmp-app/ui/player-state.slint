@@ -14,6 +14,10 @@ export enum Repeat { off, all, one }
 // `tags-not-written`: tags that waited for the player to let go of a file failed.
 export enum PlayerProblem { none, no-output, track-failed, tags-not-written }
 
+// The playing track and Last.fm: it will not be scrobbled (too short, no artist, or
+// nothing playing), it will be once enough of it has played, or it has been.
+export enum ScrobbleMark { none, counting, scrobbled }
+
 // What the queue's context is: an album or artist (named in `queue-origin`), the
 // tracks a search found, or every song.
 export enum QueueSource { named, search, songs }
@@ -62,6 +66,11 @@ export global PlayerState {
     in property <string> next-artist;
     // File path of the current track, to mark it in track lists.
     in property <string> track-path;
+    // The format's name ("FLAC") when the playing file is lossless; empty otherwise.
+    in property <string> lossless-format;
+    // How far the play is from counting for Last.fm. The bar shows it only while an
+    // account is connected.
+    in property <ScrobbleMark> scrobble;
 
     in property <int> position-ms;
     in property <int> duration-ms;

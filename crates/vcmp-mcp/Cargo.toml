@@ -19,8 +19,9 @@ serde_json = "1.0.154"
 thiserror = "2.0.21"
 tokio = { version = "1.53.3", features = ["rt", "net", "sync", "macros"] }
 tokio-util = "0.7"
-# The relay's HTTP client; already in the build for Last.fm.
-ureq = { version = "3.4.2", default-features = false }
+# The relay's HTTP client, and covers agents give by web address; already in the
+# build for Last.fm, TLS included.
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 vcmp-library = { version = "26.10.1", path = "../vcmp-library" }
 
 [dev-dependencies]

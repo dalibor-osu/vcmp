@@ -42,6 +42,13 @@ export global Theme {
     // Called after the user changes `mode`, `motion-choice` or opens or closes the
     // queue panel, so they can be saved.
     callback preferences-changed();
+    // The UI's size as a share of the operating system's scale (Settings → Zoom).
+    // Rust applies it to the window (src/zoom.rs); `zoom-by` steps it: 1 larger,
+    // -1 smaller, 0 back to 100 %. The ends match `zoom::STEPS`.
+    in-out property <float> zoom: 1;
+    out property <float> zoom-smallest: 0.8;
+    out property <float> zoom-largest: 2;
+    callback zoom-by(int);
     // The last input was the keyboard. Focus rings show only then, so clicking with
     // the mouse leaves no ring behind (like :focus-visible on the web).
     in-out property <bool> keyboard-navigation: false;
@@ -71,6 +78,8 @@ export global Theme {
     out property <length> font-heading: 16px;
     out property <length> font-wordmark: 20px;
     out property <length> font-title: 26px;
+    // The artist under an album page's title.
+    out property <length> font-large: 20px;
     // The track title in the now playing view, the one larger text, and a step up
     // in a window wide enough for the largest cover.
     out property <length> font-display: 34px;
@@ -85,6 +94,14 @@ export global Theme {
     // Settings and About: a column in the middle of the page, growing from
     // `content-max-width` to this on wide windows.
     out property <length> column-max-width: 960px;
+    // The cover or picture at the top of an album, artist or playlist page: as large
+    // as a page `page-width` wide allows beside the title and the Play, Shuffle and
+    // More buttons (about 240 px), within these bounds.
+    out property <length> detail-cover-min: 128px;
+    out property <length> detail-cover-max: 280px;
+    pure public function detail-cover-size(page-width: length) -> length {
+        clamp(page-width - 2 * root.space-xxl - root.space-xl - 240px, root.detail-cover-min, root.detail-cover-max)
+    }
     // Dialogs: the tag editor's form, and the pickers' grid of covers or photos.
     out property <length> dialog-width: 720px;
     out property <length> dialog-wide-width: 960px;
@@ -97,4 +114,9 @@ export global Theme {
     // reduced motion leaves it on.
     out property <duration> drag-scroll-tick: 16ms;
     out property <length> drag-scroll-step: 12px;
+
+    // The wheel turning over the volume slider changes the volume at once, and the
+    // volume is saved once the wheel has rested this long. Not motion, so reduced
+    // motion leaves it.
+    out property <duration> wheel-commit-delay: 400ms;
 }

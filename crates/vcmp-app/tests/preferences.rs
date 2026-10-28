@@ -22,6 +22,17 @@ fn open_library(dir: &tempfile::TempDir) -> Library {
     .unwrap()
 }
 
+/// A window shown, so the Settings page is laid out, and tall enough for its
+/// Appearance section: controls scrolled out of view can't be found.
+fn settings_window() -> AppWindow {
+    let window = vcmp_app::create_window().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1100.0, 2400.0));
+    window.show().unwrap();
+    window
+}
+
 /// The choice under Reduce motion; "System" is also a theme option.
 fn click_motion(window: &AppWindow, label: &str) {
     let label = label.to_owned();
@@ -42,9 +53,7 @@ fn choices_are_saved_and_restored() {
     let dir = tempfile::tempdir().unwrap();
     let open = || open_library(&dir);
 
-    let window = vcmp_app::create_window().unwrap();
-    // Shown, so the whole Settings page is laid out and its controls exist.
-    window.show().unwrap();
+    let window = settings_window();
     preferences::connect(&window, Rc::new(open())).unwrap();
     assert_eq!(
         window.global::<Theme>().get_mode(),
@@ -75,6 +84,49 @@ fn choices_are_saved_and_restored() {
     assert_eq!(theme.get_mode(), ThemeMode::Dark);
     assert_eq!(theme.get_motion_choice(), ReduceMotion::On);
     assert!(theme.get_reduced_motion());
+}
+
+#[test]
+fn the_zoom_scales_the_window_and_is_restored() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let window = settings_window();
+    preferences::connect(&window, Rc::new(open_library(&dir))).unwrap();
+    assert_eq!(window.window().scale_factor(), 1.0);
+    click(&window, AccessibleRole::Tab, "Settings");
+    click(&window, AccessibleRole::Button, "Zoom in");
+    click(&window, AccessibleRole::Button, "Zoom in");
+    assert_eq!(window.global::<Theme>().get_zoom(), 1.25);
+    assert_eq!(window.window().scale_factor(), 1.25);
+    assert!(
+        ElementHandle::find_by_accessible_label(&window, "Zoom")
+            .any(|element| element.accessible_value().as_deref() == Some("125%"))
+    );
+    // Ctrl+- steps back down.
+    for event in [
+        slint::platform::WindowEvent::KeyPressed {
+            text: slint::platform::Key::Control.into(),
+        },
+        slint::platform::WindowEvent::KeyPressed { text: "-".into() },
+        slint::platform::WindowEvent::KeyReleased { text: "-".into() },
+        slint::platform::WindowEvent::KeyReleased {
+            text: slint::platform::Key::Control.into(),
+        },
+    ] {
+        window.window().dispatch_event(event);
+    }
+    assert_eq!(window.global::<Theme>().get_zoom(), 1.1);
+    drop(window);
+
+    let library = open_library(&dir);
+    assert_eq!(
+        library.setting(preferences::ZOOM).unwrap().as_deref(),
+        Some("1.1")
+    );
+    let restarted = vcmp_app::create_window().unwrap();
+    preferences::connect(&restarted, Rc::new(library)).unwrap();
+    assert_eq!(restarted.global::<Theme>().get_zoom(), 1.1);
+    assert!((restarted.window().scale_factor() - 1.1).abs() < 0.001);
 }
 
 #[test]

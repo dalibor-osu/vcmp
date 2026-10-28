@@ -20,7 +20,10 @@ use vcmp_app::player_service::{
     SETTING_DISCORD, SETTING_OUTPUT_DEVICE, SETTING_REPEAT, SETTING_SHUFFLE, SETTING_VOLUME,
 };
 use vcmp_app::saved_queue;
-use vcmp_app::{AppWindow, PlayState, PlayerProblem, PlayerState, Repeat, Shuffle, ShuffleKind};
+use vcmp_app::{
+    AppWindow, LastfmState, LastfmStatus, PlayState, PlayerProblem, PlayerState, Repeat,
+    ScrobbleMark, Shuffle, ShuffleKind,
+};
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::media_controls::{self, Control, MediaState};
 use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, Lookup};
@@ -325,6 +328,114 @@ fn the_player_bar_controls_send_commands() {
         app.library.setting(SETTING_VOLUME).unwrap().as_deref(),
         Some("0.50")
     );
+}
+
+#[test]
+fn the_bar_marks_a_lossless_file_and_the_last_fm_play() {
+    let app = start(|_| {});
+    let shown =
+        |label: &str| ElementHandle::find_by_accessible_label(&app.window, label).count() > 0;
+    app.service
+        .handle_event(Event::TrackChanged(Some(NowPlaying {
+            entry: app.entry("1.flac"),
+            duration: Some(Duration::from_secs(100)),
+        })));
+    assert_eq!(app.state().get_lossless_format(), "FLAC");
+    assert!(shown("Lossless (FLAC)"));
+    assert_eq!(app.state().get_scrobble(), ScrobbleMark::Counting);
+    assert!(!shown("Scrobbling to Last.fm"), "no account connected");
+
+    app.window
+        .global::<LastfmState>()
+        .set_status(LastfmStatus::Connected);
+    assert!(shown("Scrobbling to Last.fm"));
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Playing));
+    for quarter in 1..=200 {
+        app.service
+            .handle_event(Event::Position(Duration::from_millis(quarter * 250)));
+    }
+    assert_eq!(
+        app.state().get_scrobble(),
+        ScrobbleMark::Scrobbled,
+        "half of it played"
+    );
+    assert!(shown("Scrobbled to Last.fm"));
+
+    // Too short for Last.fm.
+    app.service.handle_event(app.now_playing("2.flac"));
+    assert_eq!(app.state().get_scrobble(), ScrobbleMark::None);
+    assert!(!shown("Scrobbling to Last.fm") && !shown("Scrobbled to Last.fm"));
+
+    app.service.handle_event(Event::TrackChanged(None));
+    assert_eq!(app.state().get_lossless_format(), "");
+    assert_eq!(app.state().get_scrobble(), ScrobbleMark::None);
+}
+
+#[test]
+fn the_wheel_over_the_volume_slider_changes_the_volume() {
+    let app = start(|_| {});
+    app.state().invoke_volume_committed(0.5);
+    app.sent.take();
+    let slider = ElementHandle::find_by_accessible_label(&app.window, "Volume")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Slider))
+        .expect("the volume slider");
+    let (at, size) = (slider.absolute_position(), slider.size());
+    let position = slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
+    let scroll = |delta_y: f32| {
+        app.window
+            .window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        app.window
+            .window()
+            .dispatch_event(WindowEvent::PointerScrolled {
+                position,
+                delta_x: 0.0,
+                delta_y,
+            });
+    };
+
+    // One notch up, in the steps a glide takes.
+    scroll(20.0);
+    scroll(40.0);
+    assert!((app.state().get_volume() - 0.55).abs() < 0.001);
+    assert!(matches!(
+        app.sent.take()[..],
+        [Command::SetVolume(_), Command::SetVolume(_)]
+    ));
+    assert_eq!(
+        app.library.setting(SETTING_VOLUME).unwrap().as_deref(),
+        Some("0.50"),
+        "saved once the wheel rests"
+    );
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(500));
+    assert_eq!(
+        app.library.setting(SETTING_VOLUME).unwrap().as_deref(),
+        Some("0.55")
+    );
+
+    // Two notches down, and never below silence.
+    scroll(-120.0);
+    assert!((app.state().get_volume() - 0.45).abs() < 0.001);
+    scroll(-6000.0);
+    assert_eq!(app.state().get_volume(), 0.0);
+
+    // The position slider leaves the wheel to the page.
+    let position_slider = ElementHandle::find_by_accessible_label(&app.window, "Position")
+        .next()
+        .expect("the position slider");
+    let at = position_slider.absolute_position();
+    let size = position_slider.size();
+    let position = slint::LogicalPosition::new(at.x + size.width / 2.0, at.y + size.height / 2.0);
+    app.sent.take();
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::PointerScrolled {
+            position,
+            delta_x: 0.0,
+            delta_y: 60.0,
+        });
+    assert_eq!(app.sent.take(), []);
 }
 
 #[test]

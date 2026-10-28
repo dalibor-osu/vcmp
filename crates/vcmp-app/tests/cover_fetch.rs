@@ -132,6 +132,18 @@ impl App {
             .invoke_accessible_default_action();
     }
 
+    /// "Find cover online" in the album page's More menu. Slint's menus are not in
+    /// the tree the tests search, so once the More button is there, its item's
+    /// action runs directly.
+    fn find_cover(&self, title: &str) {
+        let more = format!("More for {title}");
+        assert!(
+            self.find(AccessibleRole::Button, &more).is_some(),
+            "no {more:?} button"
+        );
+        self.state().invoke_find();
+    }
+
     /// What a turn of the event loop does before drawing: runs pending change
     /// handlers and creates the elements that just appeared.
     fn frame(&self) {
@@ -199,7 +211,7 @@ fn a_picked_cover_becomes_the_albums_cover() {
     assert!(!app.window.get_album_detail().has_cover);
     assert_eq!(app.source.take(), [], "nothing is fetched unasked");
 
-    app.press(AccessibleRole::Button, "Find a cover for Zed Alone online");
+    app.find_cover("Zed Alone");
     assert!(app.state().get_open());
     assert_eq!(app.state().get_status(), CoverSearchStatus::Searching);
     assert_eq!(app.state().get_album_title(), "Zed Alone");
@@ -263,15 +275,10 @@ fn a_picked_cover_becomes_the_albums_cover() {
         Some(CoverArtId::Release("r-1".into())),
         "Discord shows the same cover"
     );
-    assert!(
-        app.find(AccessibleRole::Button, "Find a cover for Zed Alone online")
-            .is_none(),
-        "an album with a cover offers no search"
-    );
     assert!(app.window.get_album_detail().fetched_cover);
 
-    // A fetched cover can be changed: searched again, or taken away.
-    app.press(AccessibleRole::Button, "Change the cover of Zed Alone");
+    // A fetched cover can be changed: searched again, or taken away (the More
+    // menu's Find another cover and Remove cover).
     app.changed.borrow_mut().clear();
     app.state().invoke_remove();
     assert!(!app.window.get_album_detail().has_cover);
@@ -283,12 +290,6 @@ fn a_picked_cover_becomes_the_albums_cover() {
         "the automatic lookup may run again"
     );
     assert_eq!(*app.changed.borrow(), [album], "and the player is told");
-    app.frame();
-    assert!(
-        app.find(AccessibleRole::Button, "Find a cover for Zed Alone online")
-            .is_some(),
-        "the search is offered again"
-    );
 }
 
 #[test]
@@ -296,7 +297,7 @@ fn the_picker_works_from_the_keyboard() {
     let app = open();
     app.press(AccessibleRole::Button, "Record, Band");
     app.frame();
-    app.press(AccessibleRole::Button, "Find a cover for Record online");
+    app.find_cover("Record");
     app.frame();
     let search = app.source.last_search();
     app.source.take();
@@ -330,7 +331,7 @@ fn the_picker_works_from_the_keyboard() {
     // Before any cover arrives, Enter is on Cancel.
     app.press(AccessibleRole::Button, "Record, Band");
     app.frame();
-    app.press(AccessibleRole::Button, "Find a cover for Record online");
+    app.find_cover("Record");
     app.frame();
     app.source.take();
     app.key(Key::Return);
@@ -346,7 +347,7 @@ fn the_picker_fits_the_smallest_window() {
         .window()
         .set_size(slint::LogicalSize::new(width, 480.0));
     app.press(AccessibleRole::Button, "Record, Band");
-    app.press(AccessibleRole::Button, "Find a cover for Record online");
+    app.find_cover("Record");
     let search = app.source.last_search();
     for n in 0..5 {
         app.fetch.handle(
@@ -387,7 +388,7 @@ fn the_picker_fits_the_smallest_window() {
 fn nothing_found_and_failures_are_said_plainly() {
     let app = open();
     app.press(AccessibleRole::Button, "Record, Band");
-    app.press(AccessibleRole::Button, "Find a cover for Record online");
+    app.find_cover("Record");
     let search = app.source.last_search();
     app.fetch.handle(search, PickerEvent::Searched(Ok(())));
     assert_eq!(app.state().get_status(), CoverSearchStatus::NothingFound);
@@ -397,7 +398,7 @@ fn nothing_found_and_failures_are_said_plainly() {
     app.press(AccessibleRole::Button, "Cancel");
     assert!(!app.state().get_open());
 
-    app.press(AccessibleRole::Button, "Find a cover for Record online");
+    app.find_cover("Record");
     let search = app.source.last_search();
     app.fetch
         .handle(search, PickerEvent::Searched(Err("offline".into())));
@@ -436,7 +437,7 @@ fn a_click_beside_the_picker_closes_it() {
     };
     app.press(AccessibleRole::Button, "Record, Band");
     app.frame();
-    app.press(AccessibleRole::Button, "Find a cover for Record online");
+    app.find_cover("Record");
     app.frame();
     app.source.take();
 

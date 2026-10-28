@@ -1,7 +1,8 @@
 import { Theme } from "theme.slint";
 import { FocusRing, IconButton, TextLink } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
-import { PlayerProblem, PlayerState, PlayState, Repeat, Shuffle } from "player-state.slint";
+import { PlayerProblem, PlayerState, PlayState, Repeat, ScrobbleMark, Shuffle } from "player-state.slint";
+import { LastfmState, LastfmStatus } from "lastfm-state.slint";
 
 // The play/pause button: the focal point of the bar, filled with the accent.
 component PlayButton {
@@ -69,8 +70,50 @@ component PlayButton {
     }
 }
 
+// A small mark about the playing track (a lossless file, Last.fm). Its label is
+// spoken, and shown above it while pointed at, since the glyph alone is no word.
+component TrackMark {
+    in property <Glyph> glyph;
+    in property <string> label;
+    in property <color> tint: Theme.colors.text-muted;
+
+    width: 16px;
+    height: 16px;
+    accessible-role: image;
+    accessible-label: root.label;
+
+    Icon {
+        width: 14px;
+        height: 14px;
+        glyph: root.glyph;
+        tint: root.tint;
+    }
+
+    touch := TouchArea { }
+
+    // Above the mark, over the page: the bar is drawn after the pages.
+    if touch.has-hover: Rectangle {
+        x: 0;
+        y: -self.height - Theme.space-s;
+        width: hint.preferred-width + 2 * Theme.space-s;
+        height: hint.preferred-height + 2 * Theme.space-xs;
+        border-radius: Theme.radius-m;
+        border-width: 1px;
+        border-color: Theme.colors.surface;
+        background: Theme.colors.base;
+
+        hint := Text {
+            text: root.label;
+            color: Theme.colors.text;
+            font-size: Theme.font-small;
+            accessible-role: none;
+        }
+    }
+}
+
 // A horizontal slider from 0 to 1. While dragged it follows the pointer and reports
-// `moved`; `released` gives the final value. Arrow keys step by `step`.
+// `moved`; `released` gives the final value. Arrow keys step by `step`, and so does a
+// notch of the wheel over it when `wheel` is set.
 export component Slider {
     in property <float> value;
     in property <string> label;
@@ -78,6 +121,9 @@ export component Slider {
     in property <string> value-text;
     in property <float> step: 0.05;
     in property <bool> enabled: true;
+    // The wheel moves the value: up raises it. Only for the volume; a wheel over the
+    // position would seek by accident while scrolling past the bar.
+    in property <bool> wheel;
     // The fill is the accent for progress (something happening now), muted for a
     // plain setting such as volume.
     in property <bool> accent-fill: true;
@@ -152,6 +198,30 @@ export component Slider {
                 root.set-from(self.mouse-x);
             }
         }
+        // A notch is a line of 60 px (`wheel::LINE`); the steps of a glide and a
+        // touchpad's pixels add up to the same. Each step is reported as it comes,
+        // the value released once the wheel rests.
+        scroll-event(event) => {
+            if !root.wheel || event.delta-y == 0 {
+                return reject;
+            }
+            root.moved(clamp(root.value + event.delta-y / 60px * root.step, 0, 1));
+            if wheel-rest.running {
+                wheel-rest.restart();
+            } else {
+                wheel-rest.start();
+            }
+            accept
+        }
+    }
+
+    wheel-rest := Timer {
+        interval: Theme.wheel-commit-delay;
+        running: false;
+        triggered => {
+            self.stop();
+            root.released(clamp(root.value, 0, 1));
+        }
     }
 
     focus := FocusScope {
@@ -192,6 +262,9 @@ export component PlayerBar inherits Rectangle {
     // Leads from the playing track to its album or artist.
     callback show-album();
     callback show-artist();
+
+    // The play will be or was scrobbled to a connected account.
+    private property <bool> scrobble-shown: PlayerState.scrobble != ScrobbleMark.none && LastfmState.status == LastfmStatus.connected;
 
     background: Theme.colors.mantle;
     height: 88px;
@@ -274,14 +347,39 @@ export component PlayerBar inherits Rectangle {
                     }
                 }
 
-                if PlayerState.has-track && PlayerState.artist != "": TextLink {
-                    text: PlayerState.artist;
-                    label: @tr("{}, go to the artist", PlayerState.artist);
-                    color: Theme.colors.text-muted;
-                    font-size: Theme.font-small;
-                    enabled: PlayerState.has-artist-link;
-                    clicked => {
-                        root.show-artist();
+                // The artist, then marks for a lossless file and Last.fm.
+                if PlayerState.has-track && (PlayerState.artist != "" || PlayerState.lossless-format != "" || root.scrobble-shown): HorizontalLayout {
+                    alignment: start;
+                    spacing: Theme.space-s;
+
+                    if PlayerState.artist != "": TextLink {
+                        text: PlayerState.artist;
+                        label: @tr("{}, go to the artist", PlayerState.artist);
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                        enabled: PlayerState.has-artist-link;
+                        clicked => {
+                            root.show-artist();
+                        }
+                    }
+
+                    if PlayerState.lossless-format != "": VerticalLayout {
+                        alignment: center;
+
+                        TrackMark {
+                            glyph: Glyph.lossless;
+                            label: @tr("Lossless ({})", PlayerState.lossless-format);
+                        }
+                    }
+
+                    if root.scrobble-shown: VerticalLayout {
+                        alignment: center;
+
+                        TrackMark {
+                            glyph: PlayerState.scrobble == ScrobbleMark.scrobbled ? Glyph.scrobbled : Glyph.scrobble;
+                            tint: PlayerState.scrobble == ScrobbleMark.scrobbled ? Theme.colors.text : Theme.colors.text-muted;
+                            label: PlayerState.scrobble == ScrobbleMark.scrobbled ? @tr("Scrobbled to Last.fm") : @tr("Scrobbling to Last.fm");
+                        }
                     }
                 }
 
@@ -465,6 +563,7 @@ export component PlayerBar inherits Rectangle {
 
                 Slider {
                     accent-fill: false;
+                    wheel: true;
                     value: PlayerState.muted ? 0 : PlayerState.volume;
                     label: @tr("Volume");
                     value-text: PlayerState.muted ? @tr("Muted") : @tr("{}%", round(PlayerState.volume * 100));

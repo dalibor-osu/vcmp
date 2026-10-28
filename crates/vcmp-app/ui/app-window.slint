@@ -13,7 +13,7 @@ import { PlaylistDetail } from "playlist-page.slint";
 import { Playlists } from "playlist-state.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
 import { ProgressBar } from "components.slint";
-import { PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind } from "player-state.slint";
+import { PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, ScrobbleMark, Shuffle, ShuffleKind } from "player-state.slint";
 import { PlayerBar } from "player-bar.slint";
 import { QueuePanel } from "queue-panel.slint";
 import { NowPlayingView } from "now-playing.slint";
@@ -24,11 +24,11 @@ import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint"
 import { PhotoPicker, PhotoSearch, PhotoSearchStatus } from "photo-picker.slint";
 import { TagChange, TagEditorState, TagEditorStatus, TagEditorView, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues } from "tag-editor.slint";
 import { ColumnWidths } from "columns.slint";
-import { AgentState, ChangeEntry, ChangeField, ChangeKind, ChangeProblem, ChangeReview, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus, SidebarReviewNote } from "agents.slint";
+import { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeHistory, ChangeKind, ChangeProblem, ChangeReview, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus, SidebarReviewNote } from "agents.slint";
 
-export { AgentState, ChangeEntry, ChangeField, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
+export { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
 export { LastfmProblem, LastfmState, LastfmStatus }
-export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, Shuffle, ShuffleKind }
+export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, ScrobbleMark, Shuffle, ShuffleKind }
 export { CoverSearch, CoverSearchStatus, PhotoSearch, PhotoSearchStatus }
 export { TagChange, TagEditorState, TagEditorStatus, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues }
 export { FolderRow, PlaylistDetail, Playlists, SongColumn, SongRow, SongSelection }
@@ -334,6 +334,21 @@ export component AppWindow inherits Window {
                     root.show-search();
                 }
                 return accept;
+            }
+            // Ctrl+= (or Ctrl++) and Ctrl+- zoom, Ctrl+0 goes back to 100 %.
+            if (event.modifiers.control || event.modifiers.meta) && !event.modifiers.alt {
+                if event.text == "=" || event.text == "+" {
+                    Theme.zoom-by(1);
+                    return accept;
+                }
+                if event.text == "-" {
+                    Theme.zoom-by(-1);
+                    return accept;
+                }
+                if event.text == "0" {
+                    Theme.zoom-by(0);
+                    return accept;
+                }
             }
             // Space plays and pauses unless a text field is being typed in: caught
             // here, before the focused control, so buttons and lists never take it.
@@ -785,6 +800,12 @@ export component AppWindow inherits Window {
 
                 // The tag editor, the same way.
                 if TagEditorState.open: TagEditorView {
+                    width: parent.width;
+                    height: parent.height;
+                }
+
+                // The changes agents asked for, opened from Settings, the same way.
+                if AgentState.history-open: ChangeHistory {
                     width: parent.width;
                     height: parent.height;
                 }
