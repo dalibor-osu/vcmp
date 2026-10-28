@@ -170,9 +170,9 @@ reading the code or with a simulated system, so they are the most likely to fail
       all three, choosing it again takes it off all.
 - [ ] With the keyboard: focus a track list, press the Menu key (and Shift+F10),
       open Labels: the check marks match the current track.
-- [ ] Right-click an album card on the Albums page and on an artist's page: the
-      label goes on every track of the album. New label… from there makes one and
-      puts it on them.
+- [ ] Right-click an album card on the Albums page and on an artist's page, and
+      open an album page's three-dot menu → Labels: the label goes on every track
+      of the album. New label… from there makes one and puts it on them.
 - [ ] Songs → Labels: pick one label, then two: only songs with both stay; the
       chips beside the button take a label out. Albums → Labels: albums with at
       least one labelled track stay.

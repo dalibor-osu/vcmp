@@ -463,3 +463,25 @@ fn the_labels_page_without_labels_keeps_its_title_at_the_top() {
         button.size().height
     );
 }
+
+#[test]
+fn the_album_pages_more_menu_labels_the_album() {
+    let app = start();
+    let chill = app.make("chill", 6);
+    app.library.add_label(chill, &[app.id("One")]).unwrap();
+    app.view.labels().changed();
+    app.open_album("Album");
+    let detail = app.window.get_album_detail();
+    assert_eq!(i64::from(detail.id), app.album("Album").0);
+
+    // The button fills the menu's labels for the album before it opens.
+    app.labels().set_choices(ModelRc::default());
+    app.find(AccessibleRole::Button, "More for Album")
+        .expect("the More button")
+        .invoke_accessible_default_action();
+    assert_eq!(app.choices(), [("chill".to_string(), false, true)]);
+    app.labels().invoke_toggle_album(detail.id, chill.0 as i32);
+    assert_eq!(app.names_on("Two"), ["chill"]);
+    let rows = app.window.get_album_tracks();
+    assert_eq!(row_labels(&rows.row_data(1).unwrap()), ["chill"]);
+}

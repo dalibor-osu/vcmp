@@ -10,6 +10,8 @@ import { ColumnEdge, ColumnWidths } from "columns.slint";
 import { LabelChips, LabelEntry, LabelWords, Labels } from "labels.slint";
 
 export struct AlbumDetail {
+    // The library's id, for the menu that labels the album's tracks.
+    id: int,
     title: string,
     artist: string,
     // Empty when unknown.
@@ -964,6 +966,26 @@ export component AlbumView {
                                             }
                                         }
                                     }
+                                    // Labels for every track the album has now.
+                                    Menu {
+                                        title: @tr("Labels");
+
+                                        for choice in Labels.choices: MenuItem {
+                                            title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                                            checkable: true;
+                                            checked: choice.checked;
+                                            activated => {
+                                                Labels.toggle-album(root.album.id, choice.id);
+                                            }
+                                        }
+                                        if Labels.choices.length > 0: MenuSeparator { }
+                                        MenuItem {
+                                            title: @tr("New label…");
+                                            activated => {
+                                                Labels.new-for-album(root.album.id);
+                                            }
+                                        }
+                                    }
                                     // The album's tags, its cover among them.
                                     MenuItem {
                                         title: @tr("Edit tags…");
@@ -977,6 +999,7 @@ export component AlbumView {
                                     glyph: Glyph.more;
                                     label: @tr("More for {}", root.shown-title);
                                     clicked => {
+                                        Labels.prepare-album(root.album.id);
                                         actions.show({ x: 0, y: self.height });
                                     }
                                 }

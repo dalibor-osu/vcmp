@@ -930,8 +930,9 @@ by `LibraryView`) keeps the `Labels` global current.
 - **Menus.** Every track menu (track lists, the songs table, the queue, the now
   playing "…" menu) has a Labels submenu: each label as a checkable item, and New
   label…. Album cards (the Albums grid, an artist's albums, search) have a menu of
-  their own, for every track the album has now; the album page gets one with the
-  overflow menu `ideas.md` plans. Slint's menus have no mixed state, so a label only
+  their own, for every track the album has now, and so does the album page's More
+  menu (the three dots beside Shuffle), which asks for the album's labels when its
+  button is pressed. Slint's menus have no mixed state, so a label only
   some chosen tracks hold reads "chill (on some)". Choosing a label puts it on all of
   them unless all hold it, which takes it off all. A menu asks for its choices just
   before it opens (`prepare-labels`, `prepare-path`, `prepare-album`): a right click
@@ -971,8 +972,6 @@ by `LibraryView`) keeps the `Labels` global current.
   ("on some"), not by a mixed check mark: Slint's `MenuItem` has none.
 - The custom colour picker's shades and hues work with the mouse only; the keyboard
   picks a custom colour by typing its hex code.
-- The album page has no label menu yet; label an album from its card, or select its
-  tracks.
 - The tag editor can't empty a field that differs between an album's tracks in one
   go: an empty "Several values" field keeps the values. Type a value, or edit the
   tracks one by one.

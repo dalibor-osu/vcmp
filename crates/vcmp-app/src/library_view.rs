@@ -985,6 +985,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
         .as_ref()
         .and_then(|artwork| Image::load_from_path(&artwork.thumbnail).ok());
     window.set_album_detail(AlbumDetail {
+        id: album.id.0 as i32,
         title: album.title.as_str().into(),
         artist: album.artist.clone().unwrap_or_default().into(),
         year: album

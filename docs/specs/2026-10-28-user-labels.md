@@ -58,6 +58,10 @@ Later, to address that agents' label edits couldn't be undone: agents' label edi
 are handled the same way as tag edits, so I have to approve the changes and can undo
 them later the same way.
 
+Later still, once the improvements from another session (the three-dot menus) were
+merged: the album page's three-dot menu gets the label support that was skipped
+earlier.
+
 ## Decisions
 
 The questions were asked while the feature was still called "user tags"; they are
@@ -198,6 +202,10 @@ choose from"**
 **Answer: Wait for the overflow work** - so the album page's Tags submenu (chosen in
 the album-menu round) arrives with that separate change, not this one.
 
+Later: the overflow menu landed first (#46, merged before this PR), and the owner
+asked to add the Labels submenu to it in this PR: "Please also add the 3 dots menu
+label support we decided to skip earlier."
+
 ### How should this be delivered?
 
 | Option | What it means |
@@ -304,8 +312,8 @@ Two pull requests into `main`, in this order.
   off they answer with an error that names the setting.
 - Docs: mcp.md (tools, security table), manual-testing.md with a real client.
 
-The album page's Labels submenu is not in either PR: it comes with the separate
-overflow menu work from `ideas.md`.
+The album page's Labels submenu goes into the three-dot menu the overflow work
+(#46) added, in the first PR, once that work is merged.
 
 ## Architecture decisions
 
@@ -353,7 +361,6 @@ creates only the rows in view with label chips.
 | Chips on rows cost render time and width, most in the virtualised Songs table and narrow windows | Medium | Slower scrolling, truncated titles | Measure with the existing benchmarks before merging; limit chips per row with "+n" |
 | Labelling an album labels only its current tracks; a track added later is silently unlabelled | Medium | Surprise | Decided; the album's menu shows the label as mixed then, which hints at it |
 | A long label list in the sidebar pushes Songs and Folders down | Low to medium | Navigation | Decided by the owner; the list can scroll or collapse later |
-| The album page gets labels only once the overflow menu work lands | Certain until then | One fewer entry point | Album cards and track selections cover it |
 | The schema version number may collide with the 2026-10-22 features if PRs run in parallel | Medium | A renumber before merge | Whichever merges second takes the next number |
 | "Labels" also means record labels; a later "Record label" field would clash | Low | Wording | Settle wording if such a field ever appears |
 
@@ -367,7 +374,6 @@ filters are remembered between runs, and the volume cap for agents.
 - Writing labels into music files, or reading them from files.
 - Labels on albums, artists or playlists, and labels a track inherits from its
   album.
-- The album page's Labels submenu (waits for the `ideas.md` overflow menu).
 - An any/all switch for label filters; a label filter on the Artists page.
 - Search matching label names.
 - Smart playlists, label hierarchies, and export or import of labels.
