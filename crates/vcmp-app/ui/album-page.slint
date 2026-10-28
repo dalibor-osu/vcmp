@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, FocusRing } from "components.slint";
+import { Button, FocusRing, IconButton } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { CoverSearch } from "cover-picker.slint";
 import { Playlists } from "playlist-state.slint";
@@ -745,21 +745,28 @@ export component AlbumView {
         back-button.focus();
     }
 
-    // The cover picker opened from this page closed: the focus comes back to the
-    // page, so its keys work again.
+    // The cover as large as the page allows beside the details.
+    private property <length> cover-size: Theme.detail-cover-size(root.width);
+
+    // The cover picker or the album's tag editor, opened from this page's More menu,
+    // closed: the focus comes back to the page, so its keys work again. Both pages
+    // that show albums hold one of these, so only the shown one takes it.
     private property <bool> asked-for-cover;
     private property <bool> picker-open: CoverSearch.open;
     changed picker-open => {
-        if !self.picker-open && self.asked-for-cover {
+        if self.picker-open {
+            self.asked-for-cover = root.visible;
+        } else if self.asked-for-cover {
             self.asked-for-cover = false;
             back-button.focus();
         }
     }
-    // The same for the tag editor.
     private property <bool> asked-for-tags;
     private property <bool> editor-open: TagEditorState.open;
     changed editor-open => {
-        if !self.editor-open && self.asked-for-tags {
+        if self.editor-open {
+            self.asked-for-tags = root.visible && TagEditorState.whole-album;
+        } else if self.asked-for-tags {
             self.asked-for-tags = false;
             back-button.focus();
         }
@@ -818,12 +825,11 @@ export component AlbumView {
                     alignment: start;
 
                     VerticalLayout {
-                        spacing: Theme.space-m;
                         alignment: start;
 
                         Rectangle {
-                            width: 200px;
-                            height: 200px;
+                            width: root.cover-size;
+                            height: root.cover-size;
                             border-radius: Theme.radius-l;
                             clip: true;
                             background: Theme.colors.surface;
@@ -845,86 +851,6 @@ export component AlbumView {
                                 accessible-role: none;
                             }
                         }
-
-                        // Under the missing cover, so the action sits where it is needed.
-                        if !root.album.has-cover && !root.album.missing && !root.album.unknown: Button {
-                            text: @tr("Find cover online");
-                            label: @tr("Find a cover for {} online", root.shown-title);
-                            clicked => {
-                                root.asked-for-cover = true;
-                                CoverSearch.find();
-                            }
-                        }
-                        // A cover fetched online can be swapped for another or taken
-                        // away; its menu opens below.
-                        if root.album.fetched-cover && !root.album.missing: change-cover := ContextMenuArea {
-                            width: 200px;
-                            height: Theme.target-height;
-
-                            Menu {
-                                MenuItem {
-                                    title: @tr("Find another cover");
-                                    activated => {
-                                        root.asked-for-cover = true;
-                                        CoverSearch.find();
-                                    }
-                                }
-                                MenuItem {
-                                    title: @tr("Remove cover");
-                                    activated => {
-                                        CoverSearch.remove();
-                                    }
-                                }
-                            }
-
-                            Button {
-                                width: parent.width;
-                                text: @tr("Change cover…");
-                                label: @tr("Change the cover of {}", root.shown-title);
-                                clicked => {
-                                    change-cover.show({ x: 0, y: self.height });
-                                }
-                            }
-                        }
-                        // The whole album into a playlist; its menu opens below.
-                        if root.tracks.length > 0 && !root.album.missing: add-album := ContextMenuArea {
-                            width: 200px;
-                            height: Theme.target-height;
-
-                            Menu {
-                                MenuItem {
-                                    title: @tr("New playlist");
-                                    activated => {
-                                        Playlists.add-album(-1);
-                                    }
-                                }
-                                if Playlists.names.length > 0: MenuSeparator { }
-                                for name[index] in Playlists.names: MenuItem {
-                                    title: name;
-                                    activated => {
-                                        Playlists.add-album(index);
-                                    }
-                                }
-                            }
-
-                            Button {
-                                width: parent.width;
-                                text: @tr("Add to playlist…");
-                                label: @tr("Add {} to a playlist", root.shown-title);
-                                clicked => {
-                                    add-album.show({ x: 0, y: self.height });
-                                }
-                            }
-                        }
-                        // Under the cover too: the album's tags, its cover among them.
-                        if root.tracks.length > 0 && !root.album.missing: Button {
-                            text: @tr("Edit tags…");
-                            label: @tr("Edit the tags of {}", root.shown-title);
-                            clicked => {
-                                root.asked-for-tags = true;
-                                TagEditorState.edit-album();
-                            }
-                        }
                     }
 
                     VerticalLayout {
@@ -935,7 +861,7 @@ export component AlbumView {
                         Text {
                             text: root.shown-title;
                             color: Theme.colors.text;
-                            font-size: Theme.font-title;
+                            font-size: Theme.font-display;
                             font-weight: Theme.weight-strong;
                             wrap: word-wrap;
                             min-height: self.preferred-height;
@@ -944,7 +870,7 @@ export component AlbumView {
                         if root.shown-artist != "": Text {
                             text: root.shown-artist;
                             color: Theme.colors.text;
-                            font-size: Theme.font-heading;
+                            font-size: Theme.font-large;
                             wrap: word-wrap;
                             min-height: self.preferred-height;
                         }
@@ -956,17 +882,17 @@ export component AlbumView {
                             if root.album.year != "": Text {
                                 text: root.album.year;
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                             Text {
                                 text: @tr("{n} track" | "{n} tracks" % root.album.track-count);
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                             Text {
                                 text: @tr("{} min", root.album.minutes);
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                         }
 
@@ -989,6 +915,70 @@ export component AlbumView {
                                 label: @tr("Shuffle {}", root.shown-title);
                                 clicked => {
                                     root.play(-1, true);
+                                }
+                            }
+
+                            // The album's other actions, used now and then; the menu
+                            // opens below the button.
+                            if !root.album.missing: actions := ContextMenuArea {
+                                width: Theme.target-height;
+                                height: Theme.target-height;
+
+                                Menu {
+                                    if !root.album.has-cover && !root.album.unknown: MenuItem {
+                                        title: @tr("Find cover online");
+                                        activated => {
+                                            CoverSearch.find();
+                                        }
+                                    }
+                                    // A cover fetched online can be swapped for another
+                                    // or taken away.
+                                    if root.album.fetched-cover: MenuItem {
+                                        title: @tr("Find another cover");
+                                        activated => {
+                                            CoverSearch.find();
+                                        }
+                                    }
+                                    if root.album.fetched-cover: MenuItem {
+                                        title: @tr("Remove cover");
+                                        activated => {
+                                            CoverSearch.remove();
+                                        }
+                                    }
+                                    if (!root.album.has-cover && !root.album.unknown) || root.album.fetched-cover: MenuSeparator { }
+                                    // The whole album into a playlist.
+                                    Menu {
+                                        title: @tr("Add to playlist");
+
+                                        MenuItem {
+                                            title: @tr("New playlist");
+                                            activated => {
+                                                Playlists.add-album(-1);
+                                            }
+                                        }
+                                        if Playlists.names.length > 0: MenuSeparator { }
+                                        for name[index] in Playlists.names: MenuItem {
+                                            title: name;
+                                            activated => {
+                                                Playlists.add-album(index);
+                                            }
+                                        }
+                                    }
+                                    // The album's tags, its cover among them.
+                                    MenuItem {
+                                        title: @tr("Edit tags…");
+                                        activated => {
+                                            TagEditorState.edit-album();
+                                        }
+                                    }
+                                }
+
+                                IconButton {
+                                    glyph: Glyph.more;
+                                    label: @tr("More for {}", root.shown-title);
+                                    clicked => {
+                                        actions.show({ x: 0, y: self.height });
+                                    }
                                 }
                             }
                         }

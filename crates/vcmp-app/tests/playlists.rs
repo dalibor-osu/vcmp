@@ -375,11 +375,9 @@ fn a_whole_album_goes_into_a_playlist_named_after_it() {
     let album = app.library.tracks().unwrap()[0].album_id.unwrap();
     app.view.open_album_by_id(album);
     mock_elapsed_time(Duration::ZERO);
-    find(
-        &app.window,
-        AccessibleRole::Button,
-        "Add Album to a playlist",
-    );
+    // Add to playlist, in the More menu: Slint's menus are not in the tree the
+    // tests search, so its items' actions run directly.
+    find(&app.window, AccessibleRole::Button, "More for Album");
 
     let playlists = app.window.global::<Playlists>();
     playlists.invoke_add_album(-1);
@@ -497,9 +495,10 @@ fn entries_can_be_dragged_to_a_new_place() {
 #[test]
 fn a_drag_held_at_the_edge_scrolls_the_list() {
     let app = start();
+    // Tall enough for the page's picture and a few rows under it.
     app.window
         .window()
-        .set_size(LogicalSize::new(1100.0, 600.0));
+        .set_size(LogicalSize::new(1100.0, 680.0));
     let id = app.library.create_playlist("Long").unwrap();
     let ids: Vec<_> = app
         .library
@@ -561,7 +560,7 @@ fn a_drag_held_at_the_edge_scrolls_the_list() {
 
     // The first track, held past the bottom edge, goes to the end.
     let first = centre(&rows("One")[0]);
-    hold(first, slint::LogicalPosition::new(first.x, 599.0));
+    hold(first, slint::LogicalPosition::new(first.x, 679.0));
     let moved = expected.remove(0);
     expected.push(moved);
     assert_eq!(app.entry_titles(id), expected);

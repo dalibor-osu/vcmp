@@ -137,8 +137,9 @@ pub struct ChangedFile {
     /// What the set asks, by target: one of the nine fields (`title`, `artist`,
     /// `album`, `album_artist`, `track_number`, `disc_number`, `year`, `genre`,
     /// `cover`) or `tag:` and a [`crate::Library::track_tags`] key. None removes.
-    /// A cover's value is the image's path. In a label set: `label:` and the label's
-    /// name, with the name as the value to put it on and None to take it off.
+    /// A cover's value is the name of the image the set keeps
+    /// ([`Library::kept_cover`]). In a label set: `label:` and the label's name, with
+    /// the name as the value to put it on and None to take it off.
     pub edits: Vec<(String, Option<Vec<String>>)>,
     /// Every tag the edits may change.
     pub values: Vec<ValueChange>,
@@ -623,6 +624,11 @@ impl Library {
             .execute("DELETE FROM change_sets WHERE status <> 'pending'", [])?;
         self.prune_kept_covers()?;
         Ok(size)
+    }
+
+    /// The image a `cover` edit names, as the set keeps it.
+    pub fn kept_cover(&self, name: &str) -> PathBuf {
+        self.undo_dir().join(name)
     }
 
     fn undo_dir(&self) -> PathBuf {

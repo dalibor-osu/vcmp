@@ -1,5 +1,5 @@
 //! Appearance preferences kept in the library database's settings table: the theme,
-//! reduced motion, whether the queue panel is open, which artists the Artists page
+//! reduced motion, the zoom, whether the queue panel is open, which artists the Artists page
 //! lists, and the column widths of the track lists and the songs table. Also hands
 //! the operating system's reduce-motion setting to the theme.
 
@@ -9,11 +9,13 @@ use slint::ComponentHandle;
 use vcmp_integrations::reduce_motion;
 use vcmp_library::Library;
 
-use crate::{AppWindow, ColumnWidths, ReduceMotion, Theme, ThemeMode};
+use crate::{AppWindow, ColumnWidths, ReduceMotion, Theme, ThemeMode, zoom};
 
 pub const THEME: &str = "ui.theme";
 /// "system", "on" or "off"; see `parse_motion` for the older "true" and "false".
 pub const REDUCED_MOTION: &str = "ui.reduced_motion";
+/// The zoom as a factor of the system's scale, such as "1.25" (`src/zoom.rs`).
+pub const ZOOM: &str = "ui.zoom";
 pub const QUEUE_OPEN: &str = "ui.queue_open";
 pub const ARTISTS_ALL: &str = "ui.artists_all";
 /// The track lists' column shares: title, then the column beside it.
@@ -33,6 +35,10 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
         .and_then(parse_motion)
     {
         theme.set_motion_choice(choice);
+    }
+    if let Some(saved) = library.setting(ZOOM)?.as_deref().and_then(zoom::parse) {
+        theme.set_zoom(saved);
+        zoom::apply(window);
     }
     if let Some(value) = library.setting(QUEUE_OPEN)? {
         window.set_queue_open(value == "true");
@@ -86,6 +92,7 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
             .and_then(|()| {
                 library.set_setting(REDUCED_MOTION, motion_name(theme.get_motion_choice()))
             })
+            .and_then(|()| library.set_setting(ZOOM, &format!("{}", theme.get_zoom())))
             .and_then(|()| library.set_setting(QUEUE_OPEN, flag(window.get_queue_open())))
             .and_then(|()| library.set_setting(ARTISTS_ALL, flag(window.get_artists_show_all())));
         if let Err(error) = saved {

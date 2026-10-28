@@ -33,8 +33,8 @@ use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig};
 use crate::library_service::{Delivery, LibraryPaths};
 use crate::library_view::LibraryView;
 use crate::{
-    AgentState, AppWindow, ChangeEntry, ChangeField, ChangeKind, ChangeProblem, ChangeRow,
-    ChangeStatus, ReviewStatus, ServerStatus,
+    AgentState, AppWindow, ChangeEntry, ChangeField, ChangeGroup, ChangeKind, ChangeProblem,
+    ChangeRow, ChangeStatus, ReviewStatus, ServerStatus,
 };
 
 /// Setting key: agents may connect while VCMP is open ("true" or "false"; absent:
@@ -351,20 +351,34 @@ impl AgentService {
     /// Opens the review of a change. One already decided shows what it did.
     pub fn review(&self, id: ChangeSetId) {
         if self.writing.get() {
+            self.back_to_history();
             return;
         }
         let set = match self.library.change_set(id) {
             Ok(Some(set)) => set,
             Ok(None) => {
                 self.refresh();
+                self.back_to_history();
                 return;
             }
             Err(error) => {
                 log::error!("could not read change {id:?}: {error}");
+                self.back_to_history();
                 return;
             }
         };
         self.show_review(&set);
+    }
+
+    /// A review asked for from the list of changes didn't open: the list comes back.
+    fn back_to_history(&self) {
+        if let Some(window) = self.window.upgrade() {
+            let state = window.global::<AgentState>();
+            if state.get_review_from_history() && !state.get_review_open() {
+                state.set_review_from_history(false);
+                state.set_history_open(true);
+            }
+        }
     }
 
     /// Applies messages until the change being written is done, or `timeout` passes.
@@ -542,7 +556,9 @@ impl AgentService {
             .map(|label| label.name.as_str())
             .collect();
         state.set_review_new_labels(new_labels.join(", ").into());
-        state.set_review_rows(ModelRc::new(VecModel::from(rows(&set.files))));
+        let (shared, groups) = review_groups(&self.library, &set.files);
+        state.set_review_shared(ModelRc::new(VecModel::from(shared)));
+        state.set_review_groups(ModelRc::new(VecModel::from(groups)));
         state.set_review_failed(false);
         state.set_review_done(0);
         if set.summary.status == Status::Pending {
@@ -632,6 +648,11 @@ impl AgentService {
             let state = window.global::<AgentState>();
             state.set_review_open(false);
             state.set_review_playing(SharedString::default());
+            // Back to the list it was opened from.
+            if state.get_review_from_history() {
+                state.set_review_from_history(false);
+                state.set_history_open(true);
+            }
         }
     }
 
@@ -645,6 +666,7 @@ impl AgentService {
             Err(error) => {
                 log::warn!("could not undo change {id:?}: {error}");
                 self.refresh();
+                self.back_to_history();
             }
         }
     }
@@ -876,58 +898,144 @@ const FIELDS: [(&str, ChangeField, &str); 9] = [
     ("cover", ChangeField::Cover, ""),
 ];
 
-/// The changes of every file, the same change in several files as one row with their
-/// count, in form order and then by key.
-fn rows(files: &[ChangedFile]) -> Vec<ChangeRow> {
-    let mut grouped: Vec<(ChangeRow, usize)> = Vec::new();
-    let mut index: HashMap<(i32, String, String, String), usize> = HashMap::new();
-    for file in files {
-        let before: HashMap<&str, &Vec<String>> = file
-            .values
+/// One change of one file, before it becomes a row: where it sorts, and what makes
+/// it the same as another file's.
+#[derive(Clone, PartialEq)]
+struct Change {
+    order: i32,
+    key: String,
+    before: String,
+    after: String,
+    field: ChangeField,
+    // The kept images of a change of cover.
+    before_cover: Option<PathBuf>,
+    after_cover: Option<PathBuf>,
+}
+
+/// The review's changes: those every file shares (only when there are several
+/// files), then each file's own, by path. A file whose changes are all shared has no
+/// group. Rows go in form order, then by key.
+fn review_groups(library: &Library, files: &[ChangedFile]) -> (Vec<ChangeRow>, Vec<ChangeGroup>) {
+    let changes: Vec<Vec<Change>> = files
+        .iter()
+        .map(|file| file_changes(library, file))
+        .collect();
+    let shared: Vec<Change> = match changes.split_first() {
+        Some((first, rest)) if !rest.is_empty() => first
             .iter()
-            .map(|value| (value.key.as_str(), &value.before))
-            .collect();
-        for (target, values) in &file.edits {
-            let (field, key, order) = field_of(target);
-            let (before_text, after_text) = if field == ChangeField::Cover {
-                let had = matches!(file.cover_before, Some(Some(_)));
-                (
-                    if had { "cover" } else { "" }.to_owned(),
-                    if values.is_some() { "cover" } else { "" }.to_owned(),
-                )
-            } else {
-                (
-                    before
-                        .get(key.as_str())
-                        .map(|values| values.join("; "))
-                        .unwrap_or_default(),
-                    values
-                        .as_ref()
-                        .map(|values| values.join("; "))
-                        .unwrap_or_default(),
-                )
-            };
-            let id = (order, key.clone(), before_text.clone(), after_text.clone());
-            match index.get(&id) {
-                Some(&at) => grouped[at].0.files += 1,
-                None => {
-                    index.insert(id, grouped.len());
-                    grouped.push((
-                        ChangeRow {
-                            field,
-                            key: key.into(),
-                            before: before_text.into(),
-                            after: after_text.into(),
-                            files: 1,
-                        },
-                        order as usize,
-                    ));
-                }
+            .filter(|change| rest.iter().all(|other| other.contains(change)))
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut images: HashMap<PathBuf, slint::Image> = HashMap::new();
+    let mut row = |change: &Change| {
+        let mut image = |path: &Option<PathBuf>| match path {
+            Some(path) => {
+                let image = images
+                    .entry(path.clone())
+                    .or_insert_with(|| slint::Image::load_from_path(path).unwrap_or_default());
+                (true, image.clone())
             }
+            None => (false, slint::Image::default()),
+        };
+        let (has_before_cover, before_cover) = image(&change.before_cover);
+        let (has_after_cover, after_cover) = image(&change.after_cover);
+        ChangeRow {
+            field: change.field,
+            key: change.key.as_str().into(),
+            before: change.before.as_str().into(),
+            after: change.after.as_str().into(),
+            has_before_cover,
+            before_cover,
+            has_after_cover,
+            after_cover,
         }
-    }
-    grouped.sort_by(|(a, a_order), (b, b_order)| a_order.cmp(b_order).then(a.key.cmp(&b.key)));
-    grouped.into_iter().map(|(row, _)| row).collect()
+    };
+    let shared_rows = shared.iter().map(&mut row).collect();
+    let mut order: Vec<usize> = (0..files.len()).collect();
+    order.sort_by(|a, b| files[*a].path.cmp(&files[*b].path));
+    let groups = order
+        .into_iter()
+        .filter_map(|at| {
+            let own: Vec<ChangeRow> = changes[at]
+                .iter()
+                .filter(|change| !shared.contains(change))
+                .map(&mut row)
+                .collect();
+            if own.is_empty() {
+                return None;
+            }
+            let file = &files[at];
+            let title = library
+                .track(file.track)
+                .ok()
+                .flatten()
+                .map(|track| track.title)
+                .unwrap_or_else(|| file_name(&file.path));
+            Some(ChangeGroup {
+                title: title.into(),
+                file: file_name(&file.path).into(),
+                rows: ModelRc::new(VecModel::from(own)),
+            })
+        })
+        .collect();
+    (shared_rows, groups)
+}
+
+/// A file's changes in form order, then by key.
+fn file_changes(library: &Library, file: &ChangedFile) -> Vec<Change> {
+    let before: HashMap<&str, &Vec<String>> = file
+        .values
+        .iter()
+        .map(|value| (value.key.as_str(), &value.before))
+        .collect();
+    let mut changes: Vec<Change> = file
+        .edits
+        .iter()
+        .map(|(target, values)| {
+            let (field, key, order) = field_of(target);
+            if field == ChangeField::Cover {
+                let before_cover = file.cover_before.clone().flatten();
+                let after_cover = values
+                    .as_ref()
+                    .and_then(|names| names.first())
+                    .map(|name| library.kept_cover(name));
+                return Change {
+                    order,
+                    key,
+                    before: String::new(),
+                    after: String::new(),
+                    field,
+                    before_cover,
+                    after_cover,
+                };
+            }
+            // A label's values are listed under its whole target, `label:` and name.
+            let listed = if field == ChangeField::Label {
+                target.as_str()
+            } else {
+                key.as_str()
+            };
+            Change {
+                order,
+                before: before
+                    .get(listed)
+                    .map(|values| values.join("; "))
+                    .unwrap_or_default(),
+                after: values
+                    .as_ref()
+                    .map(|values| values.join("; "))
+                    .unwrap_or_default(),
+                key,
+                field,
+                before_cover: None,
+                after_cover: None,
+            }
+        })
+        .collect();
+    changes.sort_by(|a, b| a.order.cmp(&b.order).then(a.key.cmp(&b.key)));
+    changes
 }
 
 /// A target's field, the key its values are listed under, and its place in form order

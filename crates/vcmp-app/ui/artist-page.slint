@@ -1,6 +1,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, SectionHeading, TextLink } from "components.slint";
+import { Button, IconButton, SectionHeading, TextLink } from "components.slint";
+import { Glyph } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
@@ -46,12 +47,17 @@ export component ArtistView {
         back-button.focus();
     }
 
+    // The picture as large as the page allows beside the details.
+    private property <length> picture-size: Theme.detail-cover-size(root.width);
+
     // The photo picker opened from this page closed: the focus comes back to the
     // page, so its keys work again.
     private property <bool> asked-for-photo;
     private property <bool> picker-open: PhotoSearch.open;
     changed picker-open => {
-        if !self.picker-open && self.asked-for-photo {
+        if self.picker-open {
+            self.asked-for-photo = root.visible;
+        } else if self.asked-for-photo {
             self.asked-for-photo = false;
             back-button.focus();
         }
@@ -114,14 +120,15 @@ export component ArtistView {
                     spacing: Theme.space-xl;
                     alignment: start;
 
-                    // The picture, and under it the ways to change it.
+                    // The picture, and under it the credit for a photo from
+                    // fanart.tv, which its terms ask for.
                     VerticalLayout {
                         spacing: Theme.space-m;
                         alignment: start;
 
                         Rectangle {
-                            width: 200px;
-                            height: 200px;
+                            width: root.picture-size;
+                            height: root.picture-size;
                             border-radius: self.width / 2;
                             clip: true;
                             background: Theme.colors.surface;
@@ -153,30 +160,8 @@ export component ArtistView {
                                 Platform.open-url("https://fanart.tv");
                             }
                         }
-                        if !root.artist.missing && PhotoSearch.available: Button {
-                            text: @tr("Find photo online");
-                            label: @tr("Find a photo of {} online", root.artist.name);
-                            clicked => {
-                                root.asked-for-photo = true;
-                                PhotoSearch.find();
-                            }
-                        }
-                        if !root.artist.missing: Button {
-                            text: @tr("Choose photo…");
-                            label: @tr("Choose a photo of {} from a file", root.artist.name);
-                            clicked => {
-                                PhotoSearch.choose-file();
-                            }
-                        }
-                        if root.artist.has-photo && !root.artist.missing: Button {
-                            text: @tr("Remove photo");
-                            label: @tr("Remove the photo of {}", root.artist.name);
-                            clicked => {
-                                PhotoSearch.remove();
-                            }
-                        }
                         if PhotoSearch.file-failed: Text {
-                            width: 200px;
+                            width: root.picture-size;
                             text: @tr("That file isn't a picture VCMP can read.");
                             color: Theme.colors.text;
                             font-size: Theme.font-small;
@@ -190,12 +175,12 @@ export component ArtistView {
                         spacing: Theme.space-s;
                         alignment: end;
                         max-width: Theme.content-max-width;
-                        max-height: 200px;
+                        max-height: root.picture-size;
 
                         Text {
                             text: root.artist.name;
                             color: Theme.colors.text;
-                            font-size: Theme.font-title;
+                            font-size: Theme.font-display;
                             font-weight: Theme.weight-strong;
                             wrap: word-wrap;
                             min-height: self.preferred-height;
@@ -208,21 +193,21 @@ export component ArtistView {
                             if root.artist.album-count > 0: Text {
                                 text: @tr("{n} album" | "{n} albums" % root.artist.album-count);
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                             Text {
                                 text: @tr("{n} track" | "{n} tracks" % root.artist.track-count);
                                 color: Theme.colors.text-muted;
-                                font-size: Theme.font-small;
+                                font-size: Theme.font-body;
                             }
                         }
 
-                        if !root.artist.missing && root.artist.track-count > 0: HorizontalLayout {
+                        if !root.artist.missing: HorizontalLayout {
                             padding-top: Theme.space-s;
                             spacing: Theme.space-m;
                             alignment: start;
 
-                            Button {
+                            if root.artist.track-count > 0: Button {
                                 text: @tr("Play");
                                 label: @tr("Play {}", root.artist.name);
                                 primary: true;
@@ -231,11 +216,47 @@ export component ArtistView {
                                 }
                             }
 
-                            Button {
+                            if root.artist.track-count > 0: Button {
                                 text: @tr("Shuffle");
                                 label: @tr("Shuffle {}", root.artist.name);
                                 clicked => {
                                     root.play(true);
+                                }
+                            }
+
+                            // The ways to change the picture, used now and then; the
+                            // menu opens below the button.
+                            actions := ContextMenuArea {
+                                width: Theme.target-height;
+                                height: Theme.target-height;
+
+                                Menu {
+                                    if PhotoSearch.available: MenuItem {
+                                        title: @tr("Find photo online");
+                                        activated => {
+                                            PhotoSearch.find();
+                                        }
+                                    }
+                                    MenuItem {
+                                        title: @tr("Choose photo…");
+                                        activated => {
+                                            PhotoSearch.choose-file();
+                                        }
+                                    }
+                                    if root.artist.has-photo: MenuItem {
+                                        title: @tr("Remove photo");
+                                        activated => {
+                                            PhotoSearch.remove();
+                                        }
+                                    }
+                                }
+
+                                IconButton {
+                                    glyph: Glyph.more;
+                                    label: @tr("More for {}", root.artist.name);
+                                    clicked => {
+                                        actions.show({ x: 0, y: self.height });
+                                    }
                                 }
                             }
                         }

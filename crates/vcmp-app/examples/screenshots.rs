@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use slint::platform::{Key, WindowEvent};
 use slint::{
-    ComponentHandle, Image, LogicalPosition, LogicalSize, Model, ModelRc, Rgba8Pixel,
-    SharedPixelBuffer, SharedString, Timer, TimerMode, VecModel,
+    ComponentHandle, Image, LogicalSize, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer,
+    SharedString, Timer, TimerMode, VecModel,
 };
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
@@ -28,11 +28,11 @@ use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presen
 use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
-    AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeKind,
-    ChangeProblem, ChangeRow, ChangeStatus, CoverSearch as CoverPicker, CoverSearchStatus,
-    LastfmState, LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion,
-    ReviewStatus, SelectionChange, ServerStatus, TagChange, TagEditorState, TagEditorStatus,
-    TagField, Theme, ThemeMode, TrackSelection, UpdateState,
+    AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeGroup,
+    ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, CoverSearch as CoverPicker,
+    CoverSearchStatus, LastfmState, LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState,
+    ReduceMotion, ReviewStatus, SelectionChange, ServerStatus, TagChange, TagEditorState,
+    TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -428,7 +428,7 @@ fn prepare(window: &AppWindow, shot: &Shot) {
 fn show_agents(window: &AppWindow, agents: Option<Agents>) {
     let state = window.global::<AgentState>();
     let size = match agents {
-        Some(Agents::Settings | Agents::History) => LogicalSize::new(1100.0, 2600.0),
+        Some(Agents::Settings) => LogicalSize::new(1100.0, 2600.0),
         _ => LogicalSize::new(1100.0, 720.0),
     };
     window.window().set_size(size);
@@ -436,9 +436,11 @@ fn show_agents(window: &AppWindow, agents: Option<Agents>) {
         state.set_enabled(false);
         state.set_pending_count(0);
         state.set_history(ModelRc::default());
+        state.set_history_open(false);
         state.set_review_open(false);
         return;
     };
+    state.set_history_open(false);
     state.set_enabled(true);
     state.set_status(ServerStatus::Running);
     state.set_port("8267".into());
@@ -486,12 +488,30 @@ fn show_agents(window: &AppWindow, agents: Option<Agents>) {
     ])));
     state.set_pending_count(1);
 
-    let row = |field, key: &str, before: &str, after: &str, files| ChangeRow {
+    let row = |field, key: &str, before: &str, after: &str| ChangeRow {
         field,
         key: key.into(),
         before: before.into(),
         after: after.into(),
-        files,
+        has_before_cover: false,
+        before_cover: Image::default(),
+        has_after_cover: false,
+        after_cover: Image::default(),
+    };
+    let cover = {
+        let mut pixels = SharedPixelBuffer::<Rgba8Pixel>::new(64, 64);
+        pixels.make_mut_slice().fill(Rgba8Pixel {
+            r: 30,
+            g: 102,
+            b: 245,
+            a: 255,
+        });
+        Image::from_rgba8(pixels)
+    };
+    let group = |title: &str, file: &str, rows: Vec<ChangeRow>| ChangeGroup {
+        title: title.into(),
+        file: file.into(),
+        rows: ModelRc::new(VecModel::from(rows)),
     };
     state.set_review_agent("Claude Code".into());
     state.set_review_playing(SharedString::default());
@@ -500,41 +520,52 @@ fn show_agents(window: &AppWindow, agents: Option<Agents>) {
         Agents::Settings => state.set_review_open(false),
         Agents::History => {
             state.set_review_open(false);
-            // The wheel over the page, as far down as it goes.
-            window
-                .window()
-                .dispatch_event(WindowEvent::PointerScrolled {
-                    position: LogicalPosition::new(700.0, 400.0),
-                    delta_x: 0.0,
-                    delta_y: -4000.0,
-                });
+            state.set_history_open(true);
         }
         Agents::Review => {
             state.set_review_kind(ChangeKind::Tags);
             state.set_review_files(12);
-            state.set_review_rows(ModelRc::new(VecModel::from(vec![
-                row(
-                    ChangeField::AlbumArtist,
-                    "AlbumArtist",
-                    "",
-                    "Pink Floyd",
-                    12,
-                ),
-                row(ChangeField::Year, "RecordingDate", "1979-11-30", "1979", 12),
+            state.set_review_shared(ModelRc::new(VecModel::from(vec![
+                row(ChangeField::AlbumArtist, "AlbumArtist", "", "Pink Floyd"),
+                row(ChangeField::Year, "RecordingDate", "1979-11-30", "1979"),
                 row(
                     ChangeField::Genre,
                     "Genre",
                     "Rock; Progressive",
                     "Progressive rock",
-                    12,
                 ),
-                row(ChangeField::Other, "Composer", "", "Roger Waters", 9),
-                row(
-                    ChangeField::Other,
-                    "id3:COMM:iTunNORM",
-                    " 00000A5C 00000B21",
-                    "",
-                    4,
+                ChangeRow {
+                    has_after_cover: true,
+                    after_cover: cover,
+                    ..row(ChangeField::Cover, "", "", "")
+                },
+            ])));
+            state.set_review_groups(ModelRc::new(VecModel::from(vec![
+                group(
+                    "In the Flesh?",
+                    "01 - In the Flesh.flac",
+                    vec![
+                        row(
+                            ChangeField::Title,
+                            "TrackTitle",
+                            "In the Flesh",
+                            "In the Flesh?",
+                        ),
+                        row(ChangeField::Other, "Composer", "", "Roger Waters"),
+                    ],
+                ),
+                group(
+                    "The Thin Ice",
+                    "02 - The Thin Ice.flac",
+                    vec![
+                        row(ChangeField::Other, "Composer", "", "Roger Waters"),
+                        row(
+                            ChangeField::Other,
+                            "id3:COMM:iTunNORM",
+                            " 00000A5C 00000B21",
+                            "",
+                        ),
+                    ],
                 ),
             ])));
             state.set_review_status(ReviewStatus::Waiting);
@@ -561,7 +592,8 @@ fn show_agents(window: &AppWindow, agents: Option<Agents>) {
             state.set_review_kind(ChangeKind::Playlist);
             state.set_review_playlist("Road trip".into());
             state.set_review_files(0);
-            state.set_review_rows(ModelRc::default());
+            state.set_review_shared(ModelRc::default());
+            state.set_review_groups(ModelRc::default());
             state.set_review_status(ReviewStatus::Waiting);
             state.set_review_open(true);
         }

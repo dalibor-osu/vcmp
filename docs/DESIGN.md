@@ -82,6 +82,19 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   screen. Chosen from offered options: Settings' column grows with the window
   between 720 and 960 px, and the cover and photo pickers become the same kind of
   dialog.
+- 2026-10-28, after using the app:
+  - The buttons under an album's or artist's picture are distracting and seldom
+    used. A button with three dots next to Play and Shuffle opens a menu with them:
+    find album cover, add to playlist and edit tags for albums; find photo online
+    and choose photo for artists. The room goes to a larger cover, and the other
+    text is a little bigger.
+  - Small icons in the player bar mark a lossless file and Last.fm scrobbling.
+  - On a big 2K monitor the app looks scaled down: Settings gets a zoom.
+  - The review of an agent's change is hard to navigate: its changes are grouped
+    per song/file.
+  - Many agent changes clutter Settings: they move to a dialog opened by a button
+    in Settings.
+  - The mouse wheel over the volume slider changes the volume.
 - 2026-10-28, labels (chosen from offered options,
   `docs/specs/2026-10-28-user-labels.md`): the owner's own names for tracks are
   called labels; "tags" stay the file tags. A Labels section comes after Playlists
@@ -89,4 +102,4 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   comes from a palette or a colour picker ("There should be a color picker as well
   as predefined palette to choose from"), and is drawn as a dot beside the name in
   plain text. Labels show as chips on track rows and as a column in the Songs
-  table.
+  table. An album's three-dot menu has Labels too, for all its tracks.

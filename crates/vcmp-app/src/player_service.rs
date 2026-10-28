@@ -37,8 +37,8 @@ use crate::library_view::{LibraryView, format_duration};
 use crate::saved_queue;
 use crate::selection::{self, Selectable};
 use crate::{
-    AppWindow, PlayState, PlayerProblem, PlayerState, QueueRow, QueueSource, Repeat, Shuffle,
-    ShuffleKind,
+    AppWindow, PlayState, PlayerProblem, PlayerState, QueueRow, QueueSource, Repeat, ScrobbleMark,
+    Shuffle, ShuffleKind,
 };
 
 pub const SETTING_VOLUME: &str = "playback.volume";
@@ -1413,6 +1413,7 @@ impl PlayerService {
         let Some(now) = now else {
             state.set_has_track(false);
             state.set_track_path("".into());
+            state.set_lossless_format(SharedString::default());
             state.set_has_cover(false);
             state.set_cover(Image::default());
             state.set_album(SharedString::default());
@@ -1489,6 +1490,7 @@ impl PlayerService {
         self.start_play(track.as_ref(), duration);
         self.update_presence();
 
+        state.set_lossless_format(lossless_format(track.as_ref()).into());
         state.set_has_track(true);
         state.set_initial(initial(&title).into());
         state.set_title(title.into());
@@ -1595,6 +1597,12 @@ impl PlayerService {
             };
             Some((track, Play::new(duration)))
         });
+        let eligible = self.play.borrow().is_some() && lastfm::scrobble_point(duration).is_some();
+        self.show_scrobble(if eligible {
+            ScrobbleMark::Counting
+        } else {
+            ScrobbleMark::None
+        });
         self.announced.set(false);
         self.announce();
     }
@@ -1628,8 +1636,15 @@ impl PlayerService {
                 started: play.started().unwrap_or_else(SystemTime::now),
             }
         };
+        self.show_scrobble(ScrobbleMark::Scrobbled);
         if let Some(sink) = self.scrobbles.borrow().as_ref() {
             sink.scrobble(play);
+        }
+    }
+
+    fn show_scrobble(&self, mark: ScrobbleMark) {
+        if let Some(window) = self.window.upgrade() {
+            window.global::<PlayerState>().set_scrobble(mark);
         }
     }
 
@@ -1903,6 +1918,14 @@ fn entry(track: &Track) -> Option<QueueEntry> {
 /// position may be and still count as the seek's own.
 const SEEK_SETTLE: Duration = Duration::from_secs(1);
 const SEEK_TOLERANCE: Duration = Duration::from_millis(1500);
+
+/// The format's name when the track is stored without loss, for the bar's mark.
+fn lossless_format(track: Option<&Track>) -> &'static str {
+    track
+        .and_then(|track| track.format)
+        .filter(|format| format.is_lossless())
+        .map_or("", |format| format.name())
+}
 
 fn show_position(state: &PlayerState, position: Duration) {
     state.set_position_ms(position.as_millis() as i32);

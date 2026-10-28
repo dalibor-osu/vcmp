@@ -382,6 +382,90 @@ fn tag_changes_wait_for_review_under_the_agents_name() {
     assert!(both.contains("both set and removed"), "{both}");
 }
 
+/// A 1 x 1 PNG.
+const PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+    0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+#[test]
+fn a_cover_from_a_file_waits_for_review_like_any_tag() {
+    let setup = start();
+    let mut session = setup.session();
+    let (a, b) = (
+        id_of(&setup.library, "a.flac"),
+        id_of(&setup.library, "b.flac"),
+    );
+    let image = setup._dir.path().join("cover.png");
+    std::fs::write(&image, PNG).unwrap();
+    let cover = json!({ "file": image.to_str().unwrap() });
+
+    let answer = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [
+                { "track_id": a.0, "cover": cover },
+                { "track_id": b.0, "cover": cover },
+            ] }),
+        )
+        .unwrap();
+    let id = ChangeSetId(answer["change_set_id"].as_i64().unwrap());
+    let set = setup.library.change_set(id).unwrap().unwrap();
+    assert_eq!(set.files.len(), 2);
+    for file in &set.files {
+        assert!(
+            matches!(&file.edits[..], [(target, Some(_))] if target == "cover"),
+            "{:?}",
+            file.edits
+        );
+        assert_eq!(file.cover_before, Some(None), "the files had no cover");
+    }
+    let status = session
+        .call("get_change_set", json!({ "change_set_id": id.0 }))
+        .unwrap();
+    assert_eq!(status["files"][0]["cover"], "replaced");
+
+    let text = setup._dir.path().join("notes.txt");
+    std::fs::write(&text, "not a picture").unwrap();
+    let refused = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [{ "track_id": a.0, "cover": { "file": text.to_str().unwrap() } }] }),
+        )
+        .unwrap_err();
+    assert!(refused.contains("not a JPEG or PNG"), "{refused}");
+    let relative = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [{ "track_id": a.0, "cover": { "file": "cover.png" } }] }),
+        )
+        .unwrap_err();
+    assert!(relative.contains("absolute path"), "{relative}");
+    let page = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [{ "track_id": a.0, "cover": { "url": "file:///etc/passwd" } }] }),
+        )
+        .unwrap_err();
+    assert!(page.contains("only http and https"), "{page}");
+
+    let removed = session
+        .call(
+            "propose_tag_changes",
+            json!({ "changes": [{ "track_id": a.0, "remove": ["cover"] }] }),
+        )
+        .unwrap();
+    let set = setup
+        .library
+        .change_set(ChangeSetId(removed["change_set_id"].as_i64().unwrap()))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(&set.files[0].edits[..], [(target, None)] if target == "cover"));
+}
+
 #[test]
 fn agents_find_tracks_by_label_and_label_changes_wait_for_review() {
     let setup = start();

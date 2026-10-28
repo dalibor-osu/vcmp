@@ -17,7 +17,8 @@ use vcmp_app::agents::{
 use vcmp_app::library_service::{Delivery, LibraryPaths};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::{
-    AgentState, AppWindow, ChangeField, ChangeKind, ChangeStatus, ReviewStatus, ServerStatus,
+    AgentState, AppWindow, ChangeField, ChangeKind, ChangeRow, ChangeStatus, ReviewStatus,
+    ServerStatus,
 };
 use vcmp_library::{ChangeSetId, FieldEdit, LabelEdit, Library, NewLabel, TagEdit, TrackId};
 
@@ -133,6 +134,23 @@ impl App {
         assert!(self.agents.wait_until_written(Duration::from_secs(20)));
     }
 
+    /// The review's rows: those every file shares, then each file's own.
+    fn review_rows(&self) -> Vec<ChangeRow> {
+        let state = self.state();
+        let mut rows: Vec<ChangeRow> = state.get_review_shared().iter().collect();
+        for group in state.get_review_groups().iter() {
+            rows.extend(group.rows.iter());
+        }
+        rows
+    }
+
+    /// Settings, and the dialog listing the changes by agents.
+    fn open_history(&self) {
+        self.open_settings();
+        self.press("Show the changes by agents");
+        assert!(self.state().get_history_open());
+    }
+
     fn history(&self) -> Vec<(ChangeKind, ChangeStatus)> {
         self.state()
             .get_history()
@@ -159,8 +177,17 @@ fn a_waiting_change_shows_in_the_sidebar_and_in_settings() {
         AccessibleRole::Button,
         "1 change by an agent waits for your review, opens it",
     );
-    app.open_settings();
-    app.find(AccessibleRole::Button, "Review the change asked by Claude");
+    app.open_history();
+    app.press("Review the change asked by Claude");
+    assert!(app.state().get_review_open());
+    assert!(
+        !app.state().get_history_open(),
+        "the review takes its place"
+    );
+    app.press("Close; the change keeps waiting for your review");
+    assert!(app.state().get_history_open(), "and gives it back");
+    app.press("Close the changes by agents");
+    assert!(!app.state().get_history_open());
     assert_eq!(app.history(), [(ChangeKind::Tags, ChangeStatus::Pending)]);
     assert_eq!(app.title_of(app.id("One")), "One", "nothing is written yet");
 }
@@ -176,7 +203,7 @@ fn accepting_writes_the_files() {
     assert!(state.get_review_open());
     assert_eq!(state.get_review_kind(), ChangeKind::Tags);
     assert_eq!(state.get_review_agent(), "Claude");
-    let rows: Vec<_> = state.get_review_rows().iter().collect();
+    let rows = app.review_rows();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].field, ChangeField::Title);
     assert_eq!(
@@ -197,10 +224,55 @@ fn accepting_writes_the_files() {
 }
 
 #[test]
-fn the_same_change_in_several_files_is_one_row() {
+fn the_review_lists_shared_changes_once_then_each_file() {
     let app = start();
-    let edit = TagEdit {
+    let edit = |title: &str| TagEdit {
+        title: FieldEdit::Set(title.into()),
         album_artist: FieldEdit::Set("Band".into()),
+        ..TagEdit::default()
+    };
+    app.agents
+        .submit_tags(
+            "Claude",
+            &[(app.id("Two"), edit("Dos")), (app.id("One"), edit("Uno"))],
+        )
+        .unwrap();
+    app.press("1 change by an agent waits for your review, opens it");
+    let state = app.state();
+    let shared: Vec<ChangeRow> = state.get_review_shared().iter().collect();
+    assert_eq!(shared.len(), 1, "the album artist, once");
+    assert_eq!(shared[0].field, ChangeField::AlbumArtist);
+    assert_eq!(
+        (shared[0].before.as_str(), shared[0].after.as_str()),
+        ("", "Band")
+    );
+    let groups: Vec<_> = state.get_review_groups().iter().collect();
+    let titles: Vec<&str> = groups.iter().map(|group| group.title.as_str()).collect();
+    assert_eq!(titles, ["One", "Two"], "each file, by path");
+    for (group, after) in groups.iter().zip(["Uno", "Dos"]) {
+        let rows: Vec<ChangeRow> = group.rows.iter().collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].field, ChangeField::Title);
+        assert_eq!(rows[0].after, after);
+        assert!(group.file.ends_with(".flac"), "{}", group.file);
+    }
+    assert!(
+        ElementHandle::find_by_accessible_label(&app.window, "After: Uno")
+            .next()
+            .is_some(),
+        "values are read out with their column"
+    );
+}
+
+#[test]
+fn a_new_cover_is_shown_in_the_review_and_written() {
+    let app = start();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(32, 32, image::Rgb([200, 40, 160]))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let edit = TagEdit {
+        cover: FieldEdit::Set(bytes.into_inner()),
         ..TagEdit::default()
     };
     app.agents
@@ -210,13 +282,28 @@ fn the_same_change_in_several_files_is_one_row() {
         )
         .unwrap();
     app.press("1 change by an agent waits for your review, opens it");
-    let rows: Vec<_> = app.state().get_review_rows().iter().collect();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].field, ChangeField::AlbumArtist);
-    assert_eq!(rows[0].files, 2);
-    assert_eq!(
-        (rows[0].before.as_str(), rows[0].after.as_str()),
-        ("", "Band")
+    let state = app.state();
+    let shared: Vec<ChangeRow> = state.get_review_shared().iter().collect();
+    assert_eq!(shared.len(), 1, "the same cover for both files, once");
+    assert_eq!(shared[0].field, ChangeField::Cover);
+    assert!(!shared[0].has_before_cover);
+    assert!(shared[0].has_after_cover);
+    assert_eq!(shared[0].after_cover.size().width, 32, "the image itself");
+    assert_eq!(state.get_review_groups().row_count(), 0);
+    assert!(
+        ElementHandle::find_by_accessible_label(&app.window, "After: the new cover")
+            .next()
+            .is_some()
+    );
+
+    app.accept("Write 2 files");
+    assert_eq!(state.get_review_written(), 2);
+    let album = app.library.track(app.id("One")).unwrap().unwrap().album_id;
+    assert!(
+        album
+            .and_then(|album| app.library.album(album).unwrap())
+            .is_some_and(|album| album.artwork.is_some()),
+        "the album has the cover now"
     );
 }
 
@@ -248,13 +335,13 @@ fn an_undo_from_settings_is_reviewed_and_puts_the_tags_back() {
     app.accept("Write 1 file");
     app.press("Close");
 
-    app.open_settings();
+    app.open_history();
     app.press("Undo the change asked by Claude");
     let state = app.state();
     assert!(state.get_review_open());
     assert_eq!(state.get_review_kind(), ChangeKind::Undo);
     assert_eq!(state.get_review_agent(), "", "the owner asked");
-    let rows: Vec<_> = state.get_review_rows().iter().collect();
+    let rows = app.review_rows();
     assert_eq!(rows[0].field, ChangeField::Title);
     assert_eq!(
         (rows[0].before.as_str(), rows[0].after.as_str()),
@@ -309,13 +396,18 @@ fn a_change_of_labels_is_reviewed_and_can_be_undone() {
     let state = app.state();
     assert_eq!(state.get_review_kind(), ChangeKind::Labels);
     assert_eq!(state.get_review_new_labels(), "chill");
-    let rows: Vec<_> = state.get_review_rows().iter().collect();
-    assert_eq!(rows.len(), 1, "the same label on both tracks is one row");
-    assert_eq!(rows[0].field, ChangeField::Label);
+    let shared: Vec<ChangeRow> = state.get_review_shared().iter().collect();
+    assert_eq!(shared.len(), 1, "both tracks get the label: listed once");
+    assert_eq!(shared[0].field, ChangeField::Label);
     assert_eq!(
-        (rows[0].key.as_str(), rows[0].after.as_str(), rows[0].files),
-        ("chill", "chill", 2)
+        (
+            shared[0].key.as_str(),
+            shared[0].before.as_str(),
+            shared[0].after.as_str()
+        ),
+        ("chill", "", "chill")
     );
+    assert_eq!(state.get_review_groups().row_count(), 0);
 
     app.accept("Change 2 tracks");
     assert_eq!(state.get_review_written(), 2);
@@ -335,9 +427,15 @@ fn a_change_of_labels_is_reviewed_and_can_be_undone() {
     );
     app.press("Close");
 
-    app.open_settings();
+    app.open_history();
     app.press("Undo the change asked by Claude");
     assert_eq!(state.get_review_kind(), ChangeKind::LabelUndo);
+    let shared: Vec<ChangeRow> = state.get_review_shared().iter().collect();
+    assert_eq!(
+        (shared[0].before.as_str(), shared[0].after.as_str()),
+        ("chill", ""),
+        "the undo takes the label off"
+    );
     app.accept("Undo on 2 tracks");
     assert!(on(one).is_empty());
     assert!(
