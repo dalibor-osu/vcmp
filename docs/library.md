@@ -73,7 +73,14 @@ aren't valid UTF-8 keep working.
    - A file the database has but the disk doesn't is marked unavailable. Rows are
      never deleted, so playlists keep their entries.
 3. **Read** new and changed files in path order on one reader thread, which runs
-   ahead of the database writes (one transaction per 200 files).
+   ahead of the database writes (`write_as_received`: at most 200 files to a
+   transaction).
+   - The scan commits before it waits for the reader, so it holds the write lock
+     only while it writes files already read. Held while a hard disk read 200 files,
+     it locked the window's connection out for longer than its 5-second busy
+     timeout: turning on AI agents at the first start of 26.10.1, which re-reads
+     every file, was not saved. Re-reading files after a tag write reads them all
+     first for the same reason.
    - The file type is detected from content, not the extension, so an Opus stream
      named `.ogg` is skipped as unsupported. Unreadable files are skipped and listed
      in the report.
