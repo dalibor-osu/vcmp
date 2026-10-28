@@ -45,6 +45,16 @@ const SAMPLE: &str = "1";
 /// what lofty writes back, so they are written through their common names only.
 const TIMESTAMP_FRAMES: [&str; 5] = ["TDEN", "TDOR", "TDRC", "TDRL", "TDTG"];
 
+/// The ID3v2 frames that hold a number and its total as `number/total`, with the keys
+/// lofty lists the two under. lofty builds such a frame only from the keys it is
+/// given, so a total given alone would replace the number with 0, and it writes
+/// `MVIN`'s two as two values instead of a pair. VCMP writes these frames itself.
+const NUMBER_PAIRS: [(&str, ItemKey, ItemKey); 3] = [
+    ("TRCK", ItemKey::TrackNumber, ItemKey::TrackTotal),
+    ("TPOS", ItemKey::DiscNumber, ItemKey::DiscTotal),
+    ("MVIN", ItemKey::MovementNumber, ItemKey::MovementTotal),
+];
+
 /// A parsed tag key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Key {
@@ -222,6 +232,16 @@ pub(crate) fn names_shown(resolved: &[Resolved]) -> bool {
     resolved.iter().any(|edit| is_shown(&edit.name))
 }
 
+/// The values the edits give `item`: None when they leave it alone, an empty list
+/// when they clear it.
+pub(crate) fn values_of(resolved: &[Resolved], item: ItemKey) -> Option<&[String]> {
+    let name = tags::generic_key(item);
+    resolved
+        .iter()
+        .find(|edit| edit.name == name)
+        .map(|edit| edit.values.as_deref().unwrap_or_default())
+}
+
 /// Resolves the edits for a file of `format`. Fails with the key that the file's tag
 /// can't hold, that names the same tag as another key of the edit, or that is one of
 /// the nine fields' keys while `raw` is off.
@@ -339,12 +359,15 @@ fn apply_id3v2(tag: &mut Id3v2Tag, edits: &[(&Key, Option<&[String]>)]) -> Resul
             Key::Vorbis(_) => return Err(format!("{key} is a Vorbis comment field")),
         }
     }
+    for pair in NUMBER_PAIRS {
+        apply_number_pair(tag, &mut common, pair)?;
+    }
     if common.is_empty() {
         return Ok(());
     }
     // The frames holding an edited key go through lofty's generic form and back, so
-    // a frame holding two keys (TRCK holds the track number and total) keeps the one
-    // not edited. Every other frame stays exactly as it was.
+    // a frame holding several keys (TIPL holds the producer and the engineer) keeps
+    // the ones not edited. Every other frame stays exactly as it was.
     let names: Vec<String> = common
         .iter()
         .map(|(item, _)| tags::generic_key(*item))
@@ -373,11 +396,67 @@ fn apply_id3v2(tag: &mut Id3v2Tag, edits: &[(&Key, Option<&[String]>)]) -> Resul
     Ok(())
 }
 
-/// The keys the scan lists a frame's values under.
-fn frame_keys(frame: &Frame<'static>) -> Vec<String> {
+/// Takes the edits of one of [`NUMBER_PAIRS`] out of `common` and writes them into
+/// the frame, which keeps the part not edited.
+fn apply_number_pair(
+    tag: &mut Id3v2Tag,
+    common: &mut Vec<(ItemKey, Option<&[String]>)>,
+    (id, number_key, total_key): (&'static str, ItemKey, ItemKey),
+) -> Result<(), String> {
+    let (mut number_edit, mut total_edit) = (None, None);
+    common.retain(|&(item, values)| {
+        if item == number_key {
+            number_edit = Some(values);
+        } else if item == total_key {
+            total_edit = Some(values);
+        }
+        item != number_key && item != total_key
+    });
+    if number_edit.is_none() && total_edit.is_none() {
+        return Ok(());
+    }
+    let frame_id = FrameId::Valid(Cow::Borrowed(id));
+    let held = tag.get(&frame_id).map(frame_entries).unwrap_or_default();
+    let part = |item: ItemKey, edit: Option<Option<&[String]>>| {
+        let name = tags::generic_key(item);
+        match edit.map(Option::unwrap_or_default) {
+            None => Ok(held
+                .iter()
+                .find(|entry| entry.key == name)
+                .map(|entry| entry.value.clone())),
+            Some([]) => Ok(None),
+            Some([value]) => Ok(Some(value.clone())),
+            Some(_) => Err(format!("{id} holds one {name}")),
+        }
+    };
+    let number = part(number_key, number_edit)?;
+    let total = part(total_key, total_edit)?;
+    let _ = tag.remove(&frame_id);
+    let content = match (number, total) {
+        (None, None) => return Ok(()),
+        (Some(number), None) => number,
+        // A total needs a number in front of it; lofty puts 0 there too. The scan
+        // then reads a number nobody asked for, which the checks after writing refuse.
+        (number, Some(total)) => format!("{}/{total}", number.as_deref().unwrap_or("0")),
+    };
+    tag.insert(Frame::Text(TextInformationFrame::new(
+        frame_id,
+        TextEncoding::UTF8,
+        content,
+    )));
+    Ok(())
+}
+
+/// What the scan lists a frame's values as.
+fn frame_entries(frame: &Frame<'static>) -> Vec<TagEntry> {
     let mut single = Id3v2Tag::new();
     single.insert(frame.clone());
     tags::id3v2_entries(&single)
+}
+
+/// The keys the scan lists a frame's values under.
+fn frame_keys(frame: &Frame<'static>) -> Vec<String> {
+    frame_entries(frame)
         .into_iter()
         .map(|entry| entry.key)
         .collect()

@@ -189,9 +189,9 @@ impl TagEdit {
         Ok(())
     }
 
-    /// What the scanner should read from the file once `self` is written to a file
-    /// that currently reads as `current`.
-    fn applied_to(&self, current: &TrackTags) -> TrackTags {
+    /// What the scanner should read from the file once `self`, its other tags resolved
+    /// as `other`, is written to a file that currently reads as `current`.
+    fn applied_to(&self, current: &TrackTags, other: &[Resolved]) -> TrackTags {
         fn text(edit: &FieldEdit<String>, current: &Option<String>) -> Option<String> {
             match edit.normalized() {
                 FieldEdit::Keep => current.clone(),
@@ -206,6 +206,16 @@ impl TagEdit {
                 FieldEdit::Clear => None,
             }
         }
+        // MusicBrainz IDs are edited as other tags; the scan reads the first value.
+        let id = |item: ItemKey, current: &Option<String>| match other_tags::values_of(other, item)
+        {
+            None => current.clone(),
+            Some(values) => values
+                .first()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned),
+        };
         TrackTags {
             title: text(&self.title, &current.title),
             artist: text(&self.artist, &current.artist),
@@ -215,7 +225,13 @@ impl TagEdit {
             disc_number: value(&self.disc_number, current.disc_number),
             year: value(&self.year, current.year),
             genre: text(&self.genre, &current.genre),
-            ..current.clone()
+            mb_album_id: id(ItemKey::MusicBrainzReleaseId, &current.mb_album_id),
+            mb_recording_id: id(ItemKey::MusicBrainzRecordingId, &current.mb_recording_id),
+            mb_artist_id: id(ItemKey::MusicBrainzArtistId, &current.mb_artist_id),
+            mb_album_artist_id: id(
+                ItemKey::MusicBrainzReleaseArtistId,
+                &current.mb_album_artist_id,
+            ),
         }
     }
 }
@@ -332,7 +348,7 @@ pub(crate) fn write(
     }
     // Read back the way a scan reads, so the database will hold exactly what was asked.
     let reread = tags::read(copy.path(), false).map_err(TagWriteError::Verify)?;
-    let wanted = edit.applied_to(&current.tags);
+    let wanted = edit.applied_to(&current.tags, &other);
     if reread.format != current.format {
         return Err(TagWriteError::Verify("the file type changed".into()));
     }

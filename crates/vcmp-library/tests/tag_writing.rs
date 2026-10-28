@@ -916,6 +916,112 @@ fn a_total_is_edited_without_losing_its_number() {
 }
 
 #[test]
+fn a_number_and_its_total_are_written_together() {
+    for (fixture, extension) in FORMATS {
+        let mut setup = Setup::new();
+        // A file without tags, so the edit creates the tag.
+        let path = setup.music().join(format!("song.{extension}"));
+        fs::copy(Path::new(FIXTURES).join(fixture), &path).unwrap();
+        setup.scan();
+        let id = setup.id(&path);
+
+        let edit = TagEdit {
+            track_number: FieldEdit::Set(7),
+            ..other(&[("TrackTotal", values(&["15"]))])
+        };
+        let report = setup.write(&[(id, &edit)]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert_eq!(stored(&setup, id, "TrackTotal"), ["15"], "{extension}");
+        assert_eq!(
+            setup.library.track(id).unwrap().unwrap().track_number,
+            Some(7),
+            "{extension}"
+        );
+    }
+}
+
+#[test]
+fn a_total_is_added_to_a_number_without_one() {
+    for (fixture, extension) in FORMATS {
+        let mut setup = Setup::new();
+        // The disc number is 1, without a total.
+        let path = add_file(
+            &setup.music(),
+            &format!("song.{extension}"),
+            fixture,
+            "Title",
+            "Album",
+        );
+        setup.scan();
+        let id = setup.id(&path);
+
+        let report = setup.write(&[(id, &other(&[("DiscTotal", values(&["2"]))]))]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert_eq!(stored(&setup, id, "DiscTotal"), ["2"], "{extension}");
+        assert_eq!(stored(&setup, id, "DiscNumber"), ["1"], "{extension}");
+        assert_eq!(
+            setup.library.track(id).unwrap().unwrap().disc_number,
+            Some(1),
+            "{extension}"
+        );
+
+        // A movement number, its total, then the number again.
+        for (key, value) in [
+            ("MovementNumber", "2"),
+            ("MovementTotal", "5"),
+            ("MovementNumber", "3"),
+        ] {
+            let report = setup.write(&[(id, &other(&[(key, values(&[value]))]))]);
+            assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        }
+        assert_eq!(stored(&setup, id, "MovementNumber"), ["3"], "{extension}");
+        assert_eq!(stored(&setup, id, "MovementTotal"), ["5"], "{extension}");
+    }
+}
+
+#[test]
+fn a_musicbrainz_id_is_written_as_another_tag() {
+    for (fixture, extension) in FORMATS {
+        let mut setup = Setup::new();
+        let path = add_file(
+            &setup.music(),
+            &format!("song.{extension}"),
+            fixture,
+            "Title",
+            "Album",
+        );
+        setup.scan();
+        let id = setup.id(&path);
+
+        let recording = "7f6dc5d0-0caa-47fc-9d80-bac076b5a4f5";
+        let release = "4d1b6b7c-2d3e-4f5a-8b9c-0d1e2f3a4b5c";
+        let edit = other(&[
+            ("MusicBrainzRecordingId", values(&[recording])),
+            ("MusicBrainzReleaseId", values(&[release])),
+        ]);
+        let report = setup.write(&[(id, &edit)]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert_eq!(
+            stored(&setup, id, "MusicBrainzRecordingId"),
+            [recording],
+            "{extension}"
+        );
+        assert_eq!(
+            stored(&setup, id, "MusicBrainzReleaseId"),
+            [release],
+            "{extension}"
+        );
+
+        let report = setup.write(&[(id, &other(&[("MusicBrainzRecordingId", FieldEdit::Clear)]))]);
+        assert_eq!(report.written, [id], "{extension}: {:?}", report.failed);
+        assert!(
+            stored(&setup, id, "MusicBrainzRecordingId").is_empty(),
+            "{extension}"
+        );
+    }
+}
+
+#[test]
 fn a_native_key_with_a_common_name_reads_back_under_that_name() {
     let mut setup = Setup::new();
     let mp3 = add_file(&setup.music(), "a.mp3", "silence.mp3", "A", "Album");
