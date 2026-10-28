@@ -22,7 +22,7 @@ tokio-util = "0.7"
 # The relay's HTTP client, and covers agents give by web address; already in the
 # build for Last.fm, TLS included.
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
-vcmp-library = { version = "26.10.1", path = "../vcmp-library" }
+vcmp-library = { version = "26.10.2", path = "../vcmp-library" }
 
 [dev-dependencies]
 dunce = "1.0.5"
