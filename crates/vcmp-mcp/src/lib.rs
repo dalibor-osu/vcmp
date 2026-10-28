@@ -171,10 +171,12 @@ pub fn new_token() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// The command that adds the server to Claude Code.
+/// The command that adds the server to Claude Code, in user scope: the library is the
+/// same in every folder, and the Claude desktop app's Code tab drops a local-scope
+/// server at a session's second message (4.29.0, see docs/mcp.md).
 pub fn claude_code_command(port: u16, token: &str) -> String {
     format!(
-        "claude mcp add --transport http vcmp {} --header \"Authorization: Bearer {token}\"",
+        "claude mcp add --scope user --transport http vcmp {} --header \"Authorization: Bearer {token}\"",
         address(port)
     )
 }

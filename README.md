@@ -87,8 +87,10 @@ To add VCMP to Claude Code, copy the command Settings shows and run it. It looks
 like this, with your token:
 
 ```bash
-claude mcp add --transport http vcmp http://127.0.0.1:8267/mcp --header "Authorization: Bearer <token>"
+claude mcp add --scope user --transport http vcmp http://127.0.0.1:8267/mcp --header "Authorization: Bearer <token>"
 ```
+
+`--scope user` makes VCMP available in every folder you use Claude Code in.
 
 Other clients that speak MCP over HTTP need the same address and header.
 

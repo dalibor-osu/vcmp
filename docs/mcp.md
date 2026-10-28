@@ -111,6 +111,16 @@ client is in [manual-testing.md](manual-testing.md).
   window (`windows_subsystem = "windows"`); a client that starts `vcmp.exe mcp`
   with its standard input and output redirected still hands it those pipes, but that
   is yet to be seen working.
+- Settings' command adds VCMP to Claude Code in user scope. Added in local scope
+  (`claude mcp add` without `--scope`, for one folder), the Claude desktop app's
+  Code tab dropped it at every session's second message: 4.29.0 on Linux, with no
+  request failing and nothing in VCMP's log. Its sessions start in a spare folder
+  and move to the project, so local-scope servers seem to be read from the wrong
+  folder from the second message on.
+- rmcp ends a session after 5 minutes without a request (its default). Claude Code
+  negotiates protocol 2026-07-28, which has no sessions, so it isn't affected. A
+  client on an older version gets 404 for its session and has to connect again;
+  through the relay, the error says that VCMP was restarted.
 - Agents can't change covers.
 - A change waits for the window's event loop to take it; when that takes more than
   30 seconds, the agent is told that VCMP didn't answer in time.

@@ -228,8 +228,11 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       run with piped requests)**
 - [ ] Settings → AI agents: turn it on. The address, token and the Claude Code
       command show; Copy puts each on the clipboard. Run the command in a
-      terminal, then `claude mcp list` shows vcmp connected. **(never seen working
-      with a real client)**
+      terminal, then `claude mcp list` shows vcmp connected, in any folder. In the
+      Claude desktop app's Code tab, vcmp's tools are still there after a
+      session's second and third message. **(Claude Code connected and made a
+      playlist; the tools lasted past the first message only while vcmp was in
+      local scope, not yet seen in user scope)**
 - [ ] Ask Claude Code to list your albums, to show every tag of a track, and to
       find tracks without a MusicBrainz release ID. The answers match the library.
 - [ ] Ask it to fix something across an album (the album artist, the genre). The

@@ -383,7 +383,9 @@ fn the_switch_starts_the_server_and_is_kept() {
         state.get_address(),
         format!("http://127.0.0.1:{port}/mcp").as_str()
     );
-    assert!(state.get_setup_command().contains(&token));
+    let command = state.get_setup_command();
+    assert!(command.contains(&token), "{command}");
+    assert!(command.contains("--scope user"), "{command}");
     let desktop = state.get_desktop_config();
     assert!(desktop.starts_with("\"vcmp\": {"), "{desktop}");
     assert!(desktop.contains("\"args\":[\"mcp\"]"), "{desktop}");

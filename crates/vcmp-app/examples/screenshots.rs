@@ -443,12 +443,7 @@ fn show_agents(window: &AppWindow, agents: Option<Agents>) {
     state.set_address("http://127.0.0.1:8267/mcp".into());
     let token = "3f9c2a7e5b1d48f0a6c3e9b27d5f1a8c4e0b6d2f9a7c3e1b5d8f2a6c0e4b7d93";
     state.set_token(token.into());
-    state.set_setup_command(
-        format!(
-            "claude mcp add --transport http vcmp http://127.0.0.1:8267/mcp --header \"Authorization: Bearer {token}\""
-        )
-        .into(),
-    );
+    state.set_setup_command(vcmp_mcp::claude_code_command(8267, token).into());
     state
         .set_desktop_config("\"vcmp\": {\"args\":[\"mcp\"],\"command\":\"/opt/vcmp/vcmp\"}".into());
     state.set_backups_size("2.4 MB".into());
