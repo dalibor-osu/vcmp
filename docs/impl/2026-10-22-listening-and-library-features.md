@@ -52,10 +52,12 @@ PR #42 (merged since). It is on `feature/sleep-timer`, brought up to date with
     - `App::failures` in `tests/tag_editor.rs`, used only under `#[cfg(unix)]` and so
       dead code on Windows.
   - With `-A clippy::type_complexity`, the tag editor test is the only error.
-  - After `main` was merged in: `cargo fmt --all --check` is clean, but nothing
-    could be built. This machine has lost the MSVC C++ build tools: Visual Studio
-    Community 2026 (18.11.2) has no `VC\Tools\MSVC`, so every build script fails to
-    link. Tests, clippy and the screenshots wait for a build.
+  - After `main` (26.10.2) was merged in, all run again:
+    - `cargo fmt --all --check` is clean.
+    - `cargo test --workspace`: 510 passed, 0 failed, including the eight sleep timer
+      tests and `smallest_window_keeps_everything_inside`.
+    - Clippy shows the same two errors, both already on `main`.
+    - The sleep timer screenshots look right in both themes.
 
 ## Follow-up changes
 
@@ -135,9 +137,6 @@ one (a live or concept album). `cargo run -p vcmp-app`.
 - Fix the two clippy errors on `main`: alias the type in `reduce_motion.rs`, and
   gate `App::failures` with `#[cfg(unix)]`. They block the documented pre-merge
   check on Windows.
-- Install the C++ workload in Visual Studio again ("Desktop development with C++"),
-  then run the tests, clippy and the screenshots on the merged branch before it goes
-  further.
 - Start play history, the next phase of the spec. `main` is at schema version 12
   (labels), so its migration is 13.
 
