@@ -118,6 +118,10 @@ one (a live or concept album). `cargo run -p vcmp-app`.
 
 ## Known problems
 
+- **Not yet tested by hand:** merged into `main` on the automated checks alone. No
+  one has tried it in the real app or heard it on a real device yet. The steps in
+  "How to test" above and the two sleep timer items in `docs/manual-testing.md`
+  are still open.
 - **Menu placement:** the menu opens at the button's top-left corner and relies on
   Slint keeping popups inside the window. That was not seen in a real window (the
   screenshot example can't open menus).
