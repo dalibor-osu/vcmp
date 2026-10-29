@@ -159,6 +159,7 @@ cargo run -p vcmp-playback --example play -- path/to/album
 | `docs/development.md` | Build, test, integration keys, versions and releases |
 | `CLAUDE.md` | This file: conventions for working in the repository |
 | `docs/specs/` | Agreed specifications, one file per planned change |
+| `docs/impl/` | Implementation notes for a spec: what was built, how to test it, what is left (same feature name as the spec) |
 | `docs/DESIGN.md` | The owner's design direction |
 | `docs/ui.md` | UI structure, tokens, design reasons, known limits |
 | `docs/library.md` | Library storage, schema, scan and re-link rules, search, known limits |
