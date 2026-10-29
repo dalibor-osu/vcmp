@@ -672,7 +672,20 @@ The Albums page tells apart why it is empty:
     `tracks.format`) and, while a Last.fm account is connected, a mark for a play
     Last.fm will count, which changes to a tick once it has (`PlayerState.scrobble`,
     set from the same `lastfm::Play` that hands the scrobble over). Pointing at a
-    mark shows its name above it.
+    mark shows its name above it;
+  - the sleep timer, a moon next to the queue button. Its menu offers "End of this
+    track" and 15, 30, 45, 60 and 90 minutes, plus "Turn off sleep timer" while one
+    is on. While it is on the moon is in the accent; while it counts down, the minutes
+    left sit in the moon's hollow, and the button's label says them. When the time is
+    up, the track playing then finishes and playback stops with the next track
+    waiting (the engine's stop after the current track, [playback.md](playback.md#queue)).
+    A timer that runs out while nothing plays just ends, and Stop, or playback
+    stopping by itself, ends a running one. It counts in whole minutes on a Slint
+    timer and isn't saved.
+- **Width at 720 px** (at 100 % zoom): the bar's three parts have fixed minimums: 136 px for the
+  track, 240 px for the controls and 256 px for the buttons and volume. With its
+  padding and gaps that is exactly 720 px; another button on the right needs room
+  taken elsewhere (`smallest_window_keeps_everything_inside` checks it).
 - **Seeking** moves the bar to the new position at once. Positions the engine sent
   before it took the seek are ignored for up to a second, so the bar doesn't jump
   back.

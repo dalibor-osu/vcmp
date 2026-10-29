@@ -239,6 +239,21 @@ impl Harness {
     /// last frame was taken. Waiting for that, rather than for a pause in the audio,
     /// keeps a slow start or refill on a busy machine from ending the test early.
     fn play_to_end(&mut self) -> Vec<f32> {
+        self.play_until("the queue did not end", |event| {
+            *event == Event::TrackChanged(None)
+        })
+    }
+
+    /// Plays until the engine stops after a track, as asked with
+    /// [`Command::StopAfterCurrent`].
+    fn play_until_stopped(&mut self) -> Vec<f32> {
+        self.play_until("playback did not stop", |event| {
+            *event == Event::StateChanged(PlaybackState::Stopped)
+        })
+    }
+
+    /// Plays until an event `done` accepts has come and the last frame was taken.
+    fn play_until(&mut self, failure: &str, done: impl Fn(&Event) -> bool) -> Vec<f32> {
         let mut out = Vec::new();
         let deadline = Instant::now() + TIMEOUT;
         loop {
@@ -254,13 +269,13 @@ impl Harness {
             let ended = self
                 .seen
                 .iter()
-                .any(|(event, matched)| !matched && *event == Event::TrackChanged(None));
+                .any(|(event, matched)| !matched && done(event));
             if ended && self.device.available() == 0 {
                 return out;
             }
             assert!(
                 Instant::now() < deadline,
-                "the queue did not end; {} frames played",
+                "{failure}; {} frames played",
                 out.len() / 2
             );
             sleep(Duration::from_millis(1));
@@ -569,6 +584,109 @@ fn stop_and_play_after_the_end_start_from_the_beginning() {
     h.send(Command::Play);
     h.wait_for_track(Some(&a));
     assert_eq!(h.play_to_end().len() / 2, SPLIT);
+}
+
+#[test]
+fn stop_after_the_current_track_cuts_the_next_and_waits_with_it() {
+    let mut h = Harness::new(CD);
+    let (a, b) = (file("a", "flac"), file("b", "flac"));
+    h.play_context(vec![a.clone(), b.clone()]);
+    // Both tracks are decoded into the ring before the stop is asked for.
+    h.wait_until_buffered(TOTAL);
+    h.send(Command::StopAfterCurrent(true));
+    h.wait_for("the stop asked", |e| *e == Event::StopAfterCurrent(true));
+    // The callback that reaches the cut fills the rest of its buffer with silence.
+    let out = h.play_until_stopped();
+    let (first, after) = out.split_at(SPLIT * 2);
+    assert!(
+        max_error(first, 0, ramp(CD)) < 1e-4,
+        "all of the first track"
+    );
+    assert!(after.iter().all(|&s| s == 0.0), "none of the next");
+    h.wait_for("the stop done", |e| *e == Event::StopAfterCurrent(false));
+    h.wait_for(
+        "the next track, waiting",
+        |e| matches!(e, Event::TrackChanged(Some(now)) if now.entry == b && now.duration.is_none()),
+    );
+    assert!(
+        h.render(2_000).iter().all(|&s| s == 0.0),
+        "nothing plays once stopped"
+    );
+
+    h.send(Command::Play);
+    h.wait_for_track(Some(&b));
+    let rest = h.play_to_end();
+    assert_eq!(rest.len() / 2, TOTAL - SPLIT);
+    assert!(max_error(&rest, SPLIT, ramp(CD)) < 1e-4, "from its start");
+}
+
+#[test]
+fn stop_after_the_current_track_asked_early_never_prepares_the_next() {
+    let mut h = Harness::new(CD);
+    // Longer than the ring, so the first track is still being decoded when asked.
+    let tracks = vec![synth(RATE, 2, 3.0), synth(RATE, 2, 1.0)];
+    h.play_context(tracks.clone());
+    h.wait_for_track(Some(&tracks[0]));
+    h.send(Command::StopAfterCurrent(true));
+    let out = h.play_until_stopped();
+    let (first, after) = out.split_at(3 * RATE as usize * 2);
+    assert!(first.iter().skip(ramp(CD) * 2).all(|&s| s == 0.25));
+    assert!(after.iter().all(|&s| s == 0.0), "none of the next");
+    h.wait_for("the next track, waiting", |e| {
+        matches!(e, Event::TrackChanged(Some(now)) if now.entry == tracks[1] && now.duration.is_none())
+    });
+}
+
+#[test]
+fn taking_back_stop_after_the_current_track_continues_gaplessly() {
+    let mut h = Harness::new(CD);
+    let (a, b) = (file("a", "flac"), file("b", "flac"));
+    h.play_context(vec![a.clone(), b.clone()]);
+    h.wait_until_buffered(TOTAL);
+    h.send(Command::StopAfterCurrent(true));
+    h.send(Command::StopAfterCurrent(false));
+    h.wait_for("the stop taken back", |e| {
+        *e == Event::StopAfterCurrent(false)
+    });
+    let out = h.play_to_end();
+    assert_eq!(out.len() / 2, TOTAL);
+    assert!(max_error(&out, 0, ramp(CD)) < 1e-4);
+    h.wait_for_track(Some(&b));
+}
+
+#[test]
+fn stop_after_the_current_track_ends_a_repeating_track() {
+    let mut h = Harness::new(CD);
+    let a = file("a", "flac");
+    h.send(Command::SetRepeat(RepeatMode::One));
+    h.play_context(vec![a.clone()]);
+    h.wait_for_track(Some(&a));
+    h.send(Command::StopAfterCurrent(true));
+    let out = h.play_until_stopped();
+    let (round, after) = out.split_at(SPLIT * 2);
+    assert!(max_error(round, 0, ramp(CD)) < 1e-4);
+    assert!(after.iter().all(|&s| s == 0.0), "one round");
+    h.wait_for_track(Some(&a));
+}
+
+#[test]
+fn stop_and_the_end_of_the_queue_clear_stop_after_the_current_track() {
+    let mut h = Harness::new(CD);
+    let a = file("a", "wav");
+    h.play_context(vec![a.clone()]);
+    h.send(Command::StopAfterCurrent(true));
+    h.wait_for("the stop asked", |e| *e == Event::StopAfterCurrent(true));
+    h.send(Command::Stop);
+    h.wait_for("cleared by Stop", |e| *e == Event::StopAfterCurrent(false));
+    h.wait_for_state(PlaybackState::Stopped);
+
+    h.send(Command::Play);
+    h.send(Command::StopAfterCurrent(true));
+    // Nothing follows the last track anyway: the queue just ends.
+    assert_eq!(h.play_to_end().len() / 2, SPLIT);
+    h.wait_for("cleared at the end", |e| {
+        *e == Event::StopAfterCurrent(false)
+    });
 }
 
 #[test]

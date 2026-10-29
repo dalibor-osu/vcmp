@@ -38,6 +38,7 @@ pub fn source(glyph: Glyph) -> &'static str {
         Glyph::Scrobbled => include_str!("../ui/icons/scrobbled.svg"),
         Glyph::Plus => include_str!("../ui/icons/plus.svg"),
         Glyph::Minus => include_str!("../ui/icons/minus.svg"),
+        Glyph::Sleep => include_str!("../ui/icons/sleep.svg"),
     }
 }
 
@@ -85,7 +86,7 @@ pub fn install(window: &AppWindow) {
 mod tests {
     use super::*;
 
-    const ALL: [Glyph; 21] = [
+    const ALL: [Glyph; 22] = [
         Glyph::Play,
         Glyph::Pause,
         Glyph::Previous,
@@ -107,6 +108,7 @@ mod tests {
         Glyph::Scrobbled,
         Glyph::Plus,
         Glyph::Minus,
+        Glyph::Sleep,
     ];
 
     #[test]

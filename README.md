@@ -18,7 +18,8 @@ macOS.
   forward buttons move through the pages you have visited.
 - Plays MP3, FLAC, WAV and Ogg Vorbis without gaps between tracks, with a queue,
   shuffle and repeat. The queue is still there after a restart, and you can choose
-  the output device.
+  the output device. A sleep timer stops the music at the end of a track, now or
+  after 15 to 90 minutes.
 - Edits the tags of a track, an album or several selected tracks, covers included.
   It edits a copy of each file and checks it before replacing the original.
 - Labels: your own names for tracks, such as chill or workout, each with a colour.

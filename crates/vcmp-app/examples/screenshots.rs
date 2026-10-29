@@ -31,8 +31,8 @@ use vcmp_app::{
     AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeGroup,
     ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, CoverSearch as CoverPicker,
     CoverSearchStatus, LastfmState, LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState,
-    ReduceMotion, ReviewStatus, SelectionChange, ServerStatus, TagChange, TagEditorState,
-    TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection, UpdateState,
+    ReduceMotion, ReviewStatus, SelectionChange, ServerStatus, SleepTimer, TagChange,
+    TagEditorState, TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -72,6 +72,8 @@ struct Shot {
     selection: bool,
     // AI agents: Settings with the server on and a few changes, or a change in review.
     agents: Option<Agents>,
+    // The sleep timer counts down in the player bar.
+    sleep: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -107,6 +109,7 @@ const fn shot(
         photo_picker: false,
         selection: false,
         agents: None,
+        sleep: false,
     }
 }
 
@@ -126,6 +129,13 @@ const fn agents(name: &'static str, mode: ThemeMode, agents: Agents) -> Shot {
             None,
             0,
         )
+    }
+}
+
+const fn sleep(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        sleep: true,
+        ..shot(name, mode, 1, None, 0)
     }
 }
 
@@ -219,6 +229,8 @@ const SHOTS: &[Shot] = &[
     shot("folders-dark", ThemeMode::Dark, 6, None, 0),
     now_playing("now-playing-light", ThemeMode::Light),
     now_playing("now-playing-dark", ThemeMode::Dark),
+    sleep("sleep-timer-light", ThemeMode::Light),
+    sleep("sleep-timer-dark", ThemeMode::Dark),
     cover_picker("cover-picker-light", ThemeMode::Light),
     cover_picker("cover-picker-dark", ThemeMode::Dark),
     photo_picker("photo-picker-light", ThemeMode::Light),
@@ -308,6 +320,13 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     window.set_selected_index(shot.page);
     let player = window.global::<PlayerState>();
     player.set_now_playing_open(shot.now_playing);
+    // Set directly, so no timer runs while the shots are taken.
+    player.set_sleep_timer(if shot.sleep {
+        SleepTimer::Timed
+    } else {
+        SleepTimer::Off
+    });
+    player.set_sleep_minutes(if shot.sleep { 29 } else { 0 });
     // Set directly: the shots connect no account and send nothing to Last.fm.
     let lastfm = window.global::<LastfmState>();
     lastfm.set_available(shot.lastfm.is_some());

@@ -1,7 +1,7 @@
 import { Theme } from "theme.slint";
 import { FocusRing, IconButton, TextLink } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
-import { PlayerProblem, PlayerState, PlayState, Repeat, ScrobbleMark, Shuffle } from "player-state.slint";
+import { PlayerProblem, PlayerState, PlayState, Repeat, ScrobbleMark, Shuffle, SleepTimer } from "player-state.slint";
 import { LastfmState, LastfmStatus } from "lastfm-state.slint";
 
 // The play/pause button: the focal point of the bar, filled with the accent.
@@ -108,6 +108,59 @@ component TrackMark {
             font-size: Theme.font-small;
             accessible-role: none;
         }
+    }
+}
+
+// The sleep timer: a menu of lengths. While it is on the moon is in the accent, and
+// while it counts down the minutes left sit in the moon's hollow.
+component SleepButton {
+    width: Theme.target-height;
+    height: Theme.target-height;
+
+    menu := ContextMenuArea {
+        Menu {
+            if PlayerState.sleep-timer != SleepTimer.off: MenuItem {
+                title: @tr("Turn off sleep timer");
+                activated => {
+                    PlayerState.set-sleep-timer(0);
+                }
+            }
+            if PlayerState.sleep-timer != SleepTimer.off: MenuSeparator { }
+            MenuItem {
+                title: @tr("End of this track");
+                activated => {
+                    PlayerState.set-sleep-timer(-1);
+                }
+            }
+            for minutes in [15, 30, 45, 60, 90]: MenuItem {
+                title: @tr("{n} minute" | "{n} minutes" % minutes);
+                activated => {
+                    PlayerState.set-sleep-timer(minutes);
+                }
+            }
+        }
+
+        button := IconButton {
+            glyph: Glyph.sleep;
+            active: PlayerState.sleep-timer != SleepTimer.off;
+            enabled: PlayerState.has-track || PlayerState.sleep-timer != SleepTimer.off;
+            label: PlayerState.sleep-timer == SleepTimer.timed ? @tr("Sleep timer, {n} minute left" | "Sleep timer, {n} minutes left" % PlayerState.sleep-minutes)
+                : PlayerState.sleep-timer == SleepTimer.end-of-track ? @tr("Sleep timer, stops after this track")
+                : @tr("Sleep timer");
+            clicked => {
+                menu.show({ x: 0, y: 0 });
+            }
+        }
+    }
+
+    if PlayerState.sleep-timer == SleepTimer.timed: Text {
+        x: root.width - self.width - Theme.space-xs / 2;
+        y: Theme.space-xs;
+        text: PlayerState.sleep-minutes;
+        color: Theme.colors.accent;
+        font-size: Theme.font-small;
+        font-weight: Theme.weight-strong;
+        accessible-role: none;
     }
 }
 
@@ -284,7 +337,7 @@ export component PlayerBar inherits Rectangle {
         // What is playing. The title and the cover lead to the album, the artist
         // to the artist; the cover is for the pointer, the title the keyboard's way.
         HorizontalLayout {
-            min-width: 160px;
+            min-width: 136px;
             preferred-width: 280px;
             horizontal-stretch: 1;
             spacing: Theme.space-m;
@@ -503,9 +556,10 @@ export component PlayerBar inherits Rectangle {
             }
         }
 
-        // The now playing view's and the queue panel's switches, and the volume.
+        // The now playing view's and the queue panel's switches, the sleep timer and the
+        // volume.
         HorizontalLayout {
-            min-width: 200px;
+            min-width: 256px;
             preferred-width: 280px;
             horizontal-stretch: 1;
             alignment: end;
@@ -542,6 +596,12 @@ export component PlayerBar inherits Rectangle {
                         Theme.preferences-changed();
                     }
                 }
+            }
+
+            VerticalLayout {
+                alignment: center;
+
+                SleepButton { }
             }
 
             VerticalLayout {
