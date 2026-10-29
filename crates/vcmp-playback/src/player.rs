@@ -94,6 +94,11 @@ pub enum Command {
     /// Brings back a saved queue with its current track loaded, paused at the saved
     /// position.
     Restore(PlaybackSnapshot),
+    /// Stops at the end of whichever track is playing then, with the queue moved on to
+    /// the next one, ready to play from its start; nothing of that track is heard.
+    /// Skipping keeps it set for the new track. It is cleared once it has stopped,
+    /// by [`Command::Stop`], and when the queue runs out.
+    StopAfterCurrent(bool),
 }
 
 /// What the engine reports.
@@ -101,7 +106,8 @@ pub enum Command {
 pub enum Event {
     StateChanged(PlaybackState),
     /// A track started playing, or `None` when the queue ran out. Seeking does not
-    /// send this; a track repeating does.
+    /// send this; a track repeating does. After [`Command::StopAfterCurrent`] it names
+    /// the track that waits, stopped, with no duration until it plays.
     TrackChanged(Option<NowPlaying>),
     /// The position in the current track, a few times a second while playing and
     /// after every seek.
@@ -125,6 +131,9 @@ pub enum Event {
     OutputFailed(PlaybackError),
     /// A [`Command::Restore`] snapshot did not fit together.
     RestoreFailed(PlaybackError),
+    /// Whether playback stops after the current track, sent when that changes: when
+    /// asked, and when it is cleared, which it is also once it has stopped.
+    StopAfterCurrent(bool),
 }
 
 /// How much of a track must have played for Previous to restart it instead.

@@ -22,7 +22,7 @@ use vcmp_app::player_service::{
 use vcmp_app::saved_queue;
 use vcmp_app::{
     AppWindow, LastfmState, LastfmStatus, PlayState, PlayerProblem, PlayerState, Repeat,
-    ScrobbleMark, Shuffle, ShuffleKind,
+    ScrobbleMark, Shuffle, ShuffleKind, SleepTimer,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::media_controls::{self, Control, MediaState};
@@ -1502,4 +1502,108 @@ fn media_keys_control_the_player() {
     assert_eq!(app.sent.take(), []);
     press(NamedKey::MediaPause);
     assert_eq!(app.sent.take(), [Command::TogglePlayPause]);
+}
+
+/// Lets `minutes` pass, a minute at a time, as the sleep timer counts.
+fn pass_minutes(minutes: u64) {
+    for _ in 0..minutes {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_secs(60));
+    }
+}
+
+fn has_button(app: &App, label: &str) -> bool {
+    ElementHandle::find_by_accessible_label(&app.window, label)
+        .any(|element| element.accessible_role() == Some(AccessibleRole::Button))
+}
+
+#[test]
+fn the_sleep_timer_counts_down_then_stops_after_the_track_playing() {
+    let app = start(|_| {});
+    assert!(has_button(&app, "Sleep timer"));
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Playing));
+    app.sent.take();
+
+    app.state().invoke_set_sleep_timer(15);
+    assert_eq!(app.sent.take(), [Command::StopAfterCurrent(false)]);
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::Timed);
+    assert!(has_button(&app, "Sleep timer, 15 minutes left"));
+
+    pass_minutes(14);
+    assert_eq!(app.sent.take(), [], "still counting");
+    assert!(has_button(&app, "Sleep timer, 1 minute left"));
+
+    pass_minutes(1);
+    assert_eq!(app.sent.take(), [Command::StopAfterCurrent(true)]);
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::EndOfTrack);
+    assert!(has_button(&app, "Sleep timer, stops after this track"));
+
+    // The engine stops at the end of the track, with the next one waiting.
+    app.service.handle_event(Event::StopAfterCurrent(false));
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Stopped));
+    app.service
+        .handle_event(Event::TrackChanged(Some(NowPlaying {
+            entry: app.entry("2.flac"),
+            duration: None,
+        })));
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::Off);
+    assert_eq!(app.state().get_state(), PlayState::Stopped);
+    assert_eq!(app.state().get_title().as_str(), "Closing");
+    assert_eq!(app.state().get_duration_text().as_str(), "0:01");
+    pass_minutes(20);
+    assert_eq!(app.sent.take(), [], "the timer is over");
+}
+
+#[test]
+fn end_of_this_track_is_asked_at_once_and_can_be_taken_back() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.sent.take();
+
+    app.state()
+        .invoke_set_sleep_timer(vcmp_app::player_service::SLEEP_END_OF_TRACK);
+    assert_eq!(app.sent.take(), [Command::StopAfterCurrent(true)]);
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::EndOfTrack);
+
+    // A timer chosen instead takes its place.
+    app.state().invoke_set_sleep_timer(30);
+    assert_eq!(app.sent.take(), [Command::StopAfterCurrent(false)]);
+    app.service.handle_event(Event::StopAfterCurrent(false));
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::Timed);
+    assert_eq!(app.state().get_sleep_minutes(), 30);
+
+    app.state().invoke_set_sleep_timer(0);
+    assert_eq!(app.sent.take(), [Command::StopAfterCurrent(false)]);
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::Off);
+    pass_minutes(30);
+    assert_eq!(app.sent.take(), [], "turned off");
+}
+
+#[test]
+fn a_sleep_timer_ends_quietly_when_nothing_plays_or_playback_stops() {
+    let app = start(|_| {});
+    app.service.handle_event(app.now_playing("1.flac"));
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Paused));
+    app.sent.take();
+    app.state().invoke_set_sleep_timer(15);
+    pass_minutes(15);
+    assert_eq!(
+        app.sent.take(),
+        [Command::StopAfterCurrent(false)],
+        "paused: nothing left to stop"
+    );
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::Off);
+
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Playing));
+    app.state().invoke_set_sleep_timer(15);
+    app.service
+        .handle_event(Event::StateChanged(PlaybackState::Stopped));
+    assert_eq!(app.state().get_sleep_timer(), SleepTimer::Off);
+    app.sent.take();
+    pass_minutes(15);
+    assert_eq!(app.sent.take(), [], "stopping ended the timer");
 }

@@ -10,6 +10,10 @@ export enum ShuffleKind { true-random, fewer-repeats }
 
 export enum Repeat { off, all, one }
 
+// The sleep timer: off, stopping after the current track, or counting down
+// `sleep-minutes` before it stops after the track playing then.
+export enum SleepTimer { off, end-of-track, timed }
+
 // The last playback problem; the UI words the sentence so it can be translated.
 // `tags-not-written`: tags that waited for the player to let go of a file failed.
 export enum PlayerProblem { none, no-output, track-failed, tags-not-written }
@@ -83,6 +87,9 @@ export global PlayerState {
     in property <Shuffle> shuffle;
     in property <ShuffleKind> shuffle-kind: ShuffleKind.fewer-repeats;
     in property <Repeat> repeat;
+    in property <SleepTimer> sleep-timer;
+    // Minutes left while the timer counts down, rounded up.
+    in property <int> sleep-minutes;
 
     // Discord Rich Presence: built with an application ID, and switched on.
     in property <bool> discord-available;
@@ -117,6 +124,8 @@ export global PlayerState {
     callback set-shuffle(Shuffle);
     callback set-shuffle-kind(ShuffleKind);
     callback set-repeat(Repeat);
+    // Minutes to count down, -1 to stop after the current track, 0 to turn it off.
+    callback set-sleep-timer(int);
     callback set-discord(bool);
     // Plays a queue panel entry, counted over Up next followed by the context tracks.
     callback play-queue-entry(int);

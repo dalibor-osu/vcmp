@@ -15,7 +15,7 @@ engine.
 let (player, events) = Player::new(PlayerOptions::default())?;
 player.send(Command::PlayContext { entries, origin: Some("album:42".into()), start: Some(3) });
 // events: StateChanged, TrackChanged, Position, QueueChanged, TrackFailed,
-//         OutputChanged, OutputFailed, RestoreFailed, Decoding
+//         OutputChanged, OutputFailed, RestoreFailed, Decoding, StopAfterCurrent
 ```
 
 - **Events into Slint (workstream 4):** forward them from a thread blocking on the
@@ -106,7 +106,8 @@ TrackSource ─► TrackStream ─► Converter ──────────�
    in.
 5. **Queue edits after the next track was decoded** ("Play next" during the last
    seconds of a track) send `Control::Cut`. At the boundary the callback jumps over the
-   stale next track to its replacement, without a fade.
+   stale next track to its replacement, without a fade. Asking to stop after the
+   current track cuts the next track the same way, with nothing after it.
 
 ## Gapless playback
 
@@ -206,6 +207,17 @@ These are the agreed semantics. The pure logic is `Queue`, and the engine drives
   moves on, and the context wraps around. Repeat is not in the spec; it was added
   because "each track once per cycle" needs a defined end of a cycle.
 - **End of the queue.** The player stops, and Play starts the context over.
+- **Stop after the current track** (`Command::StopAfterCurrent`, the sleep timer's
+  end). Nothing is prepared after the current track, and a next track already in the
+  ring is cut. When the track ends, the queue moves on as usual and the player stops
+  with the next track waiting at its start. `TrackChanged` names that track with no
+  duration, since its file opens only when it plays.
+  - Skipping keeps the request for whichever track is current then; Repeat one stops
+    instead of repeating.
+  - It is cleared once it has stopped, by Stop, and when the queue runs out;
+    `Event::StopAfterCurrent` reports each change.
+  - Doing this in the app on `TrackChanged` would let a moment of the next track
+    through, since that event comes once the next track is audible.
 - **Unplayable tracks** (missing file, unplugged drive, unsupported data) are reported
   with `TrackFailed` and skipped. After 100 in a row the player stops.
 

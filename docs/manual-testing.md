@@ -88,6 +88,13 @@ reading the code or with a simulated system, so they are the most likely to fail
       Clear; Delete and Alt+Up/Down on the focused row.
 - [ ] Quit while paused mid-track and start again: the queue comes back, paused at
       the same position.
+- [ ] Sleep timer: the moon button's menu opens fully inside the window (it sits
+      at the bottom edge), by click and by Enter. "End of this track" during a
+      gapless album: the track ends, nothing of the next one is heard, and the bar
+      shows the next track stopped at 0:00; Play starts it from its start.
+- [ ] Sleep timer, 15 minutes: the minutes left count down in the moon; when they
+      run out mid-track, the track plays to its end and stops there. "Turn off
+      sleep timer" before that: playback goes on.
 - [ ] Settings, Output device: "System default" is first, then the outputs. Pick
       another output while a track plays: the sound moves.
 - [ ] Unplug the chosen output (USB or Bluetooth) while playing: sound continues on

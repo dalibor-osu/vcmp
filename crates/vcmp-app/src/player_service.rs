@@ -7,6 +7,8 @@
 //! and to the OS media controls, whose media keys and widget drive the player.
 //! Plays go to Last.fm once they count by its rules, and so does the track playing.
 //! The file the engine has open is passed on, so tag edits to it can wait for it.
+//! The sleep timer counts down here and then has the engine stop after the track
+//! playing at that moment.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -17,7 +19,8 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use slint::{
-    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer,
+    TimerMode, VecModel,
 };
 use vcmp_library::{
     Album, AlbumId, ArtistId, CoverArtId, CoverLookup, LabelId, Library, PlaylistId, Track,
@@ -38,7 +41,7 @@ use crate::saved_queue;
 use crate::selection::{self, Selectable};
 use crate::{
     AppWindow, PlayState, PlayerProblem, PlayerState, QueueRow, QueueSource, Repeat, ScrobbleMark,
-    Shuffle, ShuffleKind,
+    Shuffle, ShuffleKind, SleepTimer,
 };
 
 pub const SETTING_VOLUME: &str = "playback.volume";
@@ -141,6 +144,11 @@ pub struct Presence {
 /// Setting key: show the playing track in Discord ("true" or "false"; absent: true).
 pub const SETTING_DISCORD: &str = "integrations.discord";
 
+/// `PlayerState.set-sleep-timer`'s value for stopping after the current track.
+pub const SLEEP_END_OF_TRACK: i32 = -1;
+/// The sleep timer counts down in whole minutes.
+const SLEEP_TICK: Duration = Duration::from_secs(60);
+
 /// An album nothing was found for is looked up again after this long, as MusicBrainz
 /// keeps growing.
 pub const RETRY_NOT_FOUND: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -197,6 +205,9 @@ pub struct PlayerService {
     // The file open when tags could not be written: the player bar says so until a
     // track after it starts.
     tags_notice_file: RefCell<Option<PathBuf>>,
+    // The sleep timer's minute ticks, and the minutes left (0 while none counts down).
+    sleep_timer: Timer,
+    sleep_minutes: Cell<i32>,
 }
 
 /// Told the file the engine has open, or `None`.
@@ -257,6 +268,8 @@ impl PlayerService {
             open_file: RefCell::default(),
             on_open_file: RefCell::default(),
             tags_notice_file: RefCell::default(),
+            sleep_timer: Timer::default(),
+            sleep_minutes: Cell::new(0),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -363,6 +376,14 @@ impl PlayerService {
             move |repeat| {
                 if let Some(service) = weak.upgrade() {
                     service.set_repeat(repeat);
+                }
+            }
+        });
+        state.on_set_sleep_timer({
+            let weak = weak.clone();
+            move |minutes| {
+                if let Some(service) = weak.upgrade() {
+                    service.set_sleep_timer(minutes);
                 }
             }
         });
@@ -1320,6 +1341,9 @@ impl PlayerService {
                 if playback != PlaybackState::Playing {
                     self.announced.set(false);
                 }
+                if playback == PlaybackState::Stopped {
+                    self.sleep_timer_done();
+                }
                 self.announce();
                 self.update_presence();
             }
@@ -1387,6 +1411,11 @@ impl PlayerService {
                 state.set_problem_detail(error.to_string().into());
             }
             Event::RestoreFailed(error) => log::warn!("could not restore the queue: {error}"),
+            Event::StopAfterCurrent(on) => {
+                if self.sleep_minutes.get() == 0 {
+                    self.show_sleep_timer(on);
+                }
+            }
             Event::Decoding(track) => {
                 let path = track.map(|track| PathBuf::from(track.id.as_ref()));
                 *self.open_file.borrow_mut() = path.clone();
@@ -1863,6 +1892,63 @@ impl PlayerService {
                 "fewer-repeats"
             },
         );
+    }
+
+    /// Starts the sleep timer for `minutes`, has playback stop after the current track
+    /// for [`SLEEP_END_OF_TRACK`], or turns the timer off for 0.
+    fn set_sleep_timer(&self, minutes: i32) {
+        self.sleep_timer.stop();
+        self.sleep_minutes.set(minutes.max(0));
+        self.player
+            .send(Command::StopAfterCurrent(minutes == SLEEP_END_OF_TRACK));
+        if minutes > 0 {
+            self.sleep_timer.start(TimerMode::Repeated, SLEEP_TICK, || {
+                if let Some(service) = SERVICE.with(|current| current.borrow().upgrade()) {
+                    service.sleep_tick();
+                }
+            });
+        }
+        self.show_sleep_timer(minutes == SLEEP_END_OF_TRACK);
+    }
+
+    /// A minute of the sleep timer has passed. When it runs out, playback stops after
+    /// the track playing then; when nothing plays, there is nothing left to stop.
+    fn sleep_tick(&self) {
+        let left = self.sleep_minutes.get() - 1;
+        self.sleep_minutes.set(left.max(0));
+        if left > 0 {
+            self.show_sleep_timer(false);
+            return;
+        }
+        self.sleep_timer.stop();
+        let playing = self.playing.get();
+        if playing {
+            self.player.send(Command::StopAfterCurrent(true));
+        }
+        self.show_sleep_timer(playing);
+    }
+
+    /// Ends the sleep timer once playback has stopped, by itself or by Stop.
+    fn sleep_timer_done(&self) {
+        self.sleep_timer.stop();
+        self.sleep_minutes.set(0);
+        self.show_sleep_timer(false);
+    }
+
+    fn show_sleep_timer(&self, end_of_track: bool) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let state = window.global::<PlayerState>();
+        let minutes = self.sleep_minutes.get();
+        state.set_sleep_minutes(minutes);
+        state.set_sleep_timer(if minutes > 0 {
+            SleepTimer::Timed
+        } else if end_of_track {
+            SleepTimer::EndOfTrack
+        } else {
+            SleepTimer::Off
+        });
     }
 
     fn set_repeat(&self, repeat: Repeat) {

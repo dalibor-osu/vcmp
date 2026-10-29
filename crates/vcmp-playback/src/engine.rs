@@ -7,7 +7,8 @@
 //! the next segment's start, that track has become audible and the queue moves on.
 //! If the queue changes so that a different track should follow, the prepared one
 //! is cut out of the ring (see [`Control::Cut`]); jumps (seek, skip, a new context)
-//! flush the ring instead.
+//! flush the ring instead. Asked to stop after the current track, the engine prepares
+//! nothing after it, as if the queue ended there.
 
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
@@ -85,6 +86,8 @@ pub(crate) struct Engine {
     /// Ring frame where the queue runs out.
     end_at: Option<u64>,
     state: PlaybackState,
+    /// [`Command::StopAfterCurrent`]: nothing follows the current track.
+    stop_after_current: bool,
     volume: f32,
     failures: usize,
     last_position: Instant,
@@ -119,6 +122,7 @@ impl Engine {
             segments: VecDeque::new(),
             end_at: None,
             state: PlaybackState::Stopped,
+            stop_after_current: false,
             volume: options.volume,
             failures: 0,
             last_position: Instant::now(),
@@ -237,6 +241,7 @@ impl Engine {
                 }
             }
             Command::Stop => {
+                self.set_stop_after_current(false);
                 if self.state != PlaybackState::Stopped {
                     self.flush();
                     self.set_state(PlaybackState::Stopped);
@@ -280,6 +285,27 @@ impl Engine {
                 }
                 Err(_) => self.emit(Event::RestoreFailed(PlaybackError::InvalidSnapshot)),
             },
+            Command::StopAfterCurrent(on) => {
+                self.set_stop_after_current(on);
+                self.check_prepared();
+            }
+        }
+    }
+
+    fn set_stop_after_current(&mut self, on: bool) {
+        if on != self.stop_after_current {
+            self.stop_after_current = on;
+            self.emit(Event::StopAfterCurrent(on));
+        }
+    }
+
+    /// The track to prepare after the current one: the queue's next, unless playback
+    /// stops after the current track.
+    fn following(&mut self) -> Option<&QueueEntry> {
+        if self.stop_after_current {
+            None
+        } else {
+            self.queue.peek_next()
         }
     }
 
@@ -527,8 +553,22 @@ impl Engine {
     /// Nothing more to play.
     fn queue_finished(&mut self) {
         self.flush();
+        self.set_stop_after_current(false);
         self.set_state(PlaybackState::Stopped);
         self.emit(Event::TrackChanged(None));
+    }
+
+    /// Stops at the end of a track, as asked, with `next` waiting to play from its
+    /// start. It is announced without a duration: its file is opened once it plays.
+    fn stop_before(&mut self, next: QueueEntry) {
+        self.flush();
+        self.set_stop_after_current(false);
+        self.set_state(PlaybackState::Stopped);
+        self.emit(Event::TrackChanged(Some(NowPlaying {
+            entry: next,
+            duration: None,
+        })));
+        self.emit(Event::Position(Duration::ZERO));
     }
 
     /// Decodes a little and moves audio towards the ring. False when there was
@@ -580,7 +620,7 @@ impl Engine {
             return;
         }
         loop {
-            let next = self.queue.peek_next().cloned();
+            let next = self.following().cloned();
             let Some(entry) = next else {
                 self.converter.finish(&mut self.pending);
                 self.end_at = Some(self.stream_base + self.converter.emitted());
@@ -619,10 +659,16 @@ impl Engine {
     /// one that should follow.
     fn queue_changed(&mut self) {
         self.emit_queue();
+        self.check_prepared();
+    }
+
+    /// Makes sure the track waiting in the ring is the one that should follow, or
+    /// that none waits when none should.
+    fn check_prepared(&mut self) {
         if self.state == PlaybackState::Stopped || self.segments.is_empty() {
             return;
         }
-        let expected = self.queue.peek_next().map(|entry| entry.track.clone());
+        let expected = self.following().map(|entry| entry.track.clone());
         match self.segments.get(1) {
             Some(prepared) if Some(&prepared.entry.track) == expected.as_ref() => {}
             Some(_) => {
@@ -688,8 +734,10 @@ impl Engine {
             && read >= end
             && self.segments.len() <= 1
         {
-            self.queue.advance(Advance::Ended);
-            self.queue_finished();
+            match self.queue.advance(Advance::Ended).cloned() {
+                Some(next) if self.stop_after_current => self.stop_before(next),
+                _ => self.queue_finished(),
+            }
             self.emit_queue();
             return;
         }
