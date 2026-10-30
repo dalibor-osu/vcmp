@@ -54,8 +54,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | `src/lastfm_service.rs` | `LastfmService`: the Last.fm row, the account, and plays into the scrobble queue |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note and the Updates section of Settings |
-| `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
-| `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread |
+| `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, the playback switch, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
+| `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread; `AppPlayback` (`src/player_service/agent_playback.rs`) brings their playback requests to `PlayerService` |
 | `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
 | `ui/labels.slint` | `Labels` global, `LabelEntry`, `LabelDot`, `LabelChip(s)`, `LabelFilter` (the Songs and Albums pages' label filter), `LabelEditor` (the dialog that makes or edits a label, with the palette and the custom colour picker) and the Labels section of Settings |
 | `ui/label-page.slint` | `LabelsPage`: the Labels section's list, and `LabelView`, one label's tracks with Play and Shuffle |
@@ -151,12 +151,13 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 | Last.fm connects in the browser while the row waits, with Cancel | Last.fm's desktop sign-in happens on last.fm; asking every few seconds spares an "I've allowed it" button |
 | One Last.fm button whose text follows the state (Connect…, Cancel, Disconnect) | The focus stays on it while the state changes under it |
-| AI agents are a section of Settings, off by default | The owner's decision (MCP spec, 2026-10-19): the server runs only while VCMP is open and the switch is on. Its connection (address, token, port, the Claude Code command and the Claude Desktop entry for `vcmp mcp`) shows only while it is on. The Claude Desktop entry carries the path of the VCMP that runs, and its `VCMP_HOME` when set, so the relay reads the same library |
+| AI agents are a section of Settings, off by default | The owner's decision (MCP spec, 2026-10-19): the server runs only while VCMP is open and the switch is on. Its connection (address, token, port, the Claude Code command and the Claude Desktop entry for `vcmp mcp`) shows only while it is on, and so does "Let AI agents control playback", a second switch, off by default (labels spec, 2026-10-28), so an agent can't start music unasked. The Claude Desktop entry carries the path of the VCMP that runs, and its `VCMP_HOME` when set, so the relay reads the same library |
 | Values to copy are read-only fields with a Copy button | The token and command are too long to read out; a field shows they are text, selects like text, and Copy needs no clipboard library (`TextField.copy-all`). A long value scrolls inside its field, which clips it |
 | A waiting change is a note at the foot of the sidebar, above the update note | The owner chose a notice that doesn't interrupt (spec, "Notice, review when ready"). The sidebar is on every page, like the update note; the note is in text colour, not muted, because it asks for a decision. A dialog that opens by itself would interrupt listening and typing |
 | The review is a dialog like the tag editor's, focus on Decide later | The same `Modal` pattern. Three answers: write, reject, or leave it waiting; the focus starts on the one that changes nothing, so an Enter pressed by accident writes nothing. A click beside it does nothing, and Escape decides later |
 | The review lists the changes by file: what every file gets first, once ("In all 12 files"), then each file with changes of its own under its title and file name, by path | The owner's request (2026-10-28): rows of values with counts were hard to follow back to the songs they touch. A change to a whole album still lists its shared values once, so the spec's risk (an owner who accepts what is too long to read) stays answered |
 | The review's values in two columns, Before and After, of equal width beside the field's name | The columns line up from row to row and file to file, so the eye runs down one of them. A screen reader hears each value with its column ("After: 1979") |
+| A change that only makes labels says so in the review, names them, and shows no table; its button counts the labels ("Make 4 labels"), and the list of changes calls it "New labels". The undo of a change of labels names the labels it deletes | Agents may set up the owner's labels before any track has them (issue #52). A table with no rows and "Change 0 tracks" would hide what is decided on: the names are the change |
 | A new cover in the review is the picture itself, 64 px | The owner decides on what the cover looks like; "a new cover" in words gave nothing to decide on |
 | Before in muted text, after in text colour | The new value is what the owner decides on; the old one is context |
 | Writing tags is the filled button; deleting a playlist is not | Written tags can be undone for 30 days, so filling the button that writes them doesn't push a risk. A deleted playlist can't come back, so its button stays outlined, under the warning |
@@ -183,7 +184,11 @@ thumbnail as for any cover, so animated pictures add nothing to its cost (see
 [Animated pictures](#animated-pictures)).
 
 A card under the pointer sits on a `surface` fill reaching into the gap around it,
-as hovered rows do, and its muted second line turns to `text` on it.
+as hovered rows do, and its muted second line turns to `text` on it. The fill
+reaches `space-s` past the card and the focus ring 3 px, so a `CardGrid` inside a
+`ScrollView` takes its side margins from padding inside the scrolling part: a
+`ScrollView` clips at its own edges, and a grid flush with them loses the fill's
+left side (`tests/search.rs` checks the Search and artist pages).
 
 Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
 on every frame, which doubled the grid's render time.
@@ -341,8 +346,8 @@ the new view in too.
 - **A playlist's page** (`PlaylistView`) shows its picture, name, number of tracks,
   minutes of the tracks that can play and how many files are not found, then
   Play, Shuffle and a More button (a right click on it does the same) with
-  Rename, Choose picture…, Use album covers (after choosing a picture) and Delete
-  playlist….
+  Rename, Choose picture…, Use album covers (after choosing a picture), Export… and
+  Delete playlist….
   - **Rename** turns the name into a field: Enter or Save keeps it, Escape or Cancel
     leaves it. An empty name keeps the old one.
   - **Delete** asks first, on the page, with the focus on Cancel; Escape cancels.
@@ -352,6 +357,12 @@ the new view in too.
     animated GIF, WebP or PNG plays on the page (see
     [Animated pictures](#animated-pictures)); a picture made from album covers never
     moves.
+  - **Export** opens the system's save dialog, in the folder of the last export
+    (while VCMP runs) and with the playlist's name and `.m3u8` filled in; a name
+    without `.m3u8` or `.m3u` gets `.m3u8`. The page then says where the file went,
+    how many entries point at files that aren't there now, and how many were left
+    out, or that the file could not be written. The note stays until another
+    playlist opens. The file's format is in `docs/library.md`, "Playlists".
 - **Entries** are numbered by position. One whose file is gone is dimmed and says
   "File not found" where the artist would be. Play, Shuffle and playing an entry
   (its play button, a double-click or Enter) play the entries that are there, as

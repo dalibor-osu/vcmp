@@ -236,9 +236,9 @@ impl Library {
 
     /// Records a label set for review: every label named must exist or be among
     /// `new_labels`, and every track must be in the library (its file may be gone).
-    /// Edits that change nothing (a label the track holds already) are left out, and
-    /// only the new labels some track gets are kept. Nothing changes until
-    /// [`Library::accept_change_set`].
+    /// Edits that change nothing (a label the track holds already) are left out. Every
+    /// new label is kept, whether a track gets it or not, so a set may only make
+    /// labels. Nothing changes until [`Library::accept_change_set`].
     pub fn submit_label_changes(
         &self,
         agent: &str,
@@ -329,17 +329,9 @@ impl Library {
                 cover_before: None,
             });
         }
-        if files.is_empty() {
+        if files.is_empty() && created.is_empty() {
             return Err(Error::EmptyChangeSet);
         }
-        created.retain(|(name, _)| {
-            let target = format!("label:{name}");
-            files.iter().any(|file| {
-                file.edits
-                    .iter()
-                    .any(|(edit, values)| *edit == target && values.is_some())
-            })
-        });
         self.insert_set(agent, "labels", None, None, &files, &created)
     }
 
@@ -365,7 +357,8 @@ impl Library {
     /// Records the undo of an accepted tag or label set, for review like any set. It
     /// puts back the values every written file (or labels every changed track) had
     /// before, provided it still holds what the set wrote. Undoing a label set also
-    /// deletes the labels it created that no track holds any more.
+    /// deletes the labels it created that no track holds any more, so a set that only
+    /// made labels can be undone while one of them is left.
     pub fn submit_undo(&self, id: ChangeSetId, agent: &str) -> Result<ChangeSetId> {
         let set = self.change_set(id)?.ok_or(Error::UnknownChangeSet(id))?;
         let labels = set.summary.kind == ChangeKind::Labels;
@@ -421,7 +414,14 @@ impl Library {
                 }
             })
             .collect();
-        if files.is_empty() {
+        let made_labels = labels
+            && set.new_labels.iter().any(|label| {
+                label.created == Some(true)
+                    && self
+                        .label_named(&label.name)
+                        .is_ok_and(|found| found.is_some())
+            });
+        if files.is_empty() && !made_labels {
             return Err(Error::NotUndoable(id));
         }
         let kind = if labels { "labels" } else { "tags" };

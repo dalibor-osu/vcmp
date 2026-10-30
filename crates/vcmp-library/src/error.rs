@@ -39,7 +39,7 @@ pub enum Error {
     #[error("change set {0:?} is not waiting for review")]
     ChangeSetNotPending(crate::ChangeSetId),
     #[error(
-        "change set {0:?} can't be undone: only an accepted tag or label set with written files can, once"
+        "change set {0:?} can't be undone: only an accepted tag or label set with written files (or labels it made that still exist) can, once"
     )]
     NotUndoable(crate::ChangeSetId),
     #[error("{0:?} can't be a label's name: it needs 1 to 40 characters")]

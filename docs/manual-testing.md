@@ -166,6 +166,21 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] The picture is made from the first four album covers; choose your own and
       go back.
 - [ ] Delete one of the files: its entry is dimmed and skipped while playing.
+- [ ] **(never seen working)** Export… a playlist with that missing entry, a track
+      in it twice and names outside ASCII (Dvořák, 日本) into the music folder, then
+      into a folder elsewhere on the same drive. The save dialog starts with the
+      playlist's name and `.m3u8`, and the page says where the file went and that
+      one entry's file isn't there. Export again to the same name: the dialog asks
+      before replacing it. On each of Windows, Linux and macOS:
+  - Open both files in VLC: every entry that is there plays, in order, twice
+    where it is twice, with the right titles. The file in the music folder has
+    paths like `Album/01 Track.flac`.
+  - Windows: open them in foobar2000 too. Export to a USB stick or another drive
+    letter than the music: the paths are absolute (`D:\Music\…`).
+  - Linux or macOS: export to a USB stick while the music is on the system disk:
+    the paths are absolute.
+  - Copy the music folder with the exported file in it to a phone, and open the
+    playlist in its player: the relative paths find the files.
 
 ### Labels
 
@@ -345,9 +360,37 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       on (once for what every track gets, then per track) and the new label.
       Change puts them on; the chips show at once. Undo… in Show changes… takes
       them off and removes the new label.
+- [ ] Ask Claude Code to set up labels (Favourite, Chill, Focus, Sleep) without
+      labelling any track. The review says the change only makes labels, names
+      them and has no table; Make 4 labels adds them to Settings → Labels with no
+      tracks, and they can be put on tracks like any label. The list of changes
+      shows it as "New labels"; Undo… there names the labels it deletes, and Undo
+      deletes them except one put on a track meanwhile.
 - [ ] Ask it to make a playlist and fill it: it appears at once. Ask it to delete
       one: the review warns that it can't be undone; Delete playlist deletes it.
       The playlist page's own Delete says the same.
+- [ ] Playback (real device, Discord running, the OS media widget open): with
+      "Let AI agents control playback" off, ask Claude Code to play something:
+      it says playback control is off and where to switch it on. Turn it on.
+      Ask it to "play Yor Zarad by Angine de Poitrine" (or any track): it plays at
+      once, and the bar, the OS media widget, Discord and Last.fm's now playing
+      show it; the queue panel says "Next from" the agent's name. Ask for "some
+      chill music": it plays the label, and the queue panel names the label.
+- [ ] Ask it to pause, resume, skip forward and back, seek to the middle, turn
+      shuffle and repeat on, set the volume to 30 and to bring VCMP to the front:
+      the bar's buttons, slider and the OS media widget follow each time, and the
+      settings come back after a restart. Ask what plays: it names the track, the
+      position and what comes next as the queue panel shows it.
+- [ ] Ask it to play next a track, add two to the end of Up next, then move and
+      remove one: the queue panel follows.
+- [ ] Unplug (or rename) the folder of one track of a playlist, then ask it to play
+      the playlist: it plays the rest and tells you which track was left out and
+      why. Ask for only missing tracks: it says none can be played.
+- [ ] Ask it to list the output devices and switch to another (headphones, a USB
+      DAC): the sound moves, Settings shows the new device, and it is still chosen
+      after a restart. Ask for a device that isn't there: it says so.
+- [ ] Ask it to set the sleep timer to 15 minutes, then to end of this track: the
+      bar's timer shows each, and playback stops after the track.
 - [ ] Close VCMP with a change waiting, start it again: the change shows as not
       reviewed before VCMP closed.
 - [ ] Start a second program on the port (`python3 -m http.server 8267`), turn the

@@ -17,10 +17,11 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
+use i_slint_backend_testing::{AccessibleRole, ElementHandle};
 use slint::platform::{Key, WindowEvent};
 use slint::{
-    ComponentHandle, Image, LogicalSize, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer,
-    SharedString, Timer, TimerMode, VecModel,
+    ComponentHandle, Image, LogicalPosition, LogicalSize, Model, ModelRc, Rgba8Pixel,
+    SharedPixelBuffer, SharedString, Timer, TimerMode, VecModel,
 };
 use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
@@ -671,6 +672,34 @@ fn show_photo_picker(window: &AppWindow) {
     ])));
 }
 
+/// Puts the pointer over the first card found, so the search shots show its hover
+/// fill. The results arrive after the pause before searching, so this runs just
+/// before the frame is taken.
+fn hover_first_card(window: &AppWindow) {
+    let card = ElementHandle::find_by_element_id(window, "SearchPage::scroll")
+        .next()
+        .and_then(|results| {
+            results
+                .query_descendants()
+                .match_accessible_role(AccessibleRole::List)
+                .find_first()
+        })
+        .and_then(|grid| {
+            grid.query_descendants()
+                .match_accessible_role(AccessibleRole::Button)
+                .find_first()
+        });
+    if let Some(card) = card {
+        let (position, size) = (card.absolute_position(), card.size());
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: LogicalPosition::new(
+                position.x + size.width / 2.0,
+                position.y + size.height / 2.0,
+            ),
+        });
+    }
+}
+
 fn save(window: &AppWindow, path: &Path) {
     let buffer = window.window().take_snapshot().expect("snapshot");
     let file = BufWriter::new(File::create(path).expect("create png"));
@@ -774,9 +803,13 @@ fn main() -> Result<(), slint::PlatformError> {
         match shots.get(shot_index).copied() {
             Some(shot) if index.is_multiple_of(2) => prepare(&window, shot),
             Some(shot) => {
+                if shot.page == 0 {
+                    hover_first_card(&window);
+                }
                 let path = out_dir.join(format!("{}.png", shot.name));
                 save(&window, &path);
                 println!("{}", path.display());
+                window.window().dispatch_event(WindowEvent::PointerExited);
             }
             None => {
                 let _ = slint::quit_event_loop();

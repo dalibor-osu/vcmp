@@ -280,6 +280,75 @@ fn missing_files_stay_dimmed_and_playback_skips_them() {
 }
 
 #[test]
+fn an_export_says_where_it_went_and_what_was_missing() {
+    let app = start();
+    let id = app.library.create_playlist("Mix").unwrap();
+    let ids: Vec<_> = app
+        .library
+        .tracks()
+        .unwrap()
+        .iter()
+        .map(|track| track.id)
+        .collect();
+    app.library.add_to_playlist(id, &ids).unwrap();
+    std::fs::remove_file(app.music.join("2.flac")).unwrap();
+    let mut scanner = Library::open(
+        &app.dir.path().join("library.sqlite3"),
+        &app.dir.path().join("cache"),
+    )
+    .unwrap();
+    scanner.scan(&AtomicBool::new(false), |_| {}).unwrap();
+    app.view.reload();
+    app.open_page("Playlists");
+    app.window.invoke_playlist_activated(0);
+    assert_eq!(app.window.get_playlist_detail().exported_to, "");
+
+    // A name without an M3U extension gets .m3u8.
+    app.view.playlists().export_open(&app.music.join("Mix"));
+    let file = app.music.join("Mix.m3u8");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "#EXTM3U\n\
+         #EXTINF:1,Band - One\n1.flac\n\
+         #EXTINF:1,Band - Two\n2.flac\n\
+         #EXTINF:1,Band - Three\n3.flac\n"
+    );
+    let detail = app.window.get_playlist_detail();
+    assert_eq!(detail.exported_to, file.to_string_lossy().as_ref());
+    assert!(!detail.export_failed);
+    assert_eq!((detail.export_missing, detail.export_left_out), (1, 0));
+    let said = format!("Exported to {}.", file.display());
+    ElementHandle::find_by_accessible_label(&app.window, &said)
+        .next()
+        .expect("the page says where the file went");
+    ElementHandle::find_by_accessible_label(
+        &app.window,
+        "1 entry's file isn't there now. It is written with the path it last had, so other players skip it until the file is back.",
+    )
+    .next()
+    .expect("the page says an entry's file is missing");
+
+    let nowhere = app.music.join("nowhere").join("Mix.m3u8");
+    app.view.playlists().export_open(&nowhere);
+    let detail = app.window.get_playlist_detail();
+    assert!(detail.export_failed);
+    let said = format!(
+        "The playlist could not be exported to {}.",
+        nowhere.display()
+    );
+    ElementHandle::find_by_accessible_label(&app.window, &said)
+        .next()
+        .expect("a failed export says so");
+
+    // Another playlist opens without the message.
+    app.library.create_playlist("Other").unwrap();
+    app.view.reload();
+    app.window.invoke_playlist_activated(1);
+    assert_eq!(app.window.get_playlist_detail().name, "Other");
+    assert_eq!(app.window.get_playlist_detail().exported_to, "");
+}
+
+#[test]
 fn entries_move_and_go_from_the_keyboard() {
     let app = start();
     let id = app.library.create_playlist("Mix").unwrap();

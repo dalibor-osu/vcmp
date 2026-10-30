@@ -229,6 +229,59 @@ fn a_result_opens_on_its_page_and_back_returns_to_search() {
     );
 }
 
+/// Asserts that the hover fill of every card in the grid labelled `grid` lies
+/// inside the scrolling part `scroll`, which clips whatever reaches past it.
+fn assert_card_fills_inside(window: &AppWindow, scroll: &str, grid: &str) {
+    // The fill reaches `Theme.space-s` past the card on every side.
+    const REACH: f32 = 8.0;
+    let scroll = ElementHandle::find_by_element_id(window, scroll)
+        .next()
+        .unwrap_or_else(|| panic!("no element {scroll:?}"));
+    let (left, right) = (
+        scroll.absolute_position().x,
+        scroll.absolute_position().x + scroll.size().width,
+    );
+    let grid = grid.to_owned();
+    let cards = scroll
+        .query_descendants()
+        .match_accessible_role(AccessibleRole::List)
+        .match_predicate(move |element| element.accessible_label().as_deref() == Some(&*grid))
+        .find_first()
+        .expect("the grid")
+        .query_descendants()
+        .match_accessible_role(AccessibleRole::Button)
+        .find_all();
+    assert!(!cards.is_empty(), "the grid shows cards");
+    for card in cards {
+        let x = card.absolute_position().x;
+        let label = card.accessible_label().unwrap_or_default();
+        assert!(
+            x - REACH >= left - 0.5,
+            "{label}: the fill starts at {} but the view at {left}",
+            x - REACH
+        );
+        assert!(
+            x + card.size().width + REACH <= right + 0.5,
+            "{label}: the fill ends at {} but the view at {right}",
+            x + card.size().width + REACH
+        );
+    }
+}
+
+#[test]
+fn found_cards_are_drawn_whole_with_their_hover_fill() {
+    let app = start();
+    find(&app.window, AccessibleRole::Tab, "Search").invoke_accessible_default_action();
+    app.search("avicii");
+    assert_card_fills_inside(&app.window, "SearchPage::scroll", "Artists");
+    assert_card_fills_inside(&app.window, "SearchPage::scroll", "Albums");
+
+    // The artist's page shows its albums in the same kind of grid.
+    find(&app.window, AccessibleRole::Button, "Avicii, 1 album").invoke_accessible_default_action();
+    assert!(app.window.get_artist_open());
+    assert_card_fills_inside(&app.window, "ArtistView::scroll", "Albums");
+}
+
 #[test]
 fn a_found_track_plays_the_results_from_there() {
     let app = start();

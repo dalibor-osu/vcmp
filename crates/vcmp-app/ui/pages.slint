@@ -771,6 +771,7 @@ export component PlaylistsPage inherits Rectangle {
     callback rename(string);
     callback choose-picture();
     callback clear-picture();
+    callback export();
     callback delete();
 
     // Shows the grid again, with the playlist that was open as its current card.
@@ -886,6 +887,9 @@ export component PlaylistsPage inherits Rectangle {
         clear-picture => {
             root.clear-picture();
         }
+        export => {
+            root.export();
+        }
         delete => {
             root.delete();
             root.close-playlist();
@@ -936,31 +940,40 @@ export component SearchPage inherits Rectangle {
     visible: root.shown;
 
     VerticalLayout {
-        padding: Theme.space-xxl;
-        padding-bottom: 0;
+        padding-top: Theme.space-xxl;
         spacing: Theme.space-xl;
 
-        Text {
-            text: @tr("Search");
-            color: Theme.colors.text;
-            font-size: Theme.font-title;
-            font-weight: Theme.weight-strong;
-        }
+        VerticalLayout {
+            padding-left: Theme.space-xxl;
+            padding-right: Theme.space-xxl;
+            spacing: Theme.space-xl;
 
-        field := SearchField {
-            max-width: Theme.content-max-width;
-            label: @tr("Search");
-            placeholder: @tr("Artists, albums, playlists and tracks");
-            text <=> root.text;
-            edited(text) => {
-                root.edited(text);
+            Text {
+                text: @tr("Search");
+                color: Theme.colors.text;
+                font-size: Theme.font-title;
+                font-weight: Theme.weight-strong;
+            }
+
+            field := SearchField {
+                max-width: Theme.content-max-width;
+                label: @tr("Search");
+                placeholder: @tr("Artists, albums, playlists and tracks");
+                text <=> root.text;
+                edited(text) => {
+                    root.edited(text);
+                }
             }
         }
 
+        // The side margins are inside the scrolling part: a card's hover fill and
+        // focus ring reach past the card, and the view clips at its own edges.
         scroll := ScrollView {
             vertical-stretch: 1;
 
             VerticalLayout {
+                padding-left: Theme.space-xxl;
+                padding-right: Theme.space-xxl;
                 padding-bottom: Theme.space-xxl;
                 spacing: Theme.space-l;
                 alignment: start;

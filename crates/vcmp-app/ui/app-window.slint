@@ -101,6 +101,7 @@ export component AppWindow inherits Window {
     callback delete-playlist();
     callback choose-playlist-picture();
     callback clear-playlist-picture();
+    callback export-playlist();
     callback remove-playlist-track(int);
     callback move-playlist-track(int, int);
     // Plays the open playlist from an entry (-1: from its start), shuffled or not.
@@ -755,6 +756,9 @@ export component AppWindow inherits Window {
                             }
                             clear-picture => {
                                 root.clear-playlist-picture();
+                            }
+                            export => {
+                                root.export-playlist();
                             }
                             delete => {
                                 root.delete-playlist();
