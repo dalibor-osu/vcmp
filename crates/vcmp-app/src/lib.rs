@@ -12,6 +12,7 @@ pub mod lastfm_service;
 pub mod library_service;
 pub mod library_view;
 pub mod media_keys;
+pub mod moving_pictures;
 pub mod navigation;
 pub mod player_service;
 pub mod playlists;
@@ -34,6 +35,7 @@ pub fn create_window() -> Result<AppWindow, slint::PlatformError> {
     icons::install(&window);
     selection::install(&window);
     zoom::install(&window);
+    moving_pictures::install(&window);
     window.set_version(env!("CARGO_PKG_VERSION").into());
     Ok(window)
 }

@@ -18,6 +18,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/playlist-page.slint` | `PlaylistView`: one playlist's picture, name, actions and tracks |
+| `ui/picture.slint` | `PictureFrame`, `PictureSlot`, the `MovingPictures` global and `MovingPicture`: a detail page's or the now playing view's picture, which plays an animation's frames while in sight |
+| `src/moving_pictures.rs` | Decodes an animated picture's frames off the UI thread while it is in sight with motion allowed, and lets them go after |
 | `ui/playlist-state.slint` | `Playlists` global: the playlist names every Add to playlist menu lists |
 | `src/playlists.rs` | `PlaylistBrowser`: the playlist grid and page, the sidebar list, and the edits behind them |
 | `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
@@ -133,7 +135,8 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
-| Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+| Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing of the UI's own loops |
+| An animated picture (GIF, WebP, APNG) plays on the album, artist and playlist pages and in the now playing view; grids, lists, search, the sidebar, the player bar and the queue show its first frame. Awaiting the owner's review (DESIGN.md) | The owner asked for animated pictures (issue #56). The animation is the owner's own content, not UI motion, so it plays where the picture is the subject and the page holds one; a grid of moving covers would compete for attention and cost CPU and memory with every card. Reduced motion (the OS's or Settings') shows the first frame, and is the way to stop it |
 | Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
 | An album's and an artist's other actions in a More menu ("…") beside Play and Shuffle | The owner's request (2026-10-28): the buttons under the cover (Add to playlist…, Edit tags…, the photo's) were distracting and seldom used. The playlist page already worked this way, so the three detail pages now share it. The album's menu holds Find cover online (or Find another cover and Remove cover for a cover fetched online), Add to playlist and Edit tags…; the artist's Find photo online, Choose photo… and Remove photo |
 | The cover or picture of an album, artist or playlist page as large as the page allows, from 128 to 280 px (`Theme.detail-cover-size`) | The owner's request (2026-10-28): the room the buttons under it took goes to the cover. It shrinks first in a narrow window, so the title and the Play, Shuffle and More buttons keep about 240 px beside it down to a 720 px window |
@@ -174,6 +177,10 @@ and reuses them while scrolling. It reports the range in view through
   pixel size.
 - Covers more than three screens away are released, so memory stays flat however
   long the library is.
+
+An animated cover shows its first frame here: the grid draws the same 400 px
+thumbnail as for any cover, so animated pictures add nothing to its cost (see
+[Animated pictures](#animated-pictures)).
 
 A card under the pointer sits on a `surface` fill reaching into the gap around it,
 as hovered rows do, and its muted second line turns to `text` on it.
@@ -315,8 +322,9 @@ the new view in too.
     link to the site; a file of the owner's says nothing. About names fanart.tv,
     the Cover Art Archive and MusicBrainz as the sources of what VCMP finds online,
     with links, as fanart.tv's terms ask.
-  - "Choose photo…" takes a JPEG, PNG or WebP file. One that can't be read says so
-    under the picture.
+  - "Choose photo…" takes a JPEG, PNG, WebP or GIF file. One that can't be read says so
+    under the picture. An animated one plays on the page (see
+    [Animated pictures](#animated-pictures)).
   - The photo is kept by the library (see `docs/library.md`) and shows at once on
     the page, the artist cards and search.
 - **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
@@ -340,7 +348,10 @@ the new view in too.
   - **Delete** asks first, on the page, with the focus on Cancel; Escape cancels.
     The tracks stay in the library.
   - **Choose picture** opens the system's file dialog for images. A file that can't
-    be read as a picture leaves the picture as it was and says so on the page.
+    be read as a picture leaves the picture as it was and says so on the page. An
+    animated GIF, WebP or PNG plays on the page (see
+    [Animated pictures](#animated-pictures)); a picture made from album covers never
+    moves.
 - **Entries** are numbered by position. One whose file is gone is dimmed and says
   "File not found" where the artist would be. Play, Shuffle and playing an entry
   (its play button, a double-click or Enter) play the entries that are there, as
@@ -375,7 +386,8 @@ the new view in too.
   (see [Selecting tracks](#selecting-tracks)). "Edit tags…" in an album page's More
   menu edits every track of the album at once. The heading names the album
   for tracks of one album, or counts the tracks of several.
-- **The form:** the cover, with Choose image… (JPEG or PNG) and Remove cover, then
+- **The form:** the cover, with Choose image… (JPEG, PNG, GIF or WebP) and Remove
+  cover, then
   Artist, Album, Album artist, Disc, Year and Genre, plus Title and Track for one
   track. The focus starts in the first field. The form fills a dialog in the middle
   of the window; in a short window it scrolls, and the buttons stay at the foot.
@@ -619,7 +631,39 @@ field (see [Labels](#labels)).
   1200 px when the view opens (and for each new track while it is open). The bar's
   small cover stands in until then; a decode that arrives after the track changed
   is dropped.
+- **An animated cover** plays here too, at up to 1200 px (see
+  [Animated pictures](#animated-pictures)).
 - Lyrics would go here later.
+
+## Animated pictures
+
+An album's cover, an artist's photo or a playlist's picture can be an animated GIF,
+WebP or PNG (APNG). How they are kept is in
+[docs/library.md](library.md#animated-pictures).
+
+- **Where it plays:** the large picture of the album, artist and playlist pages, and
+  the now playing view. Everywhere else shows the first frame, from the same cached
+  still as before.
+- **How:** `MovingPicture` (`ui/picture.slint`) shows its `still` at once, and once
+  the frames arrive swaps them on a Slint `Timer` whose interval is each frame's
+  delay. The timing is the file's own; a frame of 10 ms or less shows for 100 ms
+  (`Theme.picture-frame-too-short`, `Theme.picture-frame-fallback`), as browsers
+  do, since GIFs made for them count on it.
+- **Only while in sight:** each picture tells `MovingPictures.wanted` when it comes
+  into sight with motion allowed and when it stops being so (its page hidden, the
+  now playing view over it, motion reduced). `src/moving_pictures.rs` then decodes
+  the frames on a background thread, at the size the picture shows at (the detail
+  pages' 280 px times the window's scale, or 1200 px for now playing), and lets
+  them go when the picture leaves. Reopening the same page reuses frames still
+  held; frames for a picture since replaced are dropped.
+- **Reduced motion:** the picture shows its still, the first frame, and no frames
+  are decoded at all. Turning motion back on decodes them and starts the animation.
+- **The tag editor** shows a chosen animation's first frame as the cover. Saving
+  writes that frame into the files as a PNG, which is what other players show, and
+  VCMP keeps the animation.
+- **Limits:** a file over 16 MiB is kept as a still. At most 1,000 frames are
+  played, and an animation's frames take at most 64 MiB (larger ones are decoded
+  smaller).
 
 ## Music folders and scanning
 
@@ -981,6 +1025,8 @@ by `LibraryView`) keeps the `Labels` global current.
 
 ## Known limits
 
+- An animated picture can be stopped only by reduced motion (Settings or the OS),
+  not on the picture itself. A GIF meant to play once loops like any other.
 - A label held by only some of the chosen tracks is marked by words in the menu
   ("on some"), not by a mixed check mark: Slint's `MenuItem` has none.
 - The custom colour picker's shades and hues work with the mouse only; the keyboard

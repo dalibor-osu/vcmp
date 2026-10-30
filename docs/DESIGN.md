@@ -103,3 +103,17 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   as predefined palette to choose from"), and is drawn as a dot beside the name in
   plain text. Labels show as chips on track rows and as a column in the Songs
   table. An album's three-dot menu has Labels too, for all its tracks.
+
+## Awaiting the owner's review
+
+Decisions an agent made while building something the owner asked for. They are not
+the owner's until reviewed; keep, change or drop each.
+
+- 2026-10-30, animated pictures (issue #56): an animated GIF, WebP or PNG chosen
+  as an album's cover, an artist's photo or a playlist's picture plays on that album's, artist's
+  or playlist's page and in the now playing view, at the file's own speed and
+  looping. Grids, lists, search, the sidebar, the player bar and the queue show its
+  first frame. Reduced motion (the OS's or Settings') shows the first frame
+  everywhere. Reason: it is the owner's own content rather than motion of the UI,
+  so it plays where the picture is the subject, one at a time; MOTION 2's "nothing
+  loops" still holds for the UI itself.

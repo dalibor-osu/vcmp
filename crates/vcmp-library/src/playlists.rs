@@ -14,6 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use image::codecs::jpeg::JpegEncoder;
 use rusqlite::{OptionalExtension, Row, params};
 
+use crate::animation;
 use crate::error::io_error;
 use crate::query::{TRACK_COLUMNS, track_from};
 use crate::{Error, Library, Result, Track, TrackId};
@@ -131,7 +132,7 @@ impl Library {
         self.conn
             .execute("DELETE FROM playlists WHERE id = ?1", [id.0])?;
         if let Some(image) = image {
-            let _ = fs::remove_file(image);
+            remove_picture(&image);
         }
         Ok(())
     }
@@ -169,7 +170,9 @@ impl Library {
     }
 
     /// Makes an image the playlist's picture: a copy, bounded to 600 px, goes to the
-    /// data directory, replacing an earlier one.
+    /// data directory, replacing an earlier one. An animated picture (GIF, WebP or
+    /// APNG, within [`animation::MAX_ANIMATION_BYTES`]) is kept as it is beside that
+    /// copy, which shows its first frame.
     pub fn set_playlist_image(&self, id: PlaylistId, source: &Path) -> Result<()> {
         let data = fs::read(source).map_err(io_error(source))?;
         let image = image::load_from_memory(&data)
@@ -179,20 +182,24 @@ impl Library {
         JpegEncoder::new_with_quality(&mut jpeg, 88)
             .encode_image(&picture)
             .map_err(|_| Error::UnreadableImage(source.to_path_buf()))?;
-        let name = format!("{}-{}.jpg", id.0, &blake3::hash(&jpeg).to_hex()[..16]);
+        let stem = format!("{}-{}", id.0, &blake3::hash(&jpeg).to_hex()[..16]);
         let dir = self.images.join("playlists");
         fs::create_dir_all(&dir).map_err(io_error(&dir))?;
-        let path = dir.join(&name);
+        let path = dir.join(format!("{stem}.jpg"));
         fs::write(&path, &jpeg).map_err(io_error(&path))?;
+        if let Some(extension) = animation::animation_extension(&data) {
+            let moving = dir.join(format!("{stem}.{extension}"));
+            fs::write(&moving, &data).map_err(io_error(&moving))?;
+        }
         let old = self.own_image(id)?;
         self.conn.execute(
             "UPDATE playlists SET image = ?2 WHERE id = ?1",
-            params![id.0, name],
+            params![id.0, format!("{stem}.jpg")],
         )?;
         if let Some(old) = old
             && old != path
         {
-            let _ = fs::remove_file(old);
+            remove_picture(&old);
         }
         Ok(())
     }
@@ -203,7 +210,7 @@ impl Library {
         self.conn
             .execute("UPDATE playlists SET image = NULL WHERE id = ?1", [id.0])?;
         if let Some(old) = old {
-            let _ = fs::remove_file(old);
+            remove_picture(&old);
         }
         Ok(())
     }
@@ -292,6 +299,14 @@ impl Library {
         }
         self.artwork.mosaic(&keys)
     }
+}
+
+/// Deletes an owner's picture and the animation kept beside it.
+fn remove_picture(still: &Path) {
+    if let Some(moving) = animation::beside(still) {
+        let _ = fs::remove_file(moving);
+    }
+    let _ = fs::remove_file(still);
 }
 
 const PLAYLIST_QUERY: &str = "SELECT p.id, p.name, p.image, COUNT(e.track_id),

@@ -25,7 +25,7 @@ use slint::{
 };
 use vcmp_library::{
     FailedTagWrite, FieldEdit, InvalidTagEdit, Library, TagEdit, TagWriteError, TagWriteReport,
-    Track, TrackId,
+    Track, TrackId, animation,
 };
 
 use crate::library_service::{Delivery, LibraryPaths};
@@ -38,8 +38,9 @@ use crate::{
 
 /// Longest side of the cover preview, in pixels.
 const PREVIEW_PIXELS: u32 = 320;
-/// Image files the cover chooser offers; the tags hold JPEG and PNG only.
-const COVER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png"];
+/// Image files the cover chooser offers. The tags get JPEG and PNG only: a GIF or
+/// WebP is written as a PNG of its first frame, and VCMP keeps an animation itself.
+const COVER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
 
 /// Whether a file that playback has open can't be replaced, so edits to it wait until
 /// playback lets go of it. Windows refuses to replace an open file. Elsewhere the
@@ -51,6 +52,13 @@ enum Message {
     Finished(TagWriteReport),
     /// Edits that waited for playback, written once it let go of their files.
     Released(Vec<TrackEdit>, TagWriteReport),
+}
+
+/// A chosen cover that moves: the still the files get, and the animation it stands
+/// for.
+struct AnimatedCover {
+    still: Vec<u8>,
+    animation: Vec<u8>,
 }
 
 /// One track's edit.
@@ -74,6 +82,8 @@ pub struct TagEditor {
     // The tracks the editor writes to, and the cover it writes.
     tracks: RefCell<Vec<Track>>,
     cover: RefCell<FieldEdit<Vec<u8>>>,
+    // The animation the chosen cover's still stands in for, kept once it is written.
+    animated_cover: RefCell<Option<AnimatedCover>>,
     // A save to several files, until the user confirms it or goes back.
     pending: RefCell<Vec<TrackEdit>>,
     sender: Sender<Message>,
@@ -128,6 +138,7 @@ impl TagEditor {
             view,
             tracks: RefCell::default(),
             cover: RefCell::default(),
+            animated_cover: RefCell::default(),
             pending: RefCell::default(),
             sender,
             receiver,
@@ -434,6 +445,7 @@ impl TagEditor {
         *self.carried.borrow_mut() = carried;
         self.shown_waiting.set(None);
         *self.cover.borrow_mut() = FieldEdit::Keep;
+        *self.animated_cover.borrow_mut() = None;
         self.show_waiting_note(&state);
         state.set_open(true);
     }
@@ -456,13 +468,14 @@ impl TagEditor {
         self.carried.borrow_mut().clear();
         self.shown_waiting.set(None);
         *self.cover.borrow_mut() = FieldEdit::Keep;
+        *self.animated_cover.borrow_mut() = None;
     }
 
     fn choose_cover(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         let picked = slint::spawn_local(async move {
             let Some(file) = rfd::AsyncFileDialog::new()
-                .add_filter("JPEG or PNG", COVER_EXTENSIONS)
+                .add_filter("Images", COVER_EXTENSIONS)
                 .pick_file()
                 .await
             else {
@@ -478,14 +491,29 @@ impl TagEditor {
         }
     }
 
-    /// Makes `data` the cover to write, when it is a JPEG or PNG image.
+    /// Makes `data` the cover to write, when it is a JPEG, PNG, GIF or WebP image. An
+    /// animated one (GIF, WebP or APNG) puts its first frame into the files, which
+    /// other players show, and VCMP keeps the animation for that still.
     pub fn use_cover(&self, data: Vec<u8>) {
-        let readable = matches!(
-            image::guess_format(&data),
-            Ok(image::ImageFormat::Jpeg | image::ImageFormat::Png)
-        ) && preview(&data).is_some();
-        if readable {
-            self.set_cover(FieldEdit::Set(data));
+        let format = image::guess_format(&data).ok();
+        let (cover, moving) = if animation::is_animated(&data) {
+            (animation::first_frame_png(&data), Some(data))
+        } else {
+            match format {
+                Some(image::ImageFormat::Jpeg | image::ImageFormat::Png) => (Some(data), None),
+                Some(image::ImageFormat::Gif | image::ImageFormat::WebP) => {
+                    (animation::first_frame_png(&data), None)
+                }
+                _ => (None, None),
+            }
+        };
+        if let Some(cover) = cover.filter(|cover| preview(cover).is_some()) {
+            let animated = moving.map(|animation| AnimatedCover {
+                still: cover.clone(),
+                animation,
+            });
+            self.set_cover(FieldEdit::Set(cover));
+            *self.animated_cover.borrow_mut() = animated;
         } else if let Some(window) = self.window.upgrade() {
             window
                 .global::<TagEditorState>()
@@ -515,6 +543,7 @@ impl TagEditor {
             state.set_problem(TagProblem::None);
         }
         *self.cover.borrow_mut() = cover;
+        *self.animated_cover.borrow_mut() = None;
     }
 
     fn save(&self, values: &TagValues) {
@@ -603,6 +632,7 @@ impl TagEditor {
     /// Writes `edits` in the background, except the one to the file playback holds
     /// open, which waits.
     fn write(&self, state: &TagEditorState, edits: Vec<TrackEdit>) {
+        self.keep_animated_cover(&edits);
         // The file playback holds open waits until it is let go; the rest is written now.
         let held = self.held_file();
         let (hold, now): (Vec<_>, Vec<_>) = edits
@@ -639,6 +669,32 @@ impl TagEditor {
                 send(Message::Finished(report));
             })
             .expect("spawning the tag writing thread");
+    }
+
+    /// Keeps the animation of a chosen cover that `edits` write as its still, so the
+    /// album plays it once the files hold that still.
+    fn keep_animated_cover(&self, edits: &[TrackEdit]) {
+        let animated = self.animated_cover.borrow();
+        let Some(animated) = animated.as_ref() else {
+            return;
+        };
+        let writes_still = edits
+            .iter()
+            .any(|change| matches!(&change.edit.cover, FieldEdit::Set(cover) if *cover == animated.still));
+        if !writes_still {
+            return;
+        }
+        match self
+            .library
+            .keep_cover_animation(&animated.still, &animated.animation)
+        {
+            Ok(true) => {}
+            Ok(false) => log::info!(
+                "the animated cover is over {} bytes, so the album shows it still",
+                animation::MAX_ANIMATION_BYTES
+            ),
+            Err(error) => log::error!("could not keep the animated cover: {error}"),
+        }
     }
 
     /// The file playback has open, when such a file can't be replaced.

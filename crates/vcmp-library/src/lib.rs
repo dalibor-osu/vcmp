@@ -7,6 +7,7 @@
 //! [`Library::write_tags`] and [`Library::accept_change_set`], through a verified
 //! copy.
 
+pub mod animation;
 mod artist_photos;
 mod artwork;
 mod changes;

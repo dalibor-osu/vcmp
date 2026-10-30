@@ -7,10 +7,11 @@ use std::path::Path;
 use std::rc::Rc;
 
 use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
-use vcmp_library::{Library, Playlist, PlaylistEntry, PlaylistId, Track, TrackId};
+use vcmp_library::{Library, Playlist, PlaylistEntry, PlaylistId, Track, TrackId, animation};
 
 use crate::albums::{Card, CoverGrid, Grid, initial};
 use crate::library_view::format_duration;
+use crate::moving_pictures::{self, Picture};
 use crate::selection;
 use crate::{
     AlbumTile, AppWindow, PlaylistDetail, Playlists, SongSelection, TrackRow, TrackSelection,
@@ -261,11 +262,19 @@ impl PlaylistBrowser {
             minutes: playlist.duration.as_secs().div_ceil(60) as i32,
             has_picture: picture.is_some(),
             picture: picture.unwrap_or_default(),
+            frames: ModelRc::default(),
             own_picture: playlist.own_picture,
             initial: initial(&playlist.name).into(),
             failed,
             picture_failed: self.picture_failed.get(),
         });
+        // Only the owner's own picture may move, not one made from covers.
+        let animation = playlist
+            .picture
+            .as_deref()
+            .filter(|_| playlist.own_picture)
+            .and_then(animation::beside);
+        moving_pictures::show(&window, Picture::Playlist, animation);
         window.set_playlist_tracks(ModelRc::new(VecModel::from(rows)));
         window.set_open_playlist_index(position.map_or(-1, |position| position as i32));
         *self.entries.borrow_mut() = entries;

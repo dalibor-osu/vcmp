@@ -6,6 +6,7 @@ import { PlayerState } from "player-state.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
 import { PhotoSearch } from "photo-picker.slint";
+import { MovingPicture, PictureFrame, PictureSlot } from "picture.slint";
 
 export struct ArtistDetail {
     name: string,
@@ -16,6 +17,8 @@ export struct ArtistDetail {
     // Their photo, or without one, the cover of their newest album.
     has-picture: bool,
     picture: image,
+    // The frames of an animated photo, once decoded; empty for a still one.
+    frames: [PictureFrame],
     // The picture is a photo chosen for the artist.
     has-photo: bool,
     // That photo was found on fanart.tv, which the page credits under it.
@@ -33,6 +36,8 @@ export component ArtistView {
     in property <[AlbumTile]> albums;
     // `artist` holds the album each track is on.
     in property <[TrackRow]> appearances;
+    // The page is in sight, so an animated picture plays.
+    in property <bool> in-sight;
     callback back();
     callback album-activated(int);
     // Plays everything by the artist: their albums' tracks, then the appearances;
@@ -133,10 +138,13 @@ export component ArtistView {
                             clip: true;
                             background: Theme.colors.surface;
 
-                            if root.artist.has-picture: Image {
+                            if root.artist.has-picture: MovingPicture {
                                 width: parent.width;
                                 height: parent.height;
-                                source: root.artist.picture;
+                                still: root.artist.picture;
+                                slot: PictureSlot.artist;
+                                frames: root.artist.frames;
+                                in-sight: root.in-sight;
                                 image-fit: ImageFit.cover;
                                 accessible-role: none;
                             }

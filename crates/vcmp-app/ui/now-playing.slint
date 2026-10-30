@@ -4,6 +4,7 @@ import { Playlists } from "playlist-state.slint";
 import { Labels } from "labels.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState } from "player-state.slint";
+import { MovingPicture, PictureSlot } from "picture.slint";
 
 // The cover as large as the view allows: the full-size image once it is decoded,
 // the bar's small one until then, the title's first letter without any.
@@ -17,10 +18,13 @@ component BigCover inherits Rectangle {
     clip: true;
     background: Theme.colors.surface;
 
-    if PlayerState.has-large-cover || PlayerState.has-cover: Image {
+    if PlayerState.has-large-cover || PlayerState.has-cover: MovingPicture {
         width: parent.width;
         height: parent.height;
-        source: PlayerState.has-large-cover ? PlayerState.large-cover : PlayerState.cover;
+        still: PlayerState.has-large-cover ? PlayerState.large-cover : PlayerState.cover;
+        slot: PictureSlot.now-playing;
+        frames: PlayerState.large-cover-frames;
+        in-sight: PlayerState.now-playing-open;
         image-fit: ImageFit.cover;
         accessible-role: none;
     }
