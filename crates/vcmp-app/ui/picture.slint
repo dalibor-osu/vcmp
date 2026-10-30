@@ -1,0 +1,60 @@
+import { Theme } from "theme.slint";
+
+// One frame of a moving picture, shown for the delay its file gives.
+export struct PictureFrame {
+    image: image,
+    delay: duration,
+}
+
+// The places a picture may move: the album page (on Albums, and on Artists), the
+// artist and playlist pages, and the now playing view.
+export enum PictureSlot { album, artist-album, artist, playlist, now-playing }
+
+// Frames are decoded only while they can play (src/moving_pictures.rs).
+export global MovingPictures {
+    // The slot's picture came into sight with motion allowed (true), or stopped
+    // being so (false): its frames are wanted, or can be let go.
+    callback wanted(PictureSlot, bool);
+}
+
+// The picture of an album, artist or playlist page, or the now playing cover: its
+// still, or the frames of an animated GIF, WebP or PNG one after another. It plays
+// only while in sight, and shows the still when motion is reduced.
+export component MovingPicture inherits Image {
+    in property <PictureSlot> slot;
+    // What shows without frames: the cached still (the first frame), decoded at once.
+    in property <image> still;
+    // Every frame of an animation, while it plays; empty for a still picture.
+    in property <[PictureFrame]> frames;
+    // The picture is in sight (its page is shown and nothing covers it).
+    in property <bool> in-sight;
+
+    private property <bool> wanted: root.in-sight && !Theme.reduced-motion;
+    private property <bool> moving: root.wanted && root.frames.length > 1;
+    private property <int> index;
+    // A frame of 10 ms or less shows for 100 ms, as browsers do: GIFs made for them
+    // count on it.
+    private property <duration> delay: root.frames[root.index].delay > Theme.picture-frame-too-short ? root.frames[root.index].delay : Theme.picture-frame-fallback;
+
+    source: root.moving ? root.frames[root.index].image : root.still;
+
+    init => {
+        if root.wanted {
+            MovingPictures.wanted(root.slot, true);
+        }
+    }
+    changed wanted => {
+        MovingPictures.wanted(root.slot, self.wanted);
+    }
+    changed frames => {
+        root.index = 0;
+    }
+
+    Timer {
+        interval: root.delay;
+        running: root.moving;
+        triggered => {
+            root.index = mod(root.index + 1, root.frames.length);
+        }
+    }
+}

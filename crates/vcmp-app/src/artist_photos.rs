@@ -18,7 +18,7 @@ use crate::library_view::LibraryView;
 use crate::{AlbumTile, AppWindow, ArtworkState, PhotoSearch, PhotoSearchStatus};
 
 /// Image files "Choose photo…" offers.
-const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
+const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
 
 /// The user's fanart.tv personal API key, in the library's settings; absent or empty
 /// while they have given none.

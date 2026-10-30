@@ -1,6 +1,8 @@
 // What the UI knows about playback. Rust keeps the properties current from the
 // engine's events and implements the callbacks (src/player_service.rs).
 
+import { PictureFrame } from "picture.slint";
+
 export enum PlayState { stopped, playing, paused }
 
 export enum Shuffle { off, on }
@@ -54,6 +56,8 @@ export global PlayerState {
     // The full-size cover for the now playing view, decoded when it is open.
     in property <bool> has-large-cover;
     in property <image> large-cover;
+    // The frames of an animated cover, decoded with it; empty for a still one.
+    in property <[PictureFrame]> large-cover-frames;
     // The now playing view is open, so the full-size cover is wanted.
     in-out property <bool> now-playing-open;
     // The view opened: decode the full-size cover if it is not there yet.

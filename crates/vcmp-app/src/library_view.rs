@@ -11,11 +11,12 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use slint::{ComponentHandle, Image, Model, ModelRc, Timer, TimerMode, VecModel};
-use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Playlist, Track};
+use vcmp_library::{Album, AlbumId, Artist, ArtistId, Library, Playlist, Track, animation};
 
 use crate::albums::{AlbumBrowser, Card, CoverGrid, Grid, album_initial, cards, initial};
 use crate::folders::FolderBrowser;
 use crate::labels::{self, LabelBrowser};
+use crate::moving_pictures::{self, Picture};
 use crate::playlists::{self, PlaylistBrowser};
 use crate::{
     AlbumDetail, AlbumTile, AppWindow, ArtistDetail, LabelFilterPage, Playlists, SongColumn,
@@ -905,6 +906,8 @@ fn show_artist_details(
     // The same picture as on the artist's card: their photo, or their newest album's
     // cover.
     let has_photo = photo.is_some();
+    // Only the artist's own photo may move, not an album's cover standing in.
+    let animation = photo.as_deref().and_then(animation::beside);
     let picture = match photo {
         Some(photo) => Image::load_from_path(&photo).ok(),
         None => open
@@ -933,11 +936,13 @@ fn show_artist_details(
         track_count: open.artist.track_count as i32,
         has_picture: picture.is_some(),
         picture: picture.unwrap_or_default(),
+        frames: ModelRc::default(),
         has_photo,
         photo_from_fanart,
         missing: false,
     });
     window.set_artist_appearances(ModelRc::new(VecModel::from(appearances)));
+    moving_pictures::show(window, Picture::Artist, animation);
 }
 
 fn show_album(window: &AppWindow, library: &Library, album: &Album) {
@@ -997,6 +1002,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
         minutes: total.as_secs().div_ceil(60) as i32,
         has_cover: cover.is_some(),
         cover: cover.unwrap_or_default(),
+        frames: ModelRc::default(),
         fetched_cover: album.fetched_cover,
         initial: album_initial(album).into(),
         failed,
@@ -1006,6 +1012,11 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
     });
     window.set_album_tracks(ModelRc::new(VecModel::from(rows)));
     window.set_album_multi_disc(discs.len() > 1);
+    let animation = album
+        .artwork
+        .as_ref()
+        .and_then(|artwork| library.cover_animation(artwork));
+    moving_pictures::show(window, Picture::Album, animation);
 }
 
 fn disc(track: &Track) -> u32 {

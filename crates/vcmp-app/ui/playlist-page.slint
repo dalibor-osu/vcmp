@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 import { Button, EdgeScroll, IconButton, TextField } from "components.slint";
 import { Glyph } from "icons.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
+import { MovingPicture, PictureFrame, PictureSlot } from "picture.slint";
 
 export struct PlaylistDetail {
     name: string,
@@ -13,6 +14,8 @@ export struct PlaylistDetail {
     minutes: int,
     has-picture: bool,
     picture: image,
+    // The frames of an animated picture, once decoded; empty for a still one.
+    frames: [PictureFrame],
     // The owner chose the picture, rather than it being made from album covers.
     own-picture: bool,
     // First letter of the name, shown when there is no picture.
@@ -21,6 +24,14 @@ export struct PlaylistDetail {
     failed: bool,
     // The last picture chosen could not be read as an image.
     picture-failed: bool,
+    // The file the last export since the playlist opened went to; empty without one.
+    exported-to: string,
+    // That export could not write the file.
+    export-failed: bool,
+    // Of its entries, those written though their file isn't there now, and those
+    // left out because a playlist file can't hold their path.
+    export-missing: int,
+    export-left-out: int,
 }
 
 // One playlist: its picture and name, what can be done with it, and its tracks in
@@ -32,6 +43,8 @@ export component PlaylistView {
     in property <[TrackRow]> tracks;
     // Path of the track now playing, to mark it in the list.
     in property <string> playing-path;
+    // The page is in sight, so an animated picture plays.
+    in property <bool> in-sight;
     // The name is being edited.
     in-out property <bool> renaming;
     callback back();
@@ -43,6 +56,8 @@ export component PlaylistView {
     callback rename(string);
     callback choose-picture();
     callback clear-picture();
+    // Saves the playlist as an M3U file, after asking where.
+    callback export();
     callback delete();
 
     public function focus-back() {
@@ -142,10 +157,13 @@ export component PlaylistView {
                         clip: true;
                         background: Theme.colors.surface;
 
-                        if root.playlist.has-picture: Image {
+                        if root.playlist.has-picture: MovingPicture {
                             width: parent.width;
                             height: parent.height;
-                            source: root.playlist.picture;
+                            still: root.playlist.picture;
+                            slot: PictureSlot.playlist;
+                            frames: root.playlist.frames;
+                            in-sight: root.in-sight;
                             image-fit: ImageFit.cover;
                             accessible-role: none;
                         }
@@ -282,6 +300,12 @@ export component PlaylistView {
                                             root.clear-picture();
                                         }
                                     }
+                                    MenuItem {
+                                        title: @tr("Export…");
+                                        activated => {
+                                            root.export();
+                                        }
+                                    }
                                     MenuSeparator { }
                                     MenuItem {
                                         title: @tr("Delete playlist…");
@@ -349,6 +373,36 @@ export component PlaylistView {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                     max-width: Theme.content-max-width;
+                }
+
+                // What the last export did; it stays until another playlist opens.
+                if root.playlist.exported-to != "": VerticalLayout {
+                    spacing: Theme.space-s;
+                    max-width: Theme.content-max-width;
+
+                    Text {
+                        text: root.playlist.export-failed
+                            ? @tr("The playlist could not be exported to {}.", root.playlist.exported-to)
+                            : @tr("Exported to {}.", root.playlist.exported-to);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                    if !root.playlist.export-failed && root.playlist.export-missing > 0: Text {
+                        text: @tr("{n} entry's file isn't there now. It is written with the path it last had, so other players skip it until the file is back." | "{n} entries' files aren't there now. They are written with the paths they last had, so other players skip them until the files are back." % root.playlist.export-missing);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                    if !root.playlist.export-failed && root.playlist.export-left-out > 0: Text {
+                        text: @tr("{n} entry was left out: the name of its file can't be written in a playlist file." | "{n} entries were left out: the names of their files can't be written in a playlist file." % root.playlist.export-left-out);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
                 }
 
                 if root.playlist.failed: Text {

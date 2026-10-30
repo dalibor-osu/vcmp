@@ -10,8 +10,11 @@
 //! The server never writes to the library itself. Changes go through [`Changes`],
 //! which the app implements: tag changes, label changes, undos and playlist
 //! deletions become change sets that wait for the owner's review, and playlist edits
-//! show in the window at once. See `docs/specs/2026-10-19-mcp-library-server.md`.
+//! show in the window at once. Playback goes through [`Playback`], which the app
+//! also implements: it acts at once, without review. See
+//! `docs/specs/2026-10-19-mcp-library-server.md`.
 
+mod playback;
 pub mod relay;
 mod tools;
 
@@ -29,6 +32,10 @@ use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, Stream
 use tokio_util::sync::CancellationToken;
 use vcmp_library::{ChangeSetId, LabelEdit, Library, NewLabel, PlaylistId, TagEdit, TrackId};
 
+pub use playback::{
+    Context, Control, Options, OutputDevices, Play, PlayState, Playback, Repeat, ShuffleKind,
+    SleepTimer, Status,
+};
 pub use tools::MAX_FILES;
 
 /// The port agents connect to unless the owner picks another: "VCMP" typed on a phone
@@ -111,7 +118,11 @@ pub struct Server {
 impl Server {
     /// Binds the port at once, so a taken port is reported here, then serves on a
     /// thread of its own until dropped.
-    pub fn start(config: ServerConfig, changes: Arc<dyn Changes>) -> Result<Self, StartError> {
+    pub fn start(
+        config: ServerConfig,
+        changes: Arc<dyn Changes>,
+        playback: Arc<dyn Playback>,
+    ) -> Result<Self, StartError> {
         let listener =
             TcpListener::bind((Ipv4Addr::LOCALHOST, config.port)).map_err(StartError::Port)?;
         listener.set_nonblocking(true).map_err(StartError::Port)?;
@@ -134,7 +145,8 @@ impl Server {
                         return;
                     }
                 };
-                if let Err(error) = runtime.block_on(serve(listener, token, library, changes, stop))
+                if let Err(error) =
+                    runtime.block_on(serve(listener, token, library, changes, playback, stop))
                 {
                     log::error!("the MCP server stopped: {error}");
                 }
@@ -193,9 +205,10 @@ async fn serve(
     token: Arc<str>,
     library: Library,
     changes: Arc<dyn Changes>,
+    playback: Arc<dyn Playback>,
     cancel: CancellationToken,
 ) -> std::io::Result<()> {
-    let server = tools::VcmpServer::new(Arc::new(Mutex::new(library)), changes);
+    let server = tools::VcmpServer::new(Arc::new(Mutex::new(library)), changes, playback);
     // Hosts other than this computer's loopback names are refused by default, against
     // DNS rebinding. An empty list of origins, enforced, refuses every request that
     // carries an Origin: browsers send one, MCP clients don't.

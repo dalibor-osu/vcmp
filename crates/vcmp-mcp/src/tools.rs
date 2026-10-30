@@ -1,5 +1,6 @@
 //! The tools agents call. Reads go to the server's own library connection; changes go
-//! through [`Changes`], to the app. Every answer is JSON text.
+//! through [`Changes`], and playback through [`Playback`], to the app. Every answer is
+//! JSON text. The playback tools are in `playback.rs`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -18,6 +19,7 @@ use vcmp_library::{
     PlaylistId, TagEdit, Track, TrackId, valid_label_colour,
 };
 
+use crate::playback::{self, Playback};
 use crate::{Changes, PlaylistEdit};
 
 /// The most files one change of tags may cover, so the owner can still review it.
@@ -28,8 +30,8 @@ const DEFAULT_PAGE: u32 = 100;
 
 /// What every agent is told about VCMP when it connects.
 const INSTRUCTIONS: &str = "\
-VCMP is the owner's music player. These tools read their music library and ask for \
-changes to it.
+VCMP is the owner's music player. These tools read their music library, ask for \
+changes to it, and play it.
 
 Reading: search, list_albums, list_artists, get_album, get_tracks, list_tag_keys, \
 find_tracks_by_tag, list_labels, find_tracks_by_labels, list_playlists and \
@@ -73,8 +75,9 @@ find_tracks_by_tag doesn't see them. Every track you're given lists its labels. 
 the owner asks for music by mood or purpose (\"play some chill music\"), look at \
 list_labels first: a label of that name is their own choice of tracks. \
 propose_label_changes puts labels on tracks and takes them off, and can create new \
-labels; like tag changes it waits for the owner's review, and propose_undo undoes it. \
-Labelling an album labels the tracks it has now.
+labels, with or without tracks to put them on; like tag changes it waits for the \
+owner's review, and propose_undo undoes it. Labelling an album labels the tracks it \
+has now.
 
 Playlists: create_playlist, rename_playlist, add_to_playlist, remove_from_playlist \
 and move_in_playlist change playlists at once. Deleting one is never immediate: \
@@ -85,33 +88,46 @@ restored.";
 pub struct VcmpServer {
     library: Arc<Mutex<Library>>,
     changes: Arc<dyn Changes>,
+    pub(crate) playback: Arc<dyn Playback>,
     tool_router: ToolRouter<Self>,
 }
 
 impl VcmpServer {
-    pub fn new(library: Arc<Mutex<Library>>, changes: Arc<dyn Changes>) -> Self {
+    pub fn new(
+        library: Arc<Mutex<Library>>,
+        changes: Arc<dyn Changes>,
+        playback: Arc<dyn Playback>,
+    ) -> Self {
         Self {
             library,
             changes,
-            tool_router: Self::tool_router(),
+            playback,
+            tool_router: Self::tool_router() + Self::playback_router(),
         }
     }
 
-    /// Runs `read` on the library, off the server's thread.
-    async fn read<T: Serialize + Send + 'static>(
+    /// Runs `read` on the library, off the server's thread, and answers its result.
+    pub(crate) async fn read<T: Serialize + Send + 'static>(
         &self,
         read: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
     ) -> Result<String, String> {
+        json(&self.read_raw(read).await?)
+    }
+
+    /// Runs `read` on the library, off the server's thread.
+    pub(crate) async fn read_raw<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String> {
         let library = self.library.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let library = library
                 .lock()
                 .map_err(|_| "the library connection broke".to_owned())?;
             read(&library)
         })
         .await
-        .map_err(|error| error.to_string())??;
-        json(&result)
+        .map_err(|error| error.to_string())?
     }
 
     /// Hands a change to the app, off the server's thread.
@@ -125,18 +141,30 @@ impl VcmpServer {
             .map_err(|error| error.to_string())??;
         json(&result)
     }
+
+    /// Hands a playback request to the app, off the server's thread.
+    pub(crate) async fn play_on<T: Serialize + Send + 'static>(
+        &self,
+        request: impl FnOnce(&dyn Playback) -> Result<T, String> + Send + 'static,
+    ) -> Result<String, String> {
+        let playback = self.playback.clone();
+        let result = tokio::task::spawn_blocking(move || request(playback.as_ref()))
+            .await
+            .map_err(|error| error.to_string())??;
+        json(&result)
+    }
 }
 
 fn json(value: &impl Serialize) -> Result<String, String> {
     serde_json::to_string_pretty(value).map_err(|error| error.to_string())
 }
 
-fn failed(error: vcmp_library::Error) -> String {
+pub(crate) fn failed(error: vcmp_library::Error) -> String {
     error.to_string()
 }
 
 /// How the history names who asked: the client's own title or name.
-fn agent(context: &RequestContext<RoleServer>) -> String {
+pub(crate) fn agent(context: &RequestContext<RoleServer>) -> String {
     context
         .client_info()
         .map(|info| info.title.unwrap_or(info.name))
@@ -226,9 +254,12 @@ pub struct NewLabelArgs {
 #[derive(Deserialize, JsonSchema)]
 pub struct ProposeLabelsArgs {
     /// Groups of tracks with the labels they get and lose. A track in several groups
-    /// gets all of their changes; at most 500 tracks in all.
+    /// gets all of their changes; at most 500 tracks in all. Empty when the change
+    /// only creates labels.
+    #[serde(default)]
     changes: Vec<LabelChange>,
-    /// Labels to create, used by name in changes.
+    /// Labels to create, used by name in changes or not at all: each is created when
+    /// the owner accepts, whether a track gets it or not.
     #[serde(default)]
     new_labels: Vec<NewLabelArgs>,
 }
@@ -614,7 +645,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Ask to put labels on tracks and take them off, creating new labels if needed, for up to 500 tracks. Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
+        description = "Ask to put labels on tracks and take them off for up to 500 tracks, and to create new labels: ones the tracks get, or ones for no track yet (such as setting up the owner's labels before tagging anything, with changes left empty). Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
     )]
     async fn propose_label_changes(
         &self,
@@ -636,8 +667,8 @@ impl VcmpServer {
                 edit.remove.extend(change.remove.iter().cloned());
             }
         }
-        if order.is_empty() {
-            return Err("name at least one track to change".into());
+        if order.is_empty() && args.new_labels.is_empty() {
+            return Err("name tracks to change or labels to create".into());
         }
         if order.len() > MAX_FILES {
             return Err(format!(
@@ -654,6 +685,10 @@ impl VcmpServer {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let names: Vec<String> = new_labels
+            .iter()
+            .map(|label| label.name.trim().to_owned())
+            .collect();
         let edits: Vec<(TrackId, LabelEdit)> = order
             .into_iter()
             .map(|id| {
@@ -667,7 +702,8 @@ impl VcmpServer {
             Ok(serde_json::json!({
                 "change_set_id": id.0,
                 "status": "pending",
-                "note": "Waiting for the owner's review in VCMP. Tracks that already were as asked are left out.",
+                "new_labels": names,
+                "note": "Waiting for the owner's review in VCMP. Tracks that already were as asked are left out; every new label is created on accepting, whether a track gets it or not.",
             }))
         })
         .await
@@ -839,7 +875,7 @@ impl ServerHandler for VcmpServer {
             .with_server_info(
                 Implementation::new("vcmp", env!("CARGO_PKG_VERSION")).with_title("VCMP"),
             )
-            .with_instructions(INSTRUCTIONS)
+            .with_instructions(format!("{INSTRUCTIONS}\n\n{}", playback::INSTRUCTIONS))
     }
 }
 
@@ -1013,7 +1049,7 @@ fn tracks_out(library: &Library, tracks: &[Track]) -> Result<Vec<serde_json::Val
         .collect()
 }
 
-fn track_out(
+pub(crate) fn track_out(
     library: &Library,
     track: &Track,
     tags: Option<BTreeMap<String, Vec<String>>>,

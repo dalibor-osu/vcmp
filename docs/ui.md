@@ -18,6 +18,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/playlist-page.slint` | `PlaylistView`: one playlist's picture, name, actions and tracks |
+| `ui/picture.slint` | `PictureFrame`, `PictureSlot`, the `MovingPictures` global and `MovingPicture`: a detail page's or the now playing view's picture, which plays an animation's frames while in sight |
+| `src/moving_pictures.rs` | Decodes an animated picture's frames off the UI thread while it is in sight with motion allowed, and lets them go after |
 | `ui/playlist-state.slint` | `Playlists` global: the playlist names every Add to playlist menu lists |
 | `src/playlists.rs` | `PlaylistBrowser`: the playlist grid and page, the sidebar list, and the edits behind them |
 | `ui/artist-page.slint` | `ArtistView`: one artist's picture, albums and appearances |
@@ -52,8 +54,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | `src/lastfm_service.rs` | `LastfmService`: the Last.fm row, the account, and plays into the scrobble queue |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
 | `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note and the Updates section of Settings |
-| `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
-| `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread |
+| `ui/agents.slint` | `AgentState` global, the AI agents section of Settings (switch, connection, the playback switch, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
+| `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread; `AppPlayback` (`src/player_service/agent_playback.rs`) brings their playback requests to `PlayerService` |
 | `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
 | `ui/labels.slint` | `Labels` global, `LabelEntry`, `LabelDot`, `LabelChip(s)`, `LabelFilter` (the Songs and Albums pages' label filter), `LabelEditor` (the dialog that makes or edits a label, with the palette and the custom colour picker) and the Labels section of Settings |
 | `ui/label-page.slint` | `LabelsPage`: the Labels section's list, and `LabelView`, one label's tracks with Play and Shuffle |
@@ -133,7 +135,8 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
-| Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing loops |
+| Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing of the UI's own loops |
+| An animated picture (GIF, WebP, APNG) plays on the album, artist and playlist pages and in the now playing view; grids, lists, search, the sidebar, the player bar and the queue show its first frame. Awaiting the owner's review (DESIGN.md) | The owner asked for animated pictures (issue #56). The animation is the owner's own content, not UI motion, so it plays where the picture is the subject and the page holds one; a grid of moving covers would compete for attention and cost CPU and memory with every card. Reduced motion (the OS's or Settings') shows the first frame, and is the way to stop it |
 | Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
 | An album's and an artist's other actions in a More menu ("…") beside Play and Shuffle | The owner's request (2026-10-28): the buttons under the cover (Add to playlist…, Edit tags…, the photo's) were distracting and seldom used. The playlist page already worked this way, so the three detail pages now share it. The album's menu holds Find cover online (or Find another cover and Remove cover for a cover fetched online), Add to playlist and Edit tags…; the artist's Find photo online, Choose photo… and Remove photo |
 | The cover or picture of an album, artist or playlist page as large as the page allows, from 128 to 280 px (`Theme.detail-cover-size`) | The owner's request (2026-10-28): the room the buttons under it took goes to the cover. It shrinks first in a narrow window, so the title and the Play, Shuffle and More buttons keep about 240 px beside it down to a 720 px window |
@@ -148,12 +151,13 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | A click on a cover picks it, with no separate confirm button | The picker exists for this one choice; Cancel and Escape are the way out |
 | Last.fm connects in the browser while the row waits, with Cancel | Last.fm's desktop sign-in happens on last.fm; asking every few seconds spares an "I've allowed it" button |
 | One Last.fm button whose text follows the state (Connect…, Cancel, Disconnect) | The focus stays on it while the state changes under it |
-| AI agents are a section of Settings, off by default | The owner's decision (MCP spec, 2026-10-19): the server runs only while VCMP is open and the switch is on. Its connection (address, token, port, the Claude Code command and the Claude Desktop entry for `vcmp mcp`) shows only while it is on. The Claude Desktop entry carries the path of the VCMP that runs, and its `VCMP_HOME` when set, so the relay reads the same library |
+| AI agents are a section of Settings, off by default | The owner's decision (MCP spec, 2026-10-19): the server runs only while VCMP is open and the switch is on. Its connection (address, token, port, the Claude Code command and the Claude Desktop entry for `vcmp mcp`) shows only while it is on, and so does "Let AI agents control playback", a second switch, off by default (labels spec, 2026-10-28), so an agent can't start music unasked. The Claude Desktop entry carries the path of the VCMP that runs, and its `VCMP_HOME` when set, so the relay reads the same library |
 | Values to copy are read-only fields with a Copy button | The token and command are too long to read out; a field shows they are text, selects like text, and Copy needs no clipboard library (`TextField.copy-all`). A long value scrolls inside its field, which clips it |
 | A waiting change is a note at the foot of the sidebar, above the update note | The owner chose a notice that doesn't interrupt (spec, "Notice, review when ready"). The sidebar is on every page, like the update note; the note is in text colour, not muted, because it asks for a decision. A dialog that opens by itself would interrupt listening and typing |
 | The review is a dialog like the tag editor's, focus on Decide later | The same `Modal` pattern. Three answers: write, reject, or leave it waiting; the focus starts on the one that changes nothing, so an Enter pressed by accident writes nothing. A click beside it does nothing, and Escape decides later |
 | The review lists the changes by file: what every file gets first, once ("In all 12 files"), then each file with changes of its own under its title and file name, by path | The owner's request (2026-10-28): rows of values with counts were hard to follow back to the songs they touch. A change to a whole album still lists its shared values once, so the spec's risk (an owner who accepts what is too long to read) stays answered |
 | The review's values in two columns, Before and After, of equal width beside the field's name | The columns line up from row to row and file to file, so the eye runs down one of them. A screen reader hears each value with its column ("After: 1979") |
+| A change that only makes labels says so in the review, names them, and shows no table; its button counts the labels ("Make 4 labels"), and the list of changes calls it "New labels". The undo of a change of labels names the labels it deletes | Agents may set up the owner's labels before any track has them (issue #52). A table with no rows and "Change 0 tracks" would hide what is decided on: the names are the change |
 | A new cover in the review is the picture itself, 64 px | The owner decides on what the cover looks like; "a new cover" in words gave nothing to decide on |
 | Before in muted text, after in text colour | The new value is what the owner decides on; the old one is context |
 | Writing tags is the filled button; deleting a playlist is not | Written tags can be undone for 30 days, so filling the button that writes them doesn't push a risk. A deleted playlist can't come back, so its button stays outlined, under the warning |
@@ -176,8 +180,16 @@ and reuses them while scrolling. It reports the range in view through
 - Covers more than three screens away are released, so memory stays flat however
   long the library is.
 
+An animated cover shows its first frame here: the grid draws the same 400 px
+thumbnail as for any cover, so animated pictures add nothing to its cost (see
+[Animated pictures](#animated-pictures)).
+
 A card under the pointer sits on a `surface` fill reaching into the gap around it,
-as hovered rows do, and its muted second line turns to `text` on it.
+as hovered rows do, and its muted second line turns to `text` on it. The fill
+reaches `space-s` past the card and the focus ring 3 px, so a `CardGrid` inside a
+`ScrollView` takes its side margins from padding inside the scrolling part: a
+`ScrollView` clips at its own edges, and a grid flush with them loses the fill's
+left side (`tests/search.rs` checks the Search and artist pages).
 
 Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
 on every frame, which doubled the grid's render time.
@@ -316,8 +328,9 @@ the new view in too.
     link to the site; a file of the owner's says nothing. About names fanart.tv,
     the Cover Art Archive and MusicBrainz as the sources of what VCMP finds online,
     with links, as fanart.tv's terms ask.
-  - "Choose photo…" takes a JPEG, PNG or WebP file. One that can't be read says so
-    under the picture.
+  - "Choose photo…" takes a JPEG, PNG, WebP or GIF file. One that can't be read says so
+    under the picture. An animated one plays on the page (see
+    [Animated pictures](#animated-pictures)).
   - The photo is kept by the library (see `docs/library.md`) and shows at once on
     the page, the artist cards and search.
 - **Getting back:** the back buttons, Escape, or the Artists sidebar entry, which
@@ -334,14 +347,23 @@ the new view in too.
 - **A playlist's page** (`PlaylistView`) shows its picture, name, number of tracks,
   minutes of the tracks that can play and how many files are not found, then
   Play, Shuffle and a More button (a right click on it does the same) with
-  Rename, Choose picture…, Use album covers (after choosing a picture) and Delete
-  playlist….
+  Rename, Choose picture…, Use album covers (after choosing a picture), Export… and
+  Delete playlist….
   - **Rename** turns the name into a field: Enter or Save keeps it, Escape or Cancel
     leaves it. An empty name keeps the old one.
   - **Delete** asks first, on the page, with the focus on Cancel; Escape cancels.
     The tracks stay in the library.
   - **Choose picture** opens the system's file dialog for images. A file that can't
-    be read as a picture leaves the picture as it was and says so on the page.
+    be read as a picture leaves the picture as it was and says so on the page. An
+    animated GIF, WebP or PNG plays on the page (see
+    [Animated pictures](#animated-pictures)); a picture made from album covers never
+    moves.
+  - **Export** opens the system's save dialog, in the folder of the last export
+    (while VCMP runs) and with the playlist's name and `.m3u8` filled in; a name
+    without `.m3u8` or `.m3u` gets `.m3u8`. The page then says where the file went,
+    how many entries point at files that aren't there now, and how many were left
+    out, or that the file could not be written. The note stays until another
+    playlist opens. The file's format is in `docs/library.md`, "Playlists".
 - **Entries** are numbered by position. One whose file is gone is dimmed and says
   "File not found" where the artist would be. Play, Shuffle and playing an entry
   (its play button, a double-click or Enter) play the entries that are there, as
@@ -376,7 +398,8 @@ the new view in too.
   (see [Selecting tracks](#selecting-tracks)). "Edit tags…" in an album page's More
   menu edits every track of the album at once. The heading names the album
   for tracks of one album, or counts the tracks of several.
-- **The form:** the cover, with Choose image… (JPEG or PNG) and Remove cover, then
+- **The form:** the cover, with Choose image… (JPEG, PNG, GIF or WebP) and Remove
+  cover, then
   Artist, Album, Album artist, Disc, Year and Genre, plus Title and Track for one
   track. The focus starts in the first field. The form fills a dialog in the middle
   of the window; in a short window it scrolls, and the buttons stay at the foot.
@@ -620,7 +643,39 @@ field (see [Labels](#labels)).
   1200 px when the view opens (and for each new track while it is open). The bar's
   small cover stands in until then; a decode that arrives after the track changed
   is dropped.
+- **An animated cover** plays here too, at up to 1200 px (see
+  [Animated pictures](#animated-pictures)).
 - Lyrics would go here later.
+
+## Animated pictures
+
+An album's cover, an artist's photo or a playlist's picture can be an animated GIF,
+WebP or PNG (APNG). How they are kept is in
+[docs/library.md](library.md#animated-pictures).
+
+- **Where it plays:** the large picture of the album, artist and playlist pages, and
+  the now playing view. Everywhere else shows the first frame, from the same cached
+  still as before.
+- **How:** `MovingPicture` (`ui/picture.slint`) shows its `still` at once, and once
+  the frames arrive swaps them on a Slint `Timer` whose interval is each frame's
+  delay. The timing is the file's own; a frame of 10 ms or less shows for 100 ms
+  (`Theme.picture-frame-too-short`, `Theme.picture-frame-fallback`), as browsers
+  do, since GIFs made for them count on it.
+- **Only while in sight:** each picture tells `MovingPictures.wanted` when it comes
+  into sight with motion allowed and when it stops being so (its page hidden, the
+  now playing view over it, motion reduced). `src/moving_pictures.rs` then decodes
+  the frames on a background thread, at the size the picture shows at (the detail
+  pages' 280 px times the window's scale, or 1200 px for now playing), and lets
+  them go when the picture leaves. Reopening the same page reuses frames still
+  held; frames for a picture since replaced are dropped.
+- **Reduced motion:** the picture shows its still, the first frame, and no frames
+  are decoded at all. Turning motion back on decodes them and starts the animation.
+- **The tag editor** shows a chosen animation's first frame as the cover. Saving
+  writes that frame into the files as a PNG, which is what other players show, and
+  VCMP keeps the animation.
+- **Limits:** a file over 16 MiB is kept as a still. At most 1,000 frames are
+  played, and an animation's frames take at most 64 MiB (larger ones are decoded
+  smaller).
 
 ## Music folders and scanning
 
@@ -982,6 +1037,8 @@ by `LibraryView`) keeps the `Labels` global current.
 
 ## Known limits
 
+- An animated picture can be stopped only by reduced motion (Settings or the OS),
+  not on the picture itself. A GIF meant to play once loops like any other.
 - A label held by only some of the chosen tracks is marked by words in the menu
   ("on some"), not by a mixed check mark: Slint's `MenuItem` has none.
 - The custom colour picker's shades and hues work with the mouse only; the keyboard

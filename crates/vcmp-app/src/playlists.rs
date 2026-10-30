@@ -1,16 +1,20 @@
 //! Playlists in the window: the Playlists page's grid, the playlist page, the list in
-//! the sidebar and the Add to playlist menus. Reloaded after every library change,
+//! the sidebar, the Add to playlist menus and exporting a playlist as an M3U file. Reloaded after every library change,
 //! since an entry dims while its file is gone and comes back with it.
 
 use std::cell::{Cell, RefCell};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use slint::{ComponentHandle, Image, ModelRc, SharedString, VecModel};
-use vcmp_library::{Library, Playlist, PlaylistEntry, PlaylistId, Track, TrackId};
+use vcmp_library::{
+    Library, M3uExport, Playlist, PlaylistEntry, PlaylistId, Track, TrackId, animation,
+    m3u_file_name,
+};
 
 use crate::albums::{Card, CoverGrid, Grid, initial};
 use crate::library_view::format_duration;
+use crate::moving_pictures::{self, Picture};
 use crate::selection;
 use crate::{
     AlbumTile, AppWindow, PlaylistDetail, Playlists, SongSelection, TrackRow, TrackSelection,
@@ -18,6 +22,10 @@ use crate::{
 
 /// Image files the picture chooser offers.
 const PICTURE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+
+/// Playlist file extensions the export's save dialog offers; the first is added to
+/// a name chosen without either.
+const M3U_EXTENSIONS: &[&str] = &["m3u8", "m3u"];
 
 pub struct PlaylistBrowser {
     window: slint::Weak<AppWindow>,
@@ -30,6 +38,17 @@ pub struct PlaylistBrowser {
     entries: RefCell<Vec<PlaylistEntry>>,
     // The last picture chosen for the open playlist could not be used.
     picture_failed: Cell<bool>,
+    // The open playlist's last export, and the folder of the last one of any
+    // playlist, where the save dialog starts.
+    exported: RefCell<Option<Exported>>,
+    export_folder: RefCell<Option<PathBuf>>,
+}
+
+/// What an export of the open playlist did, for its page.
+struct Exported {
+    file: PathBuf,
+    // `None`: the file could not be written.
+    report: Option<M3uExport>,
 }
 
 /// The open playlist's entries, for playing it.
@@ -50,6 +69,8 @@ impl PlaylistBrowser {
             open: Cell::default(),
             entries: RefCell::default(),
             picture_failed: Cell::default(),
+            exported: RefCell::default(),
+            export_folder: RefCell::default(),
         });
         browser.reload();
 
@@ -116,6 +137,12 @@ impl PlaylistBrowser {
                     "remove the playlist's picture",
                     Library::clear_playlist_image,
                 );
+            }
+        });
+        let weak = Rc::downgrade(&browser);
+        window.on_export_playlist(move || {
+            if let Some(browser) = weak.upgrade() {
+                browser.choose_export_file();
             }
         });
         let weak = Rc::downgrade(&browser);
@@ -204,6 +231,7 @@ impl PlaylistBrowser {
         };
         if self.open.get() != Some(id) {
             self.picture_failed.set(false);
+            self.exported.take();
         }
         self.open.set(Some(id));
         self.show(&window, id);
@@ -254,6 +282,10 @@ impl PlaylistBrowser {
             .picture
             .as_ref()
             .and_then(|path| Image::load_from_path(path).ok());
+        let exported = self.exported.borrow();
+        let report = exported
+            .as_ref()
+            .and_then(|exported| exported.report.as_ref());
         window.set_playlist_detail(PlaylistDetail {
             name: playlist.name.as_str().into(),
             track_count: playlist.track_count as i32,
@@ -261,11 +293,26 @@ impl PlaylistBrowser {
             minutes: playlist.duration.as_secs().div_ceil(60) as i32,
             has_picture: picture.is_some(),
             picture: picture.unwrap_or_default(),
+            frames: ModelRc::default(),
             own_picture: playlist.own_picture,
             initial: initial(&playlist.name).into(),
             failed,
             picture_failed: self.picture_failed.get(),
+            exported_to: exported
+                .as_ref()
+                .map(|exported| exported.file.to_string_lossy().as_ref().into())
+                .unwrap_or_default(),
+            export_failed: exported.is_some() && report.is_none(),
+            export_missing: report.map_or(0, |report| report.missing as i32),
+            export_left_out: report.map_or(0, |report| report.left_out.len() as i32),
         });
+        // Only the owner's own picture may move, not one made from covers.
+        let animation = playlist
+            .picture
+            .as_deref()
+            .filter(|_| playlist.own_picture)
+            .and_then(animation::beside);
+        moving_pictures::show(&window, Picture::Playlist, animation);
         window.set_playlist_tracks(ModelRc::new(VecModel::from(rows)));
         window.set_open_playlist_index(position.map_or(-1, |position| position as i32));
         *self.entries.borrow_mut() = entries;
@@ -317,6 +364,80 @@ impl PlaylistBrowser {
         if let Err(error) = picked {
             log::error!("could not open the picture chooser: {error}");
         }
+    }
+
+    /// Asks where to save the open playlist, then exports it there.
+    fn choose_export_file(self: &Rc<Self>) {
+        let Some(id) = self.open.get() else {
+            return;
+        };
+        let name = self
+            .playlists
+            .borrow()
+            .iter()
+            .find(|playlist| playlist.id == id)
+            .map(|playlist| m3u_file_name(&playlist.name))
+            .unwrap_or_else(|| m3u_file_name(""));
+        let mut dialog = rfd::AsyncFileDialog::new()
+            .add_filter("M3U", M3U_EXTENSIONS)
+            .set_file_name(name);
+        if let Some(folder) = self.export_folder.borrow().as_ref() {
+            dialog = dialog.set_directory(folder);
+        }
+        let weak = Rc::downgrade(self);
+        let chosen = slint::spawn_local(async move {
+            let Some(file) = dialog.save_file().await else {
+                return;
+            };
+            let Some(browser) = weak.upgrade() else {
+                return;
+            };
+            if browser.open.get() == Some(id) {
+                browser.export_open(file.path());
+            }
+        });
+        if let Err(error) = chosen {
+            log::error!("could not open the save dialog: {error}");
+        }
+    }
+
+    /// Exports the open playlist to `file` (with `.m3u8` added when it names
+    /// neither M3U extension) and says on its page how that went.
+    pub fn export_open(&self, file: &Path) {
+        let Some(id) = self.open.get() else {
+            return;
+        };
+        let known = file
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                M3U_EXTENSIONS
+                    .iter()
+                    .any(|known| extension.eq_ignore_ascii_case(known))
+            });
+        let file = if known {
+            file.to_path_buf()
+        } else {
+            let mut name = file.as_os_str().to_owned();
+            name.push(".");
+            name.push(M3U_EXTENSIONS[0]);
+            PathBuf::from(name)
+        };
+        let report = match self.library.export_playlist(id, &file) {
+            Ok(report) => {
+                for path in &report.left_out {
+                    log::warn!("left out of {}: {}", file.display(), path.display());
+                }
+                Some(report)
+            }
+            Err(error) => {
+                log::error!("could not export the playlist: {error}");
+                None
+            }
+        };
+        *self.export_folder.borrow_mut() = file.parent().map(Path::to_path_buf);
+        *self.exported.borrow_mut() = Some(Exported { file, report });
+        self.reload();
     }
 
     /// Adds the library's track at `path` to playlist `index`, or to a new playlist

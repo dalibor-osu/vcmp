@@ -17,7 +17,7 @@ pub const THUMBNAIL_SIZE: u32 = 400;
 
 /// File names checked in an album's folder, in order of preference.
 const FOLDER_IMAGE_NAMES: &[&str] = &["cover", "folder", "front", "album"];
-const FOLDER_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
+const FOLDER_IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
 
 /// Paths of an album's cached artwork.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,7 +56,7 @@ impl ArtworkStore {
         let Some(extension) = format.extensions_str().first() else {
             return Ok(None);
         };
-        let key = format!("{}.{extension}", &blake3::hash(data).to_hex()[..32]);
+        let key = format!("{}.{extension}", key_stem(data));
         let artwork = self.paths(&key);
         if artwork.thumbnail.is_file() && artwork.original.is_file() {
             return Ok(Some(key));
@@ -125,6 +125,11 @@ impl ArtworkStore {
             thumbnail: self.thumbnails.join(format!("{stem}.jpg")),
         }
     }
+}
+
+/// The part of a stored image's key that names its files: a hash of its bytes.
+pub(crate) fn key_stem(data: &[u8]) -> String {
+    blake3::hash(data).to_hex()[..32].to_string()
 }
 
 /// Whether `path` is a file name a folder's cover image may have, ignoring case.

@@ -13,8 +13,9 @@ crate.
 | Artwork originals | cache directory, `artwork/<hash>.<ext>` (Linux: `~/.cache/vcmp/`) |
 | Thumbnails | cache directory, `thumbnails/<hash>.jpg`, longest side 400 px |
 | Playlist pictures made from covers | cache directory, `mosaics/<hash>.jpg`, 400 px |
-| Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px |
-| Artist photos the owner chose | data directory, `images/artists/<hash>.jpg`, longest side 800 px |
+| Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px; an animated one also as it was, `<id>-<hash>.gif` (or `.webp`, `.png`) |
+| Artist photos the owner chose | data directory, `images/artists/<hash>.jpg`, longest side 800 px; an animated one also as it was, `<hash>.gif` (or `.webp`, `.png`) |
+| Animated album covers the owner chose | data directory, `images/covers/<hash>.gif` (or `.webp`, `.png`), the original bytes, named by the hash of the still the files hold (see [Animated pictures](#animated-pictures)) |
 | Covers kept for change sets | data directory, `images/undo/<hash>.<ext>`, the original bytes (see [Change sets](#change-sets)) |
 
 Covers fetched online (see [Covers fetched online](#covers-fetched-online)) are cached
@@ -129,7 +130,7 @@ aren't valid UTF-8 keep working.
 7. **Artwork** for albums still without it, or sent here by steps 3 and 5 (or whose
    cached files were deleted): a picture embedded in one of the first two tracks (front
    cover preferred), otherwise `cover`, `folder`, `front` or `album` with a `.jpg`,
-   `.jpeg`, `.png` or `.webp` extension in the tracks' folders, matched
+   `.jpeg`, `.png`, `.webp` or `.gif` extension in the tracks' folders, matched
    case-insensitively. Files are read in order on one thread; the same cover pool
    does the image work. An album found without art loses the artwork key it had,
    so a fetched cover shows instead of stale art.
@@ -331,7 +332,9 @@ accepted.
   and take off by name, and the new labels to create. Every name must be a label
   or one of the new ones (ignoring case; stored as the label spells it), a new name
   must be free, a track may be named once and can't both get and lose a label.
-  Edits that change nothing are left out, and so is a new label no track gets.
+  Edits that change nothing are left out. Every new label is kept, whether a track
+  gets it or not, so a set may only create labels (no `change_files` rows); a set
+  with neither is refused.
   They reuse the tag sets' tables: a track is a `change_files` row (with its path),
   each label `label:` and the name in `change_edits` (the name to put it on, NULL
   to take it off) and `change_values` (the name when the track holds it, `[]` when
@@ -340,7 +343,9 @@ accepted.
   track whose labels are still as the set found them. A track whose labels
   changed, or that would get a label deleted since, is a `conflict`. Undo works as
   for tags, and accepting the undo also deletes the labels the first set created
-  that no track holds any more. Sets never mix tags and labels.
+  that no track holds any more. A set that only created labels can be undone while
+  one of them still exists; its undo has no tracks and only deletes them. Sets
+  never mix tags and labels.
 - **Playlist deletions** (`Library::submit_playlist_deletion`) wait for review too, and
   can't be undone.
 - **Rejected and discarded.** `Library::reject_change_set` finishes a set unwritten.
@@ -373,6 +378,41 @@ accepted.
 - `Album::fetched_cover` says the artwork shown is a fetched cover.
   `Library::clear_fetched_cover` forgets it, together with the automatic lookup's
   result for the album, so that lookup may run again.
+
+## Animated pictures
+
+`src/animation.rs`. A GIF, an animated WebP or an APNG can be an album's cover, an
+artist's photo or a playlist's picture. Everything that shows pictures small
+(grids, lists, the player bar, playlist mosaics) keeps using a still JPEG made from
+the first frame; the original is kept beside it for the few places that play it
+(see [docs/ui.md](ui.md#animated-pictures)).
+
+- **Playlist pictures and artist photos:** `set_playlist_image` and
+  `set_artist_photo` make the JPEG as before and, when the image has more than one
+  frame and is at most 16 MiB (`MAX_ANIMATION_BYTES`), write the original next to
+  it under the same name with its own extension. `animation::beside` finds it from
+  the JPEG's path. Replacing, removing or deleting the picture deletes both files.
+- **Album covers stay VCMP's:** an animation never goes into the music files. The
+  tag editor writes a PNG of its first frame as the cover, which other players show,
+  and `Library::keep_cover_animation` keeps the original under `images/covers/`,
+  named by the hash of that PNG: the same hash that names the album's cached
+  artwork once the scan reads the cover back. `Library::cover_animation` looks for
+  that file, so an album plays the animation exactly while its files hold that
+  still; a cover changed later, by VCMP or another program, ends it without any
+  bookkeeping.
+- **A folder's `cover.gif`** (or an animated `cover.webp` or `cover.png`) is album
+  art like any folder image, cached with its original under `artwork/`, so
+  `cover_animation` returns the cached original for GIF, WebP and PNG artwork. Only
+  decoding says whether it moves. Folder images still come after art embedded in
+  the files.
+- **Decoding:** `animation::decode_frames` gives every frame, composited to the
+  full canvas, as RGBA at most the size asked for, with the delay the file gives (0
+  where it leaves the delay to the viewer). It keeps at most 1,000 frames
+  (`MAX_FRAMES`) and 64 MiB (`MAX_DECODED_BYTES`): past the budget, the frames so far
+  are shrunk and the rest follow at the smaller size. A still picture, or a format
+  that can't move, gives `None`. The checks read the header where the format has
+  one (APNG's animation chunk, WebP's animation flag) and decode two frames of a
+  GIF.
 
 ## Watching
 
@@ -425,6 +465,30 @@ tracks are searched separately.
   covers deletes the owner's file.
 - **Search:** `Library::search_playlists` keeps the playlists whose name holds every
   typed word, ignoring case.
+- **M3U export** (`src/m3u.rs`, `Library::export_playlist`) writes a playlist as a
+  UTF-8 file without a byte order mark and with `\n` line ends, as the spec decided
+  (`docs/specs/2026-10-22-listening-and-library-features.md`, "M3U"):
+  `#EXTM3U`, then per entry, in order and repeats included, an
+  `#EXTINF:<seconds>,<Artist> - <Title>` line (whole seconds, rounded; `-1` for an
+  unknown length; the title alone without an artist; line breaks in tags become
+  spaces) and the file's path. An existing file is overwritten; the save dialog
+  asks first.
+  - **Paths** are relative to the playlist file's folder when the track is on the
+    same drive: the same filesystem (`st_dev`) on Linux and macOS, the same drive
+    letter or network share on Windows. They are written with `/` on every
+    platform, which Windows accepts too, so the file also works on a phone or
+    another system. Otherwise the path is absolute, in the platform's own form. The
+    folder is resolved (symlinks, `..`) first, as track paths are.
+  - **Missing files:** an entry whose file is gone is written with the path the
+    library last saw, so the playlist is whole again when the drive is back; other
+    players skip it meanwhile. `M3uExport::missing` counts them for the page.
+  - **Left out:** a path that a UTF-8 file of lines can't hold (not valid UTF-8,
+    as old Linux file names can be, or holding a line break) is left out and
+    listed in `M3uExport::left_out`.
+  - `m3u_file_name` suggests the file name: the playlist's name with `<>:"/\|?*`
+    and control characters replaced by `_`, trailing dots and spaces dropped, and
+    `.m3u8`.
+  - Import is not built yet.
 
 ## Labels
 
@@ -556,6 +620,17 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   `mosaics/` until the cache is deleted. Each is about 30 KB.
 - Playlist search compares names in Rust after reading every playlist, and lowercases
   them the simple way, so it ignores case but not diacritics.
+- An animated cover is kept as the tag editor starts writing it, so one whose
+  writes all failed still leaves its file in `images/covers/`, and so does an
+  animated cover later replaced by another. Nothing deletes those files yet.
+- An animated folder image moves only when the files hold no cover of their own,
+  since embedded art comes first.
+- A GIF's loop count is not read: every animation loops.
+- M3U export decides "same drive" on Linux and macOS by filesystem. A missing file
+  counts from its nearest folder that exists: an unmounted drive whose mount point
+  is a folder on the system disk gives a relative path through that folder, which
+  still works on this machine. Btrfs subvolumes count as separate filesystems, so
+  a playlist saved in another subvolume than the music gets absolute paths.
 - Labels are in the database only. Deleting `library.sqlite3` (or losing it) loses
   every label, and nothing in the files can bring them back.
 - The owner's own label edits keep no history and can't be undone; only agents'

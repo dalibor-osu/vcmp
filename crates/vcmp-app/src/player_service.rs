@@ -8,7 +8,7 @@
 //! Plays go to Last.fm once they count by its rules, and so does the track playing.
 //! The file the engine has open is passed on, so tag edits to it can wait for it.
 //! The sleep timer counts down here and then has the engine stop after the track
-//! playing at that moment.
+//! playing at that moment. AI agents control playback through `agent_playback`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -23,7 +23,7 @@ use slint::{
     TimerMode, VecModel,
 };
 use vcmp_library::{
-    Album, AlbumId, ArtistId, CoverArtId, CoverLookup, LabelId, Library, PlaylistId, Track,
+    Album, AlbumId, ArtistId, Artwork, CoverArtId, CoverLookup, LabelId, Library, PlaylistId, Track,
 };
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackSnapshot, PlaybackState, Player, QueueEntry,
@@ -35,8 +35,13 @@ use vcmp_integrations::lastfm::{self, Play};
 use vcmp_integrations::media_controls::{self, Control, MediaControls, MediaState, MediaTrack};
 use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, CoverFinder, Lookup};
 
+mod agent_playback;
+
+pub use agent_playback::AppPlayback;
+
 use crate::albums::initial;
 use crate::library_view::{LibraryView, format_duration};
+use crate::moving_pictures::{self, Picture};
 use crate::saved_queue;
 use crate::selection::{self, Selectable};
 use crate::{
@@ -219,7 +224,7 @@ const QUEUE_COVER_PIXELS: u32 = 96;
 const QUEUE_COVER_CACHE: usize = 500;
 
 /// The longest side the now playing view's cover is decoded at.
-const LARGE_COVER_PIXELS: u32 = 1200;
+pub(crate) const LARGE_COVER_PIXELS: u32 = 1200;
 
 thread_local! {
     /// The service engine events are delivered to, on the UI thread.
@@ -986,6 +991,20 @@ impl PlayerService {
         }
     }
 
+    /// Makes `artwork` the cover the now playing view shows, decoded once the view
+    /// opens, and its animation, if it has one, what moves there.
+    fn use_large_cover(&self, state: &PlayerState, artwork: Option<&Artwork>) {
+        self.forget_large_cover(state);
+        *self.large_cover.borrow_mut() = artwork.map(|artwork| artwork.original.clone());
+        if let Some(window) = self.window.upgrade() {
+            let animation = artwork.and_then(|artwork| self.library.cover_animation(artwork));
+            moving_pictures::show(&window, Picture::NowPlaying, animation);
+        }
+        if state.get_now_playing_open() {
+            self.load_large_cover();
+        }
+    }
+
     fn forget_large_cover(&self, state: &PlayerState) {
         *self.large_cover.borrow_mut() = None;
         self.large_cover_requested.set(false);
@@ -1037,6 +1056,8 @@ impl PlayerService {
                 "folder" => Path::new(key)
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned()),
+                // Tracks an agent chose, named after the agent.
+                "agent" => Some(key.to_owned()),
                 "playlist" => self
                     .library
                     .playlist(PlaylistId(key.parse().ok()?))
@@ -1275,14 +1296,7 @@ impl PlayerService {
             .and_then(|artwork| Image::load_from_path(&artwork.thumbnail).ok());
         state.set_has_cover(cover.is_some());
         state.set_cover(cover.unwrap_or_default());
-        self.forget_large_cover(&state);
-        *self.large_cover.borrow_mut() = album
-            .artwork
-            .as_ref()
-            .map(|artwork| artwork.original.clone());
-        if state.get_now_playing_open() {
-            self.load_large_cover();
-        }
+        self.use_large_cover(&state, album.artwork.as_ref());
         let cover_url = self.known_cover(&album);
         if let Some(listening) = self.listening.borrow_mut().as_mut() {
             listening.cover_url = cover_url.clone();
@@ -1446,7 +1460,7 @@ impl PlayerService {
             state.set_has_cover(false);
             state.set_cover(Image::default());
             state.set_album(SharedString::default());
-            self.forget_large_cover(state);
+            self.use_large_cover(state, None);
             *self.listening.borrow_mut() = None;
             *self.media_track.borrow_mut() = None;
             self.album.set(None);
@@ -1538,14 +1552,10 @@ impl PlayerService {
                 .unwrap_or_default()
                 .into(),
         );
-        self.forget_large_cover(state);
-        *self.large_cover.borrow_mut() = album
-            .as_ref()
-            .and_then(|album| album.artwork.as_ref())
-            .map(|artwork| artwork.original.clone());
-        if state.get_now_playing_open() {
-            self.load_large_cover();
-        }
+        self.use_large_cover(
+            state,
+            album.as_ref().and_then(|album| album.artwork.as_ref()),
+        );
         state.set_track_path(path.into());
         state.set_duration_ms(duration.as_millis() as i32);
         state.set_duration_text(format_duration(duration).into());
@@ -1601,14 +1611,10 @@ impl PlayerService {
         );
         state.set_has_cover(cover.is_some());
         state.set_cover(cover.unwrap_or_default());
-        self.forget_large_cover(&state);
-        *self.large_cover.borrow_mut() = album
-            .as_ref()
-            .and_then(|album| album.artwork.as_ref())
-            .map(|artwork| artwork.original.clone());
-        if state.get_now_playing_open() {
-            self.load_large_cover();
-        }
+        self.use_large_cover(
+            &state,
+            album.as_ref().and_then(|album| album.artwork.as_ref()),
+        );
     }
 
     /// A new play for Last.fm: of `track`, which is `duration` long, or of nothing.

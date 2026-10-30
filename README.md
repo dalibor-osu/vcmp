@@ -28,7 +28,8 @@ macOS.
   your files.
 - Finds missing album covers online (the Cover Art Archive, through MusicBrainz) and
   artist photos on fanart.tv. You can use your own pictures instead, and give
-  playlists one too.
+  playlists one too. An animated GIF, WebP or PNG plays on its album's, artist's or
+  playlist's page.
 - Works with media keys and your system's media controls, shows what you play on
   Discord and scrobbles to Last.fm.
 - Has light and dark themes, a zoom for large monitors, and uses less motion when
