@@ -176,7 +176,11 @@ and reuses them while scrolling. It reports the range in view through
   long the library is.
 
 A card under the pointer sits on a `surface` fill reaching into the gap around it,
-as hovered rows do, and its muted second line turns to `text` on it.
+as hovered rows do, and its muted second line turns to `text` on it. The fill
+reaches `space-s` past the card and the focus ring 3 px, so a `CardGrid` inside a
+`ScrollView` takes its side margins from padding inside the scrolling part: a
+`ScrollView` clips at its own edges, and a grid flush with them loses the fill's
+left side (`tests/search.rs` checks the Search and artist pages).
 
 Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
 on every frame, which doubled the grid's render time.
