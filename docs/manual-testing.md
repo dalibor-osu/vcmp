@@ -368,6 +368,26 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Output device list shows the WASAPI device names.
 - [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without
       a console window, after SmartScreen's More info → Run anyway.
+- [ ] Title bar on Windows 11, in the light and in the dark theme: the bar has the
+      sidebar's colour, the title is in the text colour and dims while another
+      window is active, the border is a faint grey, and the minimise, maximise and
+      close buttons are easy to see (dark glyphs in light, light ones in dark).
+      Turn on Settings → Personalisation → Colours → "Show accent colour on title
+      bars and window borders": the bar and border keep VCMP's colours, also after
+      changing the accent colour while VCMP runs. **(never seen working)**
+- [ ] Switch VCMP's theme in Settings while it runs (Light, Dark, System), and with
+      System chosen switch Windows between light and dark: the bar follows at
+      once each time. With Dark chosen and Windows in light mode, change another
+      Windows setting (the accent colour, the wallpaper): the bar stays dark.
+      **(never seen working)**
+- [ ] The bar still drags the window, a double-click maximises and restores it,
+      hovering the maximise button shows Snap layouts (Windows 11), the window
+      resizes at its edges, and Alt+Space opens the window menu.
+- [ ] Title bar on Windows 10, in both themes: the bar is dark under the dark
+      theme and light under the light one, with the accent setting off; with it
+      on, the bar takes the accent colour (Windows 10 can't be told otherwise).
+      Switching the theme while VCMP runs repaints the bar at once, without
+      clicking elsewhere first. **(never seen working)**
 - [ ] The same for the zip that `packaging/release-local.sh` cross-builds with
       MinGW, and the rest of this list with it: it plays, and the media flyout,
       Credential Manager and the output devices work. **(seen only starting under

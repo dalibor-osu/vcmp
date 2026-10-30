@@ -16,7 +16,8 @@
 //!
 //! The system's scale factor changing (another monitor) and the native window being
 //! made both reset Slint's scale to the system's; the zoom goes back on top
-//! (`src/zoom.rs`).
+//! (`src/zoom.rs`). The native window being made also gives Windows' title bar the
+//! theme's colours (`src/title_bar.rs`).
 //!
 //! The keyboard's media keys control the player while the window has the focus.
 //! Desktops that send them to the playing app over MPRIS (GNOME, KDE, playerctl)
@@ -32,22 +33,23 @@ use slint::winit_030::{EventResult, WinitWindowAccessor};
 use slint::{ComponentHandle, LogicalPosition};
 
 use crate::wheel::{LINE, WheelScroller};
-use crate::{AppWindow, PlayState, PlayerState, zoom};
+use crate::{AppWindow, PlayState, PlayerState, title_bar, zoom};
 
 pub fn install(window: &AppWindow) {
     let weak = window.as_weak();
     let modifiers = Rc::new(Cell::new(ModifiersState::empty()));
     let scroller = WheelScroller::new(window);
     let pointer = Cell::new(LogicalPosition::new(0.0, 0.0));
-    let zoomed = Cell::new(false);
+    let started = Cell::new(false);
     window.window().on_winit_window_event(move |_, event| {
         let Some(window) = weak.upgrade() else {
             return EventResult::Propagate;
         };
-        // The first event comes from a native window that Slint has just given the
-        // system's scale.
-        if !zoomed.replace(true) {
+        // The first event comes from a native window that Slint has just created and
+        // given the system's scale. On Windows its frame takes the theme's colours.
+        if !started.replace(true) {
             zoom::apply_soon(&window);
+            title_bar::apply(&window);
         }
         match event {
             WindowEvent::ScaleFactorChanged { .. } => zoom::apply_soon(&window),

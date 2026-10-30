@@ -103,3 +103,16 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   as predefined palette to choose from"), and is drawn as a dot beside the name in
   plain text. Labels show as chips on track rows and as a column in the Songs
   table. An album's three-dot menu has Labels too, for all its tracks.
+
+## Awaiting the owner's review
+
+Decisions taken by the implementer, not yet the owner's. Confirm or change them,
+then move them to the sections above.
+
+- 2026-10-30, the Windows title bar (issue #55): it stays Windows' own, coloured
+  from the theme: the sidebar's colour for the bar, the text colour for the title,
+  a faint grey border, and Windows' dark frame under the dark theme. Windows 10 can
+  only make it dark or light. The other way, a frameless window with VCMP's own
+  minimise, maximise and close buttons in the sidebar's top row, looks more like
+  part of the app but has to rebuild dragging, Snap layouts, resizing and the
+  window menu; it is left for the owner to choose. macOS and Linux are unchanged.

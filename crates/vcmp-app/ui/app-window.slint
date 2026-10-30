@@ -322,6 +322,13 @@ export component AppWindow inherits Window {
     }
 
     title: "VCMP";
+    // Windows' title bar and border take the theme's colours (src/title_bar.rs),
+    // set again whenever they change.
+    callback frame-colors-changed();
+    private property <ThemePalette> frame-colors: Theme.colors;
+    changed frame-colors => {
+        root.frame-colors-changed();
+    }
     min-width: 720px;
     min-height: 480px;
     preferred-width: 1100px;
