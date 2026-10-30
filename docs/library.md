@@ -13,8 +13,9 @@ crate.
 | Artwork originals | cache directory, `artwork/<hash>.<ext>` (Linux: `~/.cache/vcmp/`) |
 | Thumbnails | cache directory, `thumbnails/<hash>.jpg`, longest side 400 px |
 | Playlist pictures made from covers | cache directory, `mosaics/<hash>.jpg`, 400 px |
-| Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px |
-| Artist photos the owner chose | data directory, `images/artists/<hash>.jpg`, longest side 800 px |
+| Playlist pictures the owner chose | data directory, `images/playlists/<id>-<hash>.jpg`, longest side 600 px; an animated one also as it was, `<id>-<hash>.gif` (or `.webp`, `.png`) |
+| Artist photos the owner chose | data directory, `images/artists/<hash>.jpg`, longest side 800 px; an animated one also as it was, `<hash>.gif` (or `.webp`, `.png`) |
+| Animated album covers the owner chose | data directory, `images/covers/<hash>.gif` (or `.webp`, `.png`), the original bytes, named by the hash of the still the files hold (see [Animated pictures](#animated-pictures)) |
 | Covers kept for change sets | data directory, `images/undo/<hash>.<ext>`, the original bytes (see [Change sets](#change-sets)) |
 
 Covers fetched online (see [Covers fetched online](#covers-fetched-online)) are cached
@@ -129,7 +130,7 @@ aren't valid UTF-8 keep working.
 7. **Artwork** for albums still without it, or sent here by steps 3 and 5 (or whose
    cached files were deleted): a picture embedded in one of the first two tracks (front
    cover preferred), otherwise `cover`, `folder`, `front` or `album` with a `.jpg`,
-   `.jpeg`, `.png` or `.webp` extension in the tracks' folders, matched
+   `.jpeg`, `.png`, `.webp` or `.gif` extension in the tracks' folders, matched
    case-insensitively. Files are read in order on one thread; the same cover pool
    does the image work. An album found without art loses the artwork key it had,
    so a fetched cover shows instead of stale art.
@@ -378,6 +379,41 @@ accepted.
   `Library::clear_fetched_cover` forgets it, together with the automatic lookup's
   result for the album, so that lookup may run again.
 
+## Animated pictures
+
+`src/animation.rs`. A GIF, an animated WebP or an APNG can be an album's cover, an
+artist's photo or a playlist's picture. Everything that shows pictures small
+(grids, lists, the player bar, playlist mosaics) keeps using a still JPEG made from
+the first frame; the original is kept beside it for the few places that play it
+(see [docs/ui.md](ui.md#animated-pictures)).
+
+- **Playlist pictures and artist photos:** `set_playlist_image` and
+  `set_artist_photo` make the JPEG as before and, when the image has more than one
+  frame and is at most 16 MiB (`MAX_ANIMATION_BYTES`), write the original next to
+  it under the same name with its own extension. `animation::beside` finds it from
+  the JPEG's path. Replacing, removing or deleting the picture deletes both files.
+- **Album covers stay VCMP's:** an animation never goes into the music files. The
+  tag editor writes a PNG of its first frame as the cover, which other players show,
+  and `Library::keep_cover_animation` keeps the original under `images/covers/`,
+  named by the hash of that PNG: the same hash that names the album's cached
+  artwork once the scan reads the cover back. `Library::cover_animation` looks for
+  that file, so an album plays the animation exactly while its files hold that
+  still; a cover changed later, by VCMP or another program, ends it without any
+  bookkeeping.
+- **A folder's `cover.gif`** (or an animated `cover.webp` or `cover.png`) is album
+  art like any folder image, cached with its original under `artwork/`, so
+  `cover_animation` returns the cached original for GIF, WebP and PNG artwork. Only
+  decoding says whether it moves. Folder images still come after art embedded in
+  the files.
+- **Decoding:** `animation::decode_frames` gives every frame, composited to the
+  full canvas, as RGBA at most the size asked for, with the delay the file gives (0
+  where it leaves the delay to the viewer). It keeps at most 1,000 frames
+  (`MAX_FRAMES`) and 64 MiB (`MAX_DECODED_BYTES`): past the budget, the frames so far
+  are shrunk and the rest follow at the smaller size. A still picture, or a format
+  that can't move, gives `None`. The checks read the header where the format has
+  one (APNG's animation chunk, WebP's animation flag) and decode two frames of a
+  GIF.
+
 ## Watching
 
 `LibraryWatcher` watches the reachable sources and calls back once no change has
@@ -584,6 +620,12 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   `mosaics/` until the cache is deleted. Each is about 30 KB.
 - Playlist search compares names in Rust after reading every playlist, and lowercases
   them the simple way, so it ignores case but not diacritics.
+- An animated cover is kept as the tag editor starts writing it, so one whose
+  writes all failed still leaves its file in `images/covers/`, and so does an
+  animated cover later replaced by another. Nothing deletes those files yet.
+- An animated folder image moves only when the files hold no cover of their own,
+  since embedded art comes first.
+- A GIF's loop count is not read: every animation loops.
 - M3U export decides "same drive" on Linux and macOS by filesystem. A missing file
   counts from its nearest folder that exists: an unmounted drive whose mount point
   is a folder on the system disk gives a relative path through that folder, which

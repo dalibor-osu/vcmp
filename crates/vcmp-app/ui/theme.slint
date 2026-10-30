@@ -115,6 +115,12 @@ export global Theme {
     out property <duration> drag-scroll-tick: 16ms;
     out property <length> drag-scroll-step: 12px;
 
+    // A moving picture's frames show for the delays its file gives. A frame of this
+    // or less shows for the fallback instead, as browsers do, since GIFs made for
+    // them count on it. Reduced motion stops the picture on its first frame.
+    out property <duration> picture-frame-too-short: 10ms;
+    out property <duration> picture-frame-fallback: 100ms;
+
     // The wheel turning over the volume slider changes the volume at once, and the
     // volume is saved once the wheel has rested this long. Not motion, so reduced
     // motion leaves it.

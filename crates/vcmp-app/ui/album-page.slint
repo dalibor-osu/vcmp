@@ -8,6 +8,7 @@ import { TagEditorState } from "tag-editor.slint";
 import { SelectionChange } from "selection.slint";
 import { ColumnEdge, ColumnWidths } from "columns.slint";
 import { LabelChips, LabelEntry, LabelWords, Labels } from "labels.slint";
+import { MovingPicture, PictureFrame, PictureSlot } from "picture.slint";
 
 export struct AlbumDetail {
     // The library's id, for the menu that labels the album's tracks.
@@ -20,6 +21,8 @@ export struct AlbumDetail {
     minutes: int,
     has-cover: bool,
     cover: image,
+    // The frames of an animated cover, once decoded; empty for a still one.
+    frames: [PictureFrame],
     // The cover was fetched online, rather than being the files' own.
     fetched-cover: bool,
     // First letter of the title, shown when there is no cover.
@@ -737,6 +740,10 @@ export component AlbumView {
     in property <bool> multi-disc;
     // Path of the track now playing, to mark it in the list.
     in property <string> playing-path;
+    // The page is in sight, so an animated picture plays.
+    in property <bool> in-sight;
+    // Which of the two album pages this is, for the animated cover's frames.
+    in property <PictureSlot> picture-slot: PictureSlot.album;
     callback back();
     // Plays the album from track `start` (-1: from its beginning, or shuffled).
     callback play(int, bool);
@@ -836,10 +843,13 @@ export component AlbumView {
                             clip: true;
                             background: Theme.colors.surface;
 
-                            if root.album.has-cover: Image {
+                            if root.album.has-cover: MovingPicture {
                                 width: parent.width;
                                 height: parent.height;
-                                source: root.album.cover;
+                                still: root.album.cover;
+                                slot: root.picture-slot;
+                                frames: root.album.frames;
+                                in-sight: root.in-sight;
                                 image-fit: ImageFit.cover;
                                 accessible-role: none;
                             }

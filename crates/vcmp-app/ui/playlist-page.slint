@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 import { Button, EdgeScroll, IconButton, TextField } from "components.slint";
 import { Glyph } from "icons.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
+import { MovingPicture, PictureFrame, PictureSlot } from "picture.slint";
 
 export struct PlaylistDetail {
     name: string,
@@ -13,6 +14,8 @@ export struct PlaylistDetail {
     minutes: int,
     has-picture: bool,
     picture: image,
+    // The frames of an animated picture, once decoded; empty for a still one.
+    frames: [PictureFrame],
     // The owner chose the picture, rather than it being made from album covers.
     own-picture: bool,
     // First letter of the name, shown when there is no picture.
@@ -40,6 +43,8 @@ export component PlaylistView {
     in property <[TrackRow]> tracks;
     // Path of the track now playing, to mark it in the list.
     in property <string> playing-path;
+    // The page is in sight, so an animated picture plays.
+    in property <bool> in-sight;
     // The name is being edited.
     in-out property <bool> renaming;
     callback back();
@@ -152,10 +157,13 @@ export component PlaylistView {
                         clip: true;
                         background: Theme.colors.surface;
 
-                        if root.playlist.has-picture: Image {
+                        if root.playlist.has-picture: MovingPicture {
                             width: parent.width;
                             height: parent.height;
-                            source: root.playlist.picture;
+                            still: root.playlist.picture;
+                            slot: PictureSlot.playlist;
+                            frames: root.playlist.frames;
+                            in-sight: root.in-sight;
                             image-fit: ImageFit.cover;
                             accessible-role: none;
                         }

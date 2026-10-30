@@ -13,6 +13,7 @@ import { ArtistDetail, ArtistView } from "artist-page.slint";
 import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 import { FolderBrowser, FolderRow } from "folders-page.slint";
 import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
+import { PictureSlot } from "picture.slint";
 import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
 import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
 import { AgentsSection } from "agents.slint";
@@ -499,6 +500,7 @@ export component AlbumsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.album-open;
+        in-sight: root.shown && root.album-open && !PlayerState.now-playing-open;
         playing-path: PlayerState.track-path;
         play(start, shuffle) => {
             root.play-album(start, shuffle);
@@ -691,6 +693,7 @@ export component ArtistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.artist-open && !root.album-open;
+        in-sight: root.shown && root.artist-open && !root.album-open && !PlayerState.now-playing-open;
         artist: root.artist;
         albums: root.artist-albums;
         appearances: root.appearances;
@@ -721,6 +724,8 @@ export component ArtistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.album-open;
+        in-sight: root.shown && root.album-open && !PlayerState.now-playing-open;
+        picture-slot: PictureSlot.artist-album;
         back-label: root.artist.name;
         playing-path: PlayerState.track-path;
         album: root.album;
@@ -849,6 +854,7 @@ export component PlaylistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.playlist-open;
+        in-sight: root.shown && root.playlist-open && !PlayerState.now-playing-open;
         playlist: root.playlist;
         tracks: root.tracks;
         playing-path: PlayerState.track-path;

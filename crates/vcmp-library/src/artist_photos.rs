@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use image::codecs::jpeg::JpegEncoder;
 use rusqlite::{OptionalExtension, params};
 
+use crate::animation;
 use crate::error::io_error;
 use crate::{ArtistId, Error, Library, Result};
 
@@ -81,7 +82,9 @@ impl Library {
     }
 
     /// Makes an image the artist's photo: a JPEG copy bounded to 800 px goes to the
-    /// data directory, replacing an earlier photo. `source` says where it came from
+    /// data directory, replacing an earlier photo. An animated one (GIF, WebP or APNG,
+    /// within [`animation::MAX_ANIMATION_BYTES`]) is kept as it is beside that copy,
+    /// which shows its first frame. `source` says where it came from
     /// (a web address), `None` for a file of the owner's. Returns the kept file.
     pub fn set_artist_photo(
         &self,
@@ -105,11 +108,16 @@ impl Library {
         JpegEncoder::new_with_quality(&mut jpeg, 88)
             .encode_image(&photo)
             .map_err(|_| unreadable())?;
-        let file = format!("{}.jpg", &blake3::hash(&jpeg).to_hex()[..16]);
+        let stem = blake3::hash(&jpeg).to_hex()[..16].to_string();
+        let file = format!("{stem}.jpg");
         let dir = self.artist_photo_dir();
         fs::create_dir_all(&dir).map_err(io_error(&dir))?;
         let path = dir.join(&file);
         fs::write(&path, &jpeg).map_err(io_error(&path))?;
+        if let Some(extension) = animation::animation_extension(data) {
+            let moving = dir.join(format!("{stem}.{extension}"));
+            fs::write(&moving, data).map_err(io_error(&moving))?;
+        }
         let old = self.own_artist_image(&name)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -170,7 +178,11 @@ impl Library {
             |row| row.get(0),
         )?;
         if !used {
-            let _ = fs::remove_file(self.artist_photo_dir().join(Path::new(file)));
+            let still = self.artist_photo_dir().join(Path::new(file));
+            if let Some(moving) = animation::beside(&still) {
+                let _ = fs::remove_file(moving);
+            }
+            let _ = fs::remove_file(still);
         }
         Ok(())
     }

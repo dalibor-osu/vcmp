@@ -232,6 +232,38 @@ reading the code or with a simulated system, so they are the most likely to fail
       didn't accept the personal key. Remove it: searches work with VCMP's key
       alone. The key is kept after a restart.
 
+### Animated pictures
+
+Use a few GIFs (one small, one large and long, say 800 px and 300 frames), an
+animated WebP and an APNG. For album covers, edit copies only.
+
+- [ ] Playlist: Choose picture… with a GIF. The page plays it at the GIF's speed;
+      the Playlists grid, search and the sidebar show its first frame. Use album
+      covers removes both files from `images/playlists/`.
+- [ ] Artist: Choose photo… with an animated WebP. The artist page plays it; the
+      Artists grid shows the first frame. Remove photo removes both files from
+      `images/artists/`.
+- [ ] Album: Edit tags… on a whole album, Choose image… with a GIF, Save. The album
+      page and, while one of its tracks plays, the now playing view play it; the
+      grid, the player bar and the queue show the first frame. Another player
+      shows the first frame as the cover. Choosing another (still) cover ends the
+      animation.
+- [ ] An album whose files hold no cover and whose folder holds `cover.gif` plays
+      it after a scan.
+- [ ] Settings → Reduce motion On: every animated picture stops on its first frame
+      at once; Off starts them again. The same with the OS setting and System.
+- [ ] Leave an album page with an animated cover for the grid, another section or
+      the now playing view: the animation stops (watch the CPU drop in a system
+      monitor) and starts again on coming back.
+- [ ] Memory and CPU: open the large, long GIF on an album page, then on a playlist
+      page, and play a track of that album in the now playing view. Note VCMP's
+      memory and CPU in a system monitor before and after; memory should go back
+      down within a little while of leaving each page, and CPU should stay low with
+      several animated pictures across pages, since only the one in sight plays.
+- [ ] Release build: `cargo run --release -p vcmp-app --example grid_benchmark --
+      5000 120` reports the same render times as before (the grid draws only
+      stills).
+
 ### Window, look and keyboard
 
 - [ ] Light, dark and system theme, with the system switched while VCMP runs.
