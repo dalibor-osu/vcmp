@@ -333,14 +333,20 @@ the new view in too.
 - **A playlist's page** (`PlaylistView`) shows its picture, name, number of tracks,
   minutes of the tracks that can play and how many files are not found, then
   Play, Shuffle and a More button (a right click on it does the same) with
-  Rename, Choose picture…, Use album covers (after choosing a picture) and Delete
-  playlist….
+  Rename, Choose picture…, Use album covers (after choosing a picture), Export… and
+  Delete playlist….
   - **Rename** turns the name into a field: Enter or Save keeps it, Escape or Cancel
     leaves it. An empty name keeps the old one.
   - **Delete** asks first, on the page, with the focus on Cancel; Escape cancels.
     The tracks stay in the library.
   - **Choose picture** opens the system's file dialog for images. A file that can't
     be read as a picture leaves the picture as it was and says so on the page.
+  - **Export** opens the system's save dialog, in the folder of the last export
+    (while VCMP runs) and with the playlist's name and `.m3u8` filled in; a name
+    without `.m3u8` or `.m3u` gets `.m3u8`. The page then says where the file went,
+    how many entries point at files that aren't there now, and how many were left
+    out, or that the file could not be written. The note stays until another
+    playlist opens. The file's format is in `docs/library.md`, "Playlists".
 - **Entries** are numbered by position. One whose file is gone is dimmed and says
   "File not found" where the artist would be. Play, Shuffle and playing an entry
   (its play button, a double-click or Enter) play the entries that are there, as

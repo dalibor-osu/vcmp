@@ -766,6 +766,7 @@ export component PlaylistsPage inherits Rectangle {
     callback rename(string);
     callback choose-picture();
     callback clear-picture();
+    callback export();
     callback delete();
 
     // Shows the grid again, with the playlist that was open as its current card.
@@ -879,6 +880,9 @@ export component PlaylistsPage inherits Rectangle {
         }
         clear-picture => {
             root.clear-picture();
+        }
+        export => {
+            root.export();
         }
         delete => {
             root.delete();

@@ -112,9 +112,13 @@ one (a live or concept album). `cargo run -p vcmp-app`.
 
 ## What is missing
 
-- Play history, favourites, the Home page, more formats, the library check, M3U and
-  the first-run wizard. PR #42, which they waited for, is merged; each comes as its
-  own PR.
+- Play history, favourites, the Home page, more formats, the library check, M3U
+  import and the first-run wizard. PR #42, which they waited for, is merged; each
+  comes as its own PR.
+- M3U export is built (issue #57): "Export…" in a playlist's More menu. Exporting
+  Favourites waits for favourites; import (reading `.m3u` and `.m3u8` into a new
+  playlist, matching by path and then by tags, listing what didn't match) is still
+  to come.
 
 ## Known problems
 

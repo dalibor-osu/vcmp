@@ -166,6 +166,21 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] The picture is made from the first four album covers; choose your own and
       go back.
 - [ ] Delete one of the files: its entry is dimmed and skipped while playing.
+- [ ] **(never seen working)** Export… a playlist with that missing entry, a track
+      in it twice and names outside ASCII (Dvořák, 日本) into the music folder, then
+      into a folder elsewhere on the same drive. The save dialog starts with the
+      playlist's name and `.m3u8`, and the page says where the file went and that
+      one entry's file isn't there. Export again to the same name: the dialog asks
+      before replacing it. On each of Windows, Linux and macOS:
+  - Open both files in VLC: every entry that is there plays, in order, twice
+    where it is twice, with the right titles. The file in the music folder has
+    paths like `Album/01 Track.flac`.
+  - Windows: open them in foobar2000 too. Export to a USB stick or another drive
+    letter than the music: the paths are absolute (`D:\Music\…`).
+  - Linux or macOS: export to a USB stick while the music is on the system disk:
+    the paths are absolute.
+  - Copy the music folder with the exported file in it to a phone, and open the
+    playlist in its player: the relative paths find the files.
 
 ### Labels
 

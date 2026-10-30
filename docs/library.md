@@ -425,6 +425,30 @@ tracks are searched separately.
   covers deletes the owner's file.
 - **Search:** `Library::search_playlists` keeps the playlists whose name holds every
   typed word, ignoring case.
+- **M3U export** (`src/m3u.rs`, `Library::export_playlist`) writes a playlist as a
+  UTF-8 file without a byte order mark and with `\n` line ends, as the spec decided
+  (`docs/specs/2026-10-22-listening-and-library-features.md`, "M3U"):
+  `#EXTM3U`, then per entry, in order and repeats included, an
+  `#EXTINF:<seconds>,<Artist> - <Title>` line (whole seconds, rounded; `-1` for an
+  unknown length; the title alone without an artist; line breaks in tags become
+  spaces) and the file's path. An existing file is overwritten; the save dialog
+  asks first.
+  - **Paths** are relative to the playlist file's folder when the track is on the
+    same drive: the same filesystem (`st_dev`) on Linux and macOS, the same drive
+    letter or network share on Windows. They are written with `/` on every
+    platform, which Windows accepts too, so the file also works on a phone or
+    another system. Otherwise the path is absolute, in the platform's own form. The
+    folder is resolved (symlinks, `..`) first, as track paths are.
+  - **Missing files:** an entry whose file is gone is written with the path the
+    library last saw, so the playlist is whole again when the drive is back; other
+    players skip it meanwhile. `M3uExport::missing` counts them for the page.
+  - **Left out:** a path that a UTF-8 file of lines can't hold (not valid UTF-8,
+    as old Linux file names can be, or holding a line break) is left out and
+    listed in `M3uExport::left_out`.
+  - `m3u_file_name` suggests the file name: the playlist's name with `<>:"/\|?*`
+    and control characters replaced by `_`, trailing dots and spaces dropped, and
+    `.m3u8`.
+  - Import is not built yet.
 
 ## Labels
 
@@ -556,6 +580,11 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   `mosaics/` until the cache is deleted. Each is about 30 KB.
 - Playlist search compares names in Rust after reading every playlist, and lowercases
   them the simple way, so it ignores case but not diacritics.
+- M3U export decides "same drive" on Linux and macOS by filesystem. A missing file
+  counts from its nearest folder that exists: an unmounted drive whose mount point
+  is a folder on the system disk gives a relative path through that folder, which
+  still works on this machine. Btrfs subvolumes count as separate filesystems, so
+  a playlist saved in another subvolume than the music gets absolute paths.
 - Labels are in the database only. Deleting `library.sqlite3` (or losing it) loses
   every label, and nothing in the files can bring them back.
 - The owner's own label edits keep no history and can't be undone; only agents'
