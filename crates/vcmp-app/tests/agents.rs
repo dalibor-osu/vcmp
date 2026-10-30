@@ -814,8 +814,12 @@ fn agents_play_through_the_player_as_its_buttons_do() {
         &sent.take()[..],
         [Command::PlayContext { origin: Some(origin), start: None, .. }] if origin == "agent:Claude"
     ));
-    player.agent_queue(&[one.clone()], true).unwrap();
-    player.agent_queue(&[two.clone()], false).unwrap();
+    player
+        .agent_queue(std::slice::from_ref(&one), true)
+        .unwrap();
+    player
+        .agent_queue(std::slice::from_ref(&two), false)
+        .unwrap();
     assert_eq!(
         sent.take(),
         [
@@ -872,8 +876,8 @@ fn agents_read_what_the_player_shows() {
     assert_eq!(status.repeat, Repeat::All);
     assert!(!status.shuffle);
     assert_eq!(status.context, Some(Context::Album(album)));
-    assert_eq!(status.up_next, [single.path.clone()]);
-    assert_eq!(status.upcoming, [two.path.clone()]);
+    assert_eq!(status.up_next, std::slice::from_ref(&single.path));
+    assert_eq!(status.upcoming, std::slice::from_ref(&two.path));
     assert_eq!(status.sleep_timer, vcmp_mcp::SleepTimer::Minutes(30));
     assert_eq!(
         app.window.global::<PlayerState>().get_sleep_timer(),

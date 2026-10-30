@@ -83,10 +83,11 @@ mod platform {
         (read != 0).then_some(animate == 0)
     }
 
+    type Changed = Box<dyn FnMut(Option<bool>)>;
+
     thread_local! {
         /// What `window_proc` calls on this thread when a system setting changes.
-        static CHANGED: RefCell<Option<Box<dyn FnMut(Option<bool>)>>> =
-            const { RefCell::new(None) };
+        static CHANGED: RefCell<Option<Changed>> = const { RefCell::new(None) };
     }
 
     /// Reports the setting, then waits for `WM_SETTINGCHANGE` in this thread's message

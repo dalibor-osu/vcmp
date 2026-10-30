@@ -6,7 +6,7 @@
 //! can't be played are named to the agent; the app plays the rest through
 //! [`Playback`], as the window's buttons do.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rmcp::handler::server::wrapper::Parameters;
@@ -528,7 +528,7 @@ fn percent(volume: f32) -> u32 {
 }
 
 /// A queued file as a track the library knows, or by its path alone.
-fn queued_out(library: &Library, path: &PathBuf) -> Result<serde_json::Value, String> {
+fn queued_out(library: &Library, path: &Path) -> Result<serde_json::Value, String> {
     let track = match library.track_id_for_path(path).map_err(failed)? {
         Some(id) => library.track(id).map_err(failed)?,
         None => None,

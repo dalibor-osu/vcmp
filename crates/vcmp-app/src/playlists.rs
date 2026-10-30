@@ -312,7 +312,7 @@ impl PlaylistBrowser {
             .as_deref()
             .filter(|_| playlist.own_picture)
             .and_then(animation::beside);
-        moving_pictures::show(&window, Picture::Playlist, animation);
+        moving_pictures::show(window, Picture::Playlist, animation);
         window.set_playlist_tracks(ModelRc::new(VecModel::from(rows)));
         window.set_open_playlist_index(position.map_or(-1, |position| position as i32));
         *self.entries.borrow_mut() = entries;

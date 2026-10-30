@@ -535,6 +535,8 @@ impl App {
             .is_some()
     }
 
+    // Only the read-only tests use it, and they run on Unix only.
+    #[cfg_attr(not(unix), expect(dead_code))]
     fn failures(&self) -> Vec<(String, TagFailureReason)> {
         self.state()
             .get_failures()
