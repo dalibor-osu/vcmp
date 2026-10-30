@@ -443,6 +443,31 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Output device list shows the WASAPI device names.
 - [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without
       a console window, after SmartScreen's More info → Run anyway.
+- [ ] No system title bar, on Windows 11 and 10: VCMP's minimise, maximise and
+      close buttons sit in the top right corner, in both themes, and their glyphs
+      dim while another window is active. Each one works, and hovering it fills
+      it. Maximise turns into Restore while the window is maximised. Turn on
+      Settings → Personalisation → Colours → "Show accent colour on title bars and
+      window borders": nothing pink appears (Windows 11 also keeps a faint grey
+      border). **(never seen working)**
+- [ ] Hovering the maximise button on Windows 11 shows Snap layouts, and picking
+      one snaps VCMP there. **(never seen working)**
+- [ ] Drag the window by the strip along its top (over the page, above the title)
+      and by the sidebar's top (the "VCMP" wordmark): it moves, snaps at the
+      screen's edges, and a double-click maximises and restores it. A right-click
+      there opens the window menu, and so does Alt+Space. With the now playing
+      view or a dialog open, only the strip drags. **(never seen working)**
+- [ ] Resize the window at all four edges and corners, the top included.
+      Maximised, nothing is cut off at the top or the screen's edges, and the
+      buttons still sit in the corner; minimise and restore from the taskbar.
+      **(never seen working)**
+- [ ] Switch VCMP's theme (Light, Dark, System) while it runs, and with System
+      chosen switch Windows between light and dark: the window menu (Alt+Space)
+      follows the theme. **(never seen working)**
+- [ ] Settings → Zoom at 150 % and on a monitor scaled to 150 %: the buttons stay
+      clickable where they are drawn, and the maximise button still shows Snap
+      layouts. **(never seen working)**
+- [ ] Narrator reads the buttons as Minimise, Maximise or Restore, and Close.
 - [ ] The same for the zip that `packaging/release-local.sh` cross-builds with
       MinGW, and the rest of this list with it: it plays, and the media flyout,
       Credential Manager and the output devices work. **(seen only starting under

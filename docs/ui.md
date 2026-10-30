@@ -166,6 +166,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Zoom in Settings, from 80 to 200 %, with Ctrl+= and Ctrl+- (Ctrl+0 for 100 %) | The owner's request (2026-10-28): on a large 2K monitor VCMP looked small. It scales the whole window on top of the system's own scale, so every size in `theme.slint` grows together and the layout rules still hold. Buttons on either side of the value step it, as zooming goes a step at a time; the shortcuts are the ones browsers use |
 | Small marks after the playing track's artist: lossless (a waveform) and Last.fm (signal arcs, with a tick once the play counts) | The owner's request (2026-10-28). Muted and 14 px, so they inform without competing with the title; the scrobbled mark turns to text colour and changes shape, so the state never rests on colour. Their name shows above them under the pointer and is what a screen reader hears. The Last.fm mark shows only while an account is connected, and only for plays Last.fm would count (an artist, and longer than 30 s) |
 | The wheel over the volume slider changes the volume, 5 % a notch; over the position slider it scrolls the page | The owner's request (2026-10-28). Turning the wheel to set the volume is what people expect of a player; seeking by wheel would happen by accident while scrolling. The volume is saved once the wheel rests (`Theme.wheel-commit-delay`), not on every step |
+| On Windows no system title bar: VCMP's own minimise, maximise and close buttons in the top right corner (`ui/window-frame.slint`, `src/title_bar.rs`), 46 × 32 px as Windows' own. The window drags by a 16 px strip along its top and by the sidebar down to its first section. The frame's border is `surface` and Windows' dark frame follows the theme | The owner's choice (issue #55, 2026-10-30): Windows painted its bar in the accent colour, a pink strip over the dark theme, on a row of its own. The window keeps Windows' styles and only gives the title bar's room to the app, so Windows still snaps, maximises on a double-click of a drag area, opens the window menu on Alt+Space or a right-click, and resizes at the edges. The maximise button answers Windows as its own (`HTMAXBUTTON`), so Windows 11 shows Snap layouts over it. Top right is where Windows users look for the buttons, and the page headers start 40 px down, so the 32 px buttons cover nothing. The strip is 16 px because detail pages, dialogs and the now playing view put controls from 16 or 24 px down; the now playing view's menu moves below the buttons. **The placement, sizes and hover are awaiting the owner's review** (DESIGN.md) |
 
 ## Album grid
 
@@ -1067,6 +1068,15 @@ by `LibraryView`) keeps the `Labels` global current.
 - Zoom was tested headless and against the window's scale factor; how it looks on
   a real high-resolution monitor, and on moving the window to another monitor, is
   in [manual-testing.md](manual-testing.md).
+- VCMP's own window buttons on Windows are built and checked to compile for
+  Windows, but not yet seen working. A page scrolled under the 16 px drag strip
+  can't be clicked there; the strip drags instead. The system's title bar shows for
+  a moment at start, until the native window exists and it comes off. On Windows 10
+  the window's top border line is missing: Windows 10 draws it as part of the title
+  bar. The border's colour needs Windows 11. The caption buttons aren't in the Tab
+  order; the keyboard reaches them through the window menu (Alt+Space), as with
+  Windows' own. On macOS and Linux the system's title bar stays and follows the
+  system's light or dark mode, not VCMP's theme.
 
 - The history (back and forward) remembers sections and the album, artist and
   playlist pages, not a folder opened on the Folders page or the search typed, and

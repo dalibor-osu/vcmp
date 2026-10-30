@@ -42,9 +42,10 @@ fn attach(window: slint::Weak<AppWindow>, service: Weak<PlayerService>, attempts
     }
 }
 
-/// The `HWND` the Windows media controls attach to.
+/// The window's `HWND`, which the Windows media controls attach to and the window
+/// frame is changed through (`src/title_bar.rs`); `None` off Windows.
 #[cfg(windows)]
-fn native_handle(window: &AppWindow) -> Option<u64> {
+pub(crate) fn native_handle(window: &AppWindow) -> Option<u64> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let handle = window.window().window_handle();
@@ -55,6 +56,6 @@ fn native_handle(window: &AppWindow) -> Option<u64> {
 }
 
 #[cfg(not(windows))]
-fn native_handle(_window: &AppWindow) -> Option<u64> {
+pub(crate) fn native_handle(_window: &AppWindow) -> Option<u64> {
     None
 }

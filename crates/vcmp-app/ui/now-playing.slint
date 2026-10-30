@@ -5,6 +5,7 @@ import { Labels } from "labels.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 import { MovingPicture, PictureSlot } from "picture.slint";
+import { WindowFrame } from "window-frame.slint";
 
 // The cover as large as the view allows: the full-size image once it is decoded,
 // the bar's small one until then, the title's first letter without any.
@@ -312,10 +313,11 @@ export component NowPlayingView inherits Rectangle {
             }
         }
 
-        // What can be done with the track, across from the close button.
+        // What can be done with the track, across from the close button; on Windows
+        // below the window's own buttons in that corner.
         if PlayerState.has-track: actions := ContextMenuArea {
             x: root.width - self.width - Theme.space-l;
-            y: Theme.space-l;
+            y: WindowFrame.custom ? Theme.caption-button-height + Theme.space-s : Theme.space-l;
             width: Theme.target-height;
             height: Theme.target-height;
 

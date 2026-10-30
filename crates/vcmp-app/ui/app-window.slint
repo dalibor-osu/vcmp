@@ -28,7 +28,9 @@ import { ColumnWidths } from "columns.slint";
 import { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeHistory, ChangeKind, ChangeProblem, ChangeReview, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus, SidebarReviewNote } from "agents.slint";
 import { LabelChoice, LabelEditor, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour } from "labels.slint";
 import { LabelDetail, LabelsPage } from "label-page.slint";
+import { CaptionButtons, WindowFrame } from "window-frame.slint";
 
+export { WindowFrame }
 export { LabelChoice, LabelDetail, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour }
 export { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
 export { LastfmProblem, LastfmState, LastfmStatus }
@@ -325,6 +327,20 @@ export component AppWindow inherits Window {
     }
 
     title: "VCMP";
+    // Windows: the window has no system title bar (src/title_bar.rs). Its frame
+    // takes the theme's colours, and the window drags by the sidebar down to its
+    // first section while nothing covers it; both are handed on when they change.
+    callback frame-changed();
+    private property <ThemePalette> frame-colors: Theme.colors;
+    changed frame-colors => {
+        root.frame-changed();
+    }
+    private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.now-playing-open || CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open;
+    out property <length> frame-sidebar-width: sidebar.width;
+    out property <length> frame-sidebar-drag-height: root.sidebar-covered ? 0px : max(0px, sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y - Theme.space-s);
+    changed frame-sidebar-drag-height => {
+        root.frame-changed();
+    }
     min-width: 720px;
     min-height: 480px;
     preferred-width: 1100px;
@@ -911,6 +927,13 @@ export component AppWindow inherits Window {
                 if Labels.editor-open: LabelEditor {
                     width: parent.width;
                     height: parent.height;
+                }
+
+                // Windows: the window's own buttons, over everything, as its title
+                // bar's would be.
+                if WindowFrame.custom: CaptionButtons {
+                    x: parent.width - self.width;
+                    y: 0;
                 }
             }
 

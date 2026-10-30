@@ -79,6 +79,9 @@ pub fn apply(window: &AppWindow) {
             size: pixels.to_logical(target),
         });
     }
+    // Windows hit-tests the caption buttons in physical pixels, which follow both the
+    // system's scale and the zoom.
+    crate::title_bar::apply(window);
 }
 
 /// Applies the zoom once the event that brought it about is handled: Slint sets the

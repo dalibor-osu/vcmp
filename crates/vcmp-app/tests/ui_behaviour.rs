@@ -7,7 +7,7 @@
 use i_slint_backend_testing::{AccessibleRole, ElementHandle, ElementRoot};
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, SharedString};
-use vcmp_app::{AppWindow, Page, ReduceMotion, Theme, ThemeMode, theme};
+use vcmp_app::{AppWindow, Page, ReduceMotion, Theme, ThemeMode, WindowFrame, theme};
 
 fn open_window() -> AppWindow {
     i_slint_backend_testing::init_no_event_loop();
@@ -656,4 +656,45 @@ fn the_queue_and_now_playing_animate_out_too() {
     player.set_now_playing_open(false);
     wait(0);
     assert_eq!((count("QueuePanel"), count("NowPlayingView")), (0, 0));
+}
+
+#[test]
+fn the_window_has_its_own_caption_buttons_only_without_a_title_bar() {
+    let window = open_window();
+    let frame = window.global::<WindowFrame>();
+    let buttons = || ElementHandle::find_by_element_type_name(&window, "CaptionButtons").count();
+    assert_eq!(buttons(), 0, "the system's title bar has its own");
+
+    frame.set_custom(true);
+    assert_eq!(buttons(), 1);
+    find(&window, AccessibleRole::Button, "Minimise");
+    find(&window, AccessibleRole::Button, "Maximise");
+    frame.set_maximized(true);
+    let restore = find(&window, AccessibleRole::Button, "Restore");
+
+    let asked = std::rc::Rc::new(std::cell::Cell::new(false));
+    frame.on_toggle_maximized({
+        let asked = asked.clone();
+        move || asked.set(true)
+    });
+    restore.invoke_accessible_default_action();
+    assert!(asked.get(), "a screen reader can restore the window");
+}
+
+#[test]
+fn the_sidebar_drags_the_window_down_to_its_sections_while_nothing_covers_it() {
+    let window = open_window();
+    let height = window.get_frame_sidebar_drag_height();
+    assert!(
+        height > window.global::<Theme>().get_caption_drag_height(),
+        "the wordmark's room drags: {height}"
+    );
+    window
+        .global::<vcmp_app::PlayerState>()
+        .set_now_playing_open(true);
+    assert_eq!(
+        window.get_frame_sidebar_drag_height(),
+        0.0,
+        "now playing is over it"
+    );
 }
