@@ -430,6 +430,7 @@ fn a_change_of_labels_is_reviewed_and_can_be_undone() {
     app.open_history();
     app.press("Undo the change asked by Claude");
     assert_eq!(state.get_review_kind(), ChangeKind::LabelUndo);
+    assert_eq!(state.get_review_gone_labels(), "chill");
     let shared: Vec<ChangeRow> = state.get_review_shared().iter().collect();
     assert_eq!(
         (shared[0].before.as_str(), shared[0].after.as_str()),
@@ -442,6 +443,60 @@ fn a_change_of_labels_is_reviewed_and_can_be_undone() {
         app.library.label_named("chill").unwrap().is_none(),
         "the label it made goes too"
     );
+    assert_eq!(
+        app.history(),
+        [
+            (ChangeKind::LabelUndo, ChangeStatus::Accepted),
+            (ChangeKind::Labels, ChangeStatus::Undone)
+        ]
+    );
+}
+
+#[test]
+fn a_change_that_only_makes_labels_is_reviewed_and_can_be_undone() {
+    let app = start();
+    let label = |name: &str, colour: &str| NewLabel {
+        name: name.into(),
+        colour: colour.into(),
+    };
+    app.agents
+        .submit_labels(
+            "Claude",
+            &[],
+            &[label("Focus", "palette:sky"), label("Sleep", "#334455")],
+        )
+        .unwrap();
+
+    app.press("1 change by an agent waits for your review, opens it");
+    let state = app.state();
+    assert_eq!(state.get_review_kind(), ChangeKind::Labels);
+    assert_eq!(state.get_review_files(), 0);
+    assert_eq!(state.get_review_new_labels(), "Focus, Sleep");
+    assert_eq!(state.get_review_new_label_count(), 2);
+    assert!(app.review_rows().is_empty());
+
+    app.accept("Make 2 labels");
+    let names = || -> Vec<(String, u32)> {
+        app.library
+            .labels()
+            .unwrap()
+            .into_iter()
+            .map(|label| (label.name, label.track_count))
+            .collect()
+    };
+    assert_eq!(names(), [("Focus".into(), 0), ("Sleep".into(), 0)]);
+    assert_eq!(
+        app.history(),
+        [(ChangeKind::Labels, ChangeStatus::Accepted)]
+    );
+    app.press("Close");
+
+    app.open_history();
+    app.press("Undo the change asked by Claude");
+    assert_eq!(state.get_review_kind(), ChangeKind::LabelUndo);
+    assert_eq!(state.get_review_gone_labels(), "Focus, Sleep");
+    app.accept("Undo");
+    assert!(names().is_empty(), "the labels it made go");
     assert_eq!(
         app.history(),
         [

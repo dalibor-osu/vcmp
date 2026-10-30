@@ -547,6 +547,64 @@ fn agents_find_tracks_by_label_and_label_changes_wait_for_review() {
 }
 
 #[test]
+fn labels_can_be_made_for_no_track() {
+    let setup = start();
+    let mut session = setup.session();
+    // The owner accepts in the window, on a connection of its own.
+    let base = dunce::canonicalize(setup._dir.path()).unwrap();
+    let mut owner = Library::open(&base.join("library.sqlite3"), &base.join("cache")).unwrap();
+
+    let empty = session
+        .call("propose_label_changes", json!({}))
+        .unwrap_err();
+    assert!(empty.contains("labels to create"), "{empty}");
+
+    let answer = session
+        .call(
+            "propose_label_changes",
+            json!({
+                "new_labels": [
+                    { "name": "Favourite", "colour": "pink" },
+                    { "name": " Chill ", "colour": "teal" },
+                    { "name": "Workout", "colour": "#ff8800" }
+                ]
+            }),
+        )
+        .unwrap();
+    assert_eq!(answer["status"], "pending");
+    assert_eq!(
+        answer["new_labels"],
+        json!(["Favourite", "Chill", "Workout"])
+    );
+    let id = ChangeSetId(answer["change_set_id"].as_i64().unwrap());
+    let status = session
+        .call("get_change_set", json!({ "change_set_id": id.0 }))
+        .unwrap();
+    assert_eq!(status["kind"], "labels");
+    assert_eq!(status["new_labels"].as_array().unwrap().len(), 3);
+    assert_eq!(status["tracks"], json!([]));
+
+    owner.accept_change_set(id, |_, _| {}).unwrap();
+    let labels = session.call("list_labels", json!({})).unwrap();
+    assert_eq!(
+        labels,
+        json!([
+            { "name": "Chill", "colour": "teal", "track_count": 0 },
+            { "name": "Favourite", "colour": "pink", "track_count": 0 },
+            { "name": "Workout", "colour": "#ff8800", "track_count": 0 }
+        ])
+    );
+
+    let undo = session
+        .call("propose_undo", json!({ "change_set_id": id.0 }))
+        .unwrap();
+    let undo = ChangeSetId(undo["change_set_id"].as_i64().unwrap());
+    owner.accept_change_set(undo, |_, _| {}).unwrap();
+    let labels = session.call("list_labels", json!({})).unwrap();
+    assert_eq!(labels, json!([]));
+}
+
+#[test]
 fn playlists_change_at_once_but_deleting_waits() {
     let setup = start();
     let mut session = setup.session();
