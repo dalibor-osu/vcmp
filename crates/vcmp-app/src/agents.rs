@@ -556,6 +556,8 @@ impl AgentService {
             .map(|label| label.name.as_str())
             .collect();
         state.set_review_new_labels(new_labels.join(", ").into());
+        state.set_review_new_label_count(new_labels.len() as i32);
+        state.set_review_gone_labels(self.gone_labels(set).join(", ").into());
         let (shared, groups) = review_groups(&self.library, &set.files);
         state.set_review_shared(ModelRc::new(VecModel::from(shared)));
         state.set_review_groups(ModelRc::new(VecModel::from(groups)));
@@ -570,6 +572,24 @@ impl AgentService {
         }
         self.show_playing();
         state.set_review_open(true);
+    }
+
+    /// For the undo of a change of labels: the labels that change made which still
+    /// exist, by name. The undo deletes them unless a track holds them by then.
+    fn gone_labels(&self, set: &ChangeSet) -> Vec<String> {
+        let (Kind::Labels, Some(undone)) = (&set.summary.kind, set.summary.undoes) else {
+            return Vec::new();
+        };
+        let Ok(Some(undone)) = self.library.change_set(undone) else {
+            return Vec::new();
+        };
+        undone
+            .new_labels
+            .into_iter()
+            .filter(|label| label.created == Some(true))
+            .filter_map(|label| self.library.label_named(&label.name).ok().flatten())
+            .map(|label| label.name)
+            .collect()
     }
 
     /// Names the file playback holds open when the change would rewrite it, on a

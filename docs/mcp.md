@@ -52,9 +52,9 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 | `find_tracks_by_labels` | Available tracks holding every label named (ignoring case) |
 | `list_playlists`, `get_playlist` | Playlists and their entries with positions |
 | `propose_tag_changes` | Records a change set of up to 500 tracks: the nine fields by name (`remove` clears them), the cover among them as `{"file": "<absolute path>"}` or `{"url": "<http or https address>"}`, and any other tag by key (an empty list removes it). Each image is read or downloaded once, however many tracks it goes into |
-| `propose_label_changes` | Records a label set: groups of tracks with labels to add and remove (a track in several groups gets them all), and new labels with a colour (a palette name or `#rrggbb`); at most 500 tracks |
+| `propose_label_changes` | Records a label set: groups of tracks with labels to add and remove (a track in several groups gets them all), and new labels with a colour (a palette name or `#rrggbb`); at most 500 tracks. Every new label is created on accepting, whether a track gets it or not, so a call with only `new_labels` sets up the owner's labels; the answer names them |
 | `get_change_set`, `list_change_sets` | Status, and per file the values before, asked for and after, and whether the cover is replaced or removed; for a label set, per track each label held before, asked, and held after |
-| `propose_undo` | Records the undo of an accepted change of tags or labels |
+| `propose_undo` | Records the undo of an accepted change of tags or labels; the labels a change created go with it unless a track holds them |
 | `propose_playlist_deletion` | Records a deletion for review |
 | `create_playlist`, `rename_playlist`, `add_to_playlist`, `remove_from_playlist`, `move_in_playlist` | Done at once |
 

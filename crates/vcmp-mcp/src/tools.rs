@@ -73,8 +73,9 @@ find_tracks_by_tag doesn't see them. Every track you're given lists its labels. 
 the owner asks for music by mood or purpose (\"play some chill music\"), look at \
 list_labels first: a label of that name is their own choice of tracks. \
 propose_label_changes puts labels on tracks and takes them off, and can create new \
-labels; like tag changes it waits for the owner's review, and propose_undo undoes it. \
-Labelling an album labels the tracks it has now.
+labels, with or without tracks to put them on; like tag changes it waits for the \
+owner's review, and propose_undo undoes it. Labelling an album labels the tracks it \
+has now.
 
 Playlists: create_playlist, rename_playlist, add_to_playlist, remove_from_playlist \
 and move_in_playlist change playlists at once. Deleting one is never immediate: \
@@ -226,9 +227,12 @@ pub struct NewLabelArgs {
 #[derive(Deserialize, JsonSchema)]
 pub struct ProposeLabelsArgs {
     /// Groups of tracks with the labels they get and lose. A track in several groups
-    /// gets all of their changes; at most 500 tracks in all.
+    /// gets all of their changes; at most 500 tracks in all. Empty when the change
+    /// only creates labels.
+    #[serde(default)]
     changes: Vec<LabelChange>,
-    /// Labels to create, used by name in changes.
+    /// Labels to create, used by name in changes or not at all: each is created when
+    /// the owner accepts, whether a track gets it or not.
     #[serde(default)]
     new_labels: Vec<NewLabelArgs>,
 }
@@ -614,7 +618,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Ask to put labels on tracks and take them off, creating new labels if needed, for up to 500 tracks. Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
+        description = "Ask to put labels on tracks and take them off for up to 500 tracks, and to create new labels: ones the tracks get, or ones for no track yet (such as setting up the owner's labels before tagging anything, with changes left empty). Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
     )]
     async fn propose_label_changes(
         &self,
@@ -636,8 +640,8 @@ impl VcmpServer {
                 edit.remove.extend(change.remove.iter().cloned());
             }
         }
-        if order.is_empty() {
-            return Err("name at least one track to change".into());
+        if order.is_empty() && args.new_labels.is_empty() {
+            return Err("name tracks to change or labels to create".into());
         }
         if order.len() > MAX_FILES {
             return Err(format!(
@@ -654,6 +658,10 @@ impl VcmpServer {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let names: Vec<String> = new_labels
+            .iter()
+            .map(|label| label.name.trim().to_owned())
+            .collect();
         let edits: Vec<(TrackId, LabelEdit)> = order
             .into_iter()
             .map(|id| {
@@ -667,7 +675,8 @@ impl VcmpServer {
             Ok(serde_json::json!({
                 "change_set_id": id.0,
                 "status": "pending",
-                "note": "Waiting for the owner's review in VCMP. Tracks that already were as asked are left out.",
+                "new_labels": names,
+                "note": "Waiting for the owner's review in VCMP. Tracks that already were as asked are left out; every new label is created on accepting, whether a track gets it or not.",
             }))
         })
         .await

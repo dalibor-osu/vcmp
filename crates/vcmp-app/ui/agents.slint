@@ -100,8 +100,13 @@ export global AgentState {
     // With several files: the changes every one of them gets, listed once. Then each
     // file with changes of its own, by path.
     in property <[ChangeRow]> review-shared;
-    // The labels a change of labels makes, by name; empty when it makes none.
+    // The labels a change of labels makes, by name; empty when it makes none. A
+    // change may only make labels, with no track to change (review-files 0).
     in property <string> review-new-labels;
+    in property <int> review-new-label-count;
+    // The undo of a change of labels: the labels that change made, which go unless a
+    // track holds them by then; empty when it made none.
+    in property <string> review-gone-labels;
     in property <[ChangeGroup]> review-groups;
     in property <ReviewStatus> review-status;
     in property <int> review-done;
@@ -493,7 +498,9 @@ export component ChangeHistory inherits Modal {
                         Text {
                             text: entry.kind == ChangeKind.playlist ? @tr("Delete the playlist “{}”", entry.playlist)
                                 : entry.kind == ChangeKind.undo ? @tr("Undo tags in {n} file" | "Undo tags in {n} files" % entry.files)
+                                : entry.kind == ChangeKind.labels && entry.files == 0 ? @tr("New labels")
                                 : entry.kind == ChangeKind.labels ? @tr("Labels of {n} track" | "Labels of {n} tracks" % entry.files)
+                                : entry.kind == ChangeKind.label-undo && entry.files == 0 ? @tr("Undo new labels")
                                 : entry.kind == ChangeKind.label-undo ? @tr("Undo labels on {n} track" | "Undo labels on {n} tracks" % entry.files)
                                 : @tr("Tags of {n} file" | "Tags of {n} files" % entry.files);
                             color: Theme.colors.text;
@@ -747,6 +754,8 @@ export component ChangeReview inherits Modal {
     private property <int> wrap-first;
     private property <int> wrap-last;
     private property <bool> labels: root.kind == ChangeKind.labels || root.kind == ChangeKind.label-undo;
+    // A change of labels, or its undo, that changes no track: it only makes labels.
+    private property <bool> no-tracks: root.labels && AgentState.review-files == 0;
     private property <string> title-text: root.kind == ChangeKind.playlist ? @tr("Delete a playlist?")
         : root.kind == ChangeKind.undo || root.kind == ChangeKind.label-undo ? @tr("Review an undo")
         : root.kind == ChangeKind.labels ? @tr("Review label changes") : @tr("Review tag changes");
@@ -797,7 +806,9 @@ export component ChangeReview inherits Modal {
                 if !root.done: Text {
                     text: root.kind == ChangeKind.playlist ? @tr("The playlist “{}” would be deleted. Its tracks stay in your library.", AgentState.review-playlist)
                         : root.kind == ChangeKind.undo ? @tr("The tags below are put back into {n} file. A file whose tags changed since is left as it was." | "The tags below are put back into {n} files. A file whose tags changed since is left as it was." % AgentState.review-files)
+                        : root.kind == ChangeKind.label-undo && root.no-tracks ? @tr("The change only made labels. Undoing it deletes them, except any a track holds by then.")
                         : root.kind == ChangeKind.label-undo ? @tr("The labels below are put back as they were on {n} track. A track whose labels changed since is left as it was." | "The labels below are put back as they were on {n} tracks. A track whose labels changed since is left as it was." % AgentState.review-files)
+                        : root.no-tracks ? @tr("This change only makes labels, for no track yet. Labels stay in VCMP, so no file is written, and the change can be undone for 30 days.")
                         : root.kind == ChangeKind.labels ? @tr("The labels below would be put on or taken off {n} track. Labels stay in VCMP, so no file is written. A track whose labels changed since the agent looked is left as it was, and the change can be undone for 30 days." | "The labels below would be put on or taken off {n} tracks. Labels stay in VCMP, so no file is written. A track whose labels changed since the agent looked is left as it was, and the change can be undone for 30 days." % AgentState.review-files)
                         : @tr("The tags below would be written into {n} file. A file whose tags changed since the agent looked is left as it was, and a written change can be undone for 30 days." | "The tags below would be written into {n} files. A file whose tags changed since the agent looked is left as it was, and a written change can be undone for 30 days." % AgentState.review-files);
                     color: Theme.colors.text-muted;
@@ -828,8 +839,15 @@ export component ChangeReview inherits Modal {
                     wrap: word-wrap;
                     min-height: self.preferred-height;
                 }
+                if root.kind == ChangeKind.label-undo && AgentState.review-gone-labels != "": Text {
+                    text: @tr("Labels it deletes, unless a track holds them by then: {}", AgentState.review-gone-labels);
+                    color: Theme.colors.text;
+                    font-size: Theme.font-body;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
 
-                ChangeHeadings {
+                if !root.no-tracks: ChangeHeadings {
                     table-width: root.table-width;
                 }
 
@@ -862,6 +880,8 @@ export component ChangeReview inherits Modal {
                 Text {
                     text: AgentState.review-failed ? @tr("The library could not be read or written, so nothing was changed.")
                         : root.kind == ChangeKind.playlist ? @tr("The playlist is deleted.")
+                        : root.kind == ChangeKind.label-undo && root.no-tracks ? @tr("The change is undone.")
+                        : root.no-tracks ? @tr("Made {n} label." | "Made {n} labels." % AgentState.review-new-label-count)
                         : root.labels && AgentState.review-problems.length == 0 ? @tr("Changed on {n} track." | "Changed on {n} tracks." % AgentState.review-written)
                         : root.labels ? @tr("Changed on {n} track. These tracks were left as they were:" | "Changed on {n} tracks. These tracks were left as they were:" % AgentState.review-written)
                         : AgentState.review-problems.length == 0 ? @tr("Written into {n} file." | "Written into {n} files." % AgentState.review-written)
@@ -944,7 +964,9 @@ export component ChangeReview inherits Modal {
                 }
                 text: root.kind == ChangeKind.playlist ? @tr("Delete playlist")
                     : root.kind == ChangeKind.undo ? @tr("Undo in {n} file" | "Undo in {n} files" % AgentState.review-files)
+                    : root.kind == ChangeKind.label-undo && root.no-tracks ? @tr("Undo")
                     : root.kind == ChangeKind.label-undo ? @tr("Undo on {n} track" | "Undo on {n} tracks" % AgentState.review-files)
+                    : root.no-tracks ? @tr("Make {n} label" | "Make {n} labels" % AgentState.review-new-label-count)
                     : root.kind == ChangeKind.labels ? @tr("Change {n} track" | "Change {n} tracks" % AgentState.review-files)
                     : @tr("Write {n} file" | "Write {n} files" % AgentState.review-files);
                 // Filled for writing tags, which can be undone; not for deleting a

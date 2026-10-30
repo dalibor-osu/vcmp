@@ -313,6 +313,12 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       on (once for what every track gets, then per track) and the new label.
       Change puts them on; the chips show at once. Undo… in Show changes… takes
       them off and removes the new label.
+- [ ] Ask Claude Code to set up labels (Favourite, Chill, Focus, Sleep) without
+      labelling any track. The review says the change only makes labels, names
+      them and has no table; Make 4 labels adds them to Settings → Labels with no
+      tracks, and they can be put on tracks like any label. The list of changes
+      shows it as "New labels"; Undo… there names the labels it deletes, and Undo
+      deletes them except one put on a track meanwhile.
 - [ ] Ask it to make a playlist and fill it: it appears at once. Ask it to delete
       one: the review warns that it can't be undone; Delete playlist deletes it.
       The playlist page's own Delete says the same.

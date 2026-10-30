@@ -331,7 +331,9 @@ accepted.
   and take off by name, and the new labels to create. Every name must be a label
   or one of the new ones (ignoring case; stored as the label spells it), a new name
   must be free, a track may be named once and can't both get and lose a label.
-  Edits that change nothing are left out, and so is a new label no track gets.
+  Edits that change nothing are left out. Every new label is kept, whether a track
+  gets it or not, so a set may only create labels (no `change_files` rows); a set
+  with neither is refused.
   They reuse the tag sets' tables: a track is a `change_files` row (with its path),
   each label `label:` and the name in `change_edits` (the name to put it on, NULL
   to take it off) and `change_values` (the name when the track holds it, `[]` when
@@ -340,7 +342,9 @@ accepted.
   track whose labels are still as the set found them. A track whose labels
   changed, or that would get a label deleted since, is a `conflict`. Undo works as
   for tags, and accepting the undo also deletes the labels the first set created
-  that no track holds any more. Sets never mix tags and labels.
+  that no track holds any more. A set that only created labels can be undone while
+  one of them still exists; its undo has no tracks and only deletes them. Sets
+  never mix tags and labels.
 - **Playlist deletions** (`Library::submit_playlist_deletion`) wait for review too, and
   can't be undone.
 - **Rejected and discarded.** `Library::reject_change_set` finishes a set unwritten.

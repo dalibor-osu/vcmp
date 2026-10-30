@@ -525,7 +525,9 @@ fn a_label_set_is_checked_when_it_is_made() {
         Err(Error::EmptyChangeSet)
     ));
 
-    // No-op edits are left out, and so is a new label no track gets.
+    assert!(matches!(submit(&[], &[]), Err(Error::EmptyChangeSet)));
+
+    // No-op edits are left out, but a new label no track gets is kept.
     let set = submit(
         &[(a, add(&["chill"])), (b, add(&["chill"]))],
         &[new_label("spare", "palette:red")],
@@ -534,7 +536,76 @@ fn a_label_set_is_checked_when_it_is_made() {
     let set = setup.library.change_set(set).unwrap().unwrap();
     assert_eq!(set.files.len(), 1);
     assert_eq!(set.files[0].track, b);
-    assert!(set.new_labels.is_empty());
+    assert_eq!(set.new_labels.len(), 1);
+    assert_eq!(set.new_labels[0].name, "spare");
+}
+
+#[test]
+fn a_set_may_only_make_labels() {
+    let mut setup = Setup::new();
+    let [a, _, _] = setup.three();
+    // Only new labels, and edits that change nothing: the labels are still made.
+    let set = setup.submit(
+        &[(a, remove(&["focus"]))],
+        &[
+            new_label("Focus", "palette:sky"),
+            new_label("Workout", "#ff8800"),
+            new_label("Sleep", "palette:lavender"),
+        ],
+    );
+    let pending = setup.library.change_set(set).unwrap().unwrap();
+    assert!(pending.files.is_empty());
+    assert_eq!(pending.summary.file_count, 0);
+    assert_eq!(pending.new_labels.len(), 3);
+    assert!(setup.library.labels().unwrap().is_empty());
+
+    let done = setup.accept(set);
+    assert_eq!(done.summary.status, ChangeStatus::Accepted);
+    assert!(
+        done.new_labels
+            .iter()
+            .all(|label| label.created == Some(true))
+    );
+    // Like labels the owner makes by hand: listed, on no track, usable.
+    let labels = setup.library.labels().unwrap();
+    let names: Vec<&str> = labels.iter().map(|label| label.name.as_str()).collect();
+    assert_eq!(names, ["Focus", "Sleep", "Workout"]);
+    assert!(labels.iter().all(|label| label.track_count == 0));
+    assert_eq!(labels[2].colour, "#ff8800");
+    let focus = setup.label("focus");
+    setup.library.add_label(focus, &[a]).unwrap();
+
+    // The undo deletes the labels it made, except one a track holds by then.
+    let undo = setup.library.submit_undo(set, "Test agent").unwrap();
+    let pending = setup.library.change_set(undo).unwrap().unwrap();
+    assert!(pending.files.is_empty());
+    assert_eq!(pending.summary.undoes, Some(set));
+    let done = setup.accept(undo);
+    assert_eq!(done.summary.status, ChangeStatus::Accepted);
+    assert_eq!(setup.status(set), ChangeStatus::Undone);
+    let names: Vec<String> = setup
+        .library
+        .labels()
+        .unwrap()
+        .into_iter()
+        .map(|label| label.name)
+        .collect();
+    assert_eq!(names, ["Focus"]);
+    assert_eq!(setup.names_on(a), ["Focus"]);
+}
+
+#[test]
+fn a_set_whose_new_labels_are_all_gone_cannot_be_undone() {
+    let mut setup = Setup::new();
+    setup.three();
+    let set = setup.submit(&[], &[new_label("Party", "palette:red")]);
+    setup.accept(set);
+    let party = setup.label("party");
+    setup.library.delete_label(party).unwrap();
+    assert!(matches!(
+        setup.library.submit_undo(set, "Test agent"),
+        Err(Error::NotUndoable(_))
+    ));
 }
 
 #[test]
