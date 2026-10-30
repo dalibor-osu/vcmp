@@ -322,6 +322,28 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Ask it to make a playlist and fill it: it appears at once. Ask it to delete
       one: the review warns that it can't be undone; Delete playlist deletes it.
       The playlist page's own Delete says the same.
+- [ ] Playback (real device, Discord running, the OS media widget open): with
+      "Let AI agents control playback" off, ask Claude Code to play something:
+      it says playback control is off and where to switch it on. Turn it on.
+      Ask it to "play Yor Zarad by Angine de Poitrine" (or any track): it plays at
+      once, and the bar, the OS media widget, Discord and Last.fm's now playing
+      show it; the queue panel says "Next from" the agent's name. Ask for "some
+      chill music": it plays the label, and the queue panel names the label.
+- [ ] Ask it to pause, resume, skip forward and back, seek to the middle, turn
+      shuffle and repeat on, set the volume to 30 and to bring VCMP to the front:
+      the bar's buttons, slider and the OS media widget follow each time, and the
+      settings come back after a restart. Ask what plays: it names the track, the
+      position and what comes next as the queue panel shows it.
+- [ ] Ask it to play next a track, add two to the end of Up next, then move and
+      remove one: the queue panel follows.
+- [ ] Unplug (or rename) the folder of one track of a playlist, then ask it to play
+      the playlist: it plays the rest and tells you which track was left out and
+      why. Ask for only missing tracks: it says none can be played.
+- [ ] Ask it to list the output devices and switch to another (headphones, a USB
+      DAC): the sound moves, Settings shows the new device, and it is still chosen
+      after a restart. Ask for a device that isn't there: it says so.
+- [ ] Ask it to set the sleep timer to 15 minutes, then to end of this track: the
+      bar's timer shows each, and playback stops after the track.
 - [ ] Close VCMP with a change waiting, start it again: the change shows as not
       reviewed before VCMP closed.
 - [ ] Start a second program on the port (`python3 -m http.server 8267`), turn the

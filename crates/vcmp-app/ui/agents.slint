@@ -64,6 +64,9 @@ export global AgentState {
     // Agents may connect while VCMP is open.
     in property <bool> enabled;
     callback set-enabled(bool);
+    // Agents may also control playback; off by default.
+    in property <bool> playback-enabled;
+    callback set-playback-enabled(bool);
     in property <ServerStatus> status;
     in property <string> address;
     in property <string> token;
@@ -239,8 +242,9 @@ global AgentWords {
     }
 }
 
-// The AI agents section of Settings: the switch, how to connect while it is on, the
-// changes agents asked for, and the backups that keep them undoable.
+// The AI agents section of Settings: the switch, how to connect while it is on and
+// whether agents may control playback then, the changes agents asked for, and the
+// backups that keep them undoable.
 export component AgentsSection inherits VerticalLayout {
     private property <bool> confirming-delete;
 
@@ -328,6 +332,19 @@ export component AgentsSection inherits VerticalLayout {
                 label: @tr("Configuration for Claude Desktop");
                 text: AgentState.desktop-config;
                 copy-label: @tr("Copy the configuration for Claude Desktop");
+            }
+        }
+
+        SettingRow {
+            title: @tr("Let AI agents control playback");
+            description: @tr("Agents can play and queue music, pause, skip, change the volume and the output device, and set the sleep timer. Off, they can still read your library.");
+
+            Toggle {
+                label: @tr("Let AI agents control playback");
+                checked: AgentState.playback-enabled;
+                toggled(on) => {
+                    AgentState.set-playback-enabled(on);
+                }
             }
         }
 

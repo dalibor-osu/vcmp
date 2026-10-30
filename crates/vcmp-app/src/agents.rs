@@ -12,7 +12,8 @@
 //! finished ones older than 30 days are deleted; the deletion runs daily after that.
 //!
 //! While the switch is on, `vcmp_mcp`'s server runs, and [`AppChanges`] brings what
-//! agents ask for to this service on the UI thread.
+//! agents ask for to this service on the UI thread; [`AppPlayback`] brings what they
+//! ask of the player to the player service.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -32,6 +33,7 @@ use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig};
 
 use crate::library_service::{Delivery, LibraryPaths};
 use crate::library_view::LibraryView;
+use crate::player_service::AppPlayback;
 use crate::{
     AgentState, AppWindow, ChangeEntry, ChangeField, ChangeGroup, ChangeKind, ChangeProblem,
     ChangeRow, ChangeStatus, ReviewStatus, ServerStatus,
@@ -45,9 +47,12 @@ pub const SETTING_ENABLED: &str = "mcp.enabled";
 pub const SETTING_PORT: &str = "mcp.port";
 /// Setting key: the token agents must send, made when the server first starts.
 pub const SETTING_TOKEN: &str = "mcp.token";
+/// Setting key: agents may control playback ("true" or "false"; absent: false). The
+/// player checks it on every request, so turning it off takes effect at once.
+pub const SETTING_PLAYBACK: &str = "mcp.playback";
 
 /// How long an agent's request waits for the window to take it.
-const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const BRIDGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How often finished changes older than 30 days are looked for while VCMP runs.
 const UPKEEP_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -152,6 +157,15 @@ impl AgentService {
             .as_deref()
             == Some("true");
         state.set_enabled(enabled);
+        state.set_playback_enabled(
+            service
+                .library
+                .setting(SETTING_PLAYBACK)
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some("true"),
+        );
         service.show_connection();
         if enabled {
             service.start_server();
@@ -160,6 +174,12 @@ impl AgentService {
         state.on_set_enabled(move |on| {
             if let Some(service) = weak.upgrade() {
                 service.set_enabled(on);
+            }
+        });
+        let weak = Rc::downgrade(&service);
+        state.on_set_playback_enabled(move |on| {
+            if let Some(service) = weak.upgrade() {
+                service.set_playback_enabled(on);
             }
         });
         let weak = Rc::downgrade(&service);
@@ -414,6 +434,18 @@ impl AgentService {
         }
     }
 
+    fn set_playback_enabled(&self, on: bool) {
+        if let Some(window) = self.window.upgrade() {
+            window.global::<AgentState>().set_playback_enabled(on);
+        }
+        if let Err(error) = self
+            .library
+            .set_setting(SETTING_PLAYBACK, if on { "true" } else { "false" })
+        {
+            log::warn!("could not save the agents' playback switch: {error}");
+        }
+    }
+
     fn port(&self) -> u16 {
         self.library
             .setting(SETTING_PORT)
@@ -445,7 +477,7 @@ impl AgentService {
             database: self.paths.database.clone(),
             cache: self.paths.cache.clone(),
         };
-        match Server::start(config, Arc::new(AppChanges)) {
+        match Server::start(config, Arc::new(AppChanges), Arc::new(AppPlayback)) {
             Ok(server) => *self.server.borrow_mut() = Some(server),
             Err(error) => log::warn!("could not start the server for AI agents: {error}"),
         }

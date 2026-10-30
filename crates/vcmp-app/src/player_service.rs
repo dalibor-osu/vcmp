@@ -8,7 +8,7 @@
 //! Plays go to Last.fm once they count by its rules, and so does the track playing.
 //! The file the engine has open is passed on, so tag edits to it can wait for it.
 //! The sleep timer counts down here and then has the engine stop after the track
-//! playing at that moment.
+//! playing at that moment. AI agents control playback through `agent_playback`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -34,6 +34,10 @@ use vcmp_integrations::discord::{DiscordPresence, Listening};
 use vcmp_integrations::lastfm::{self, Play};
 use vcmp_integrations::media_controls::{self, Control, MediaControls, MediaState, MediaTrack};
 use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, CoverFinder, Lookup};
+
+mod agent_playback;
+
+pub use agent_playback::AppPlayback;
 
 use crate::albums::initial;
 use crate::library_view::{LibraryView, format_duration};
@@ -1037,6 +1041,8 @@ impl PlayerService {
                 "folder" => Path::new(key)
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned()),
+                // Tracks an agent chose, named after the agent.
+                "agent" => Some(key.to_owned()),
                 "playlist" => self
                     .library
                     .playlist(PlaylistId(key.parse().ok()?))
