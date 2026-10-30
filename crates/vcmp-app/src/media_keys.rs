@@ -42,8 +42,8 @@ fn attach(window: slint::Weak<AppWindow>, service: Weak<PlayerService>, attempts
     }
 }
 
-/// The window's `HWND`, which the Windows media controls attach to and the title bar
-/// is coloured through (`src/title_bar.rs`); `None` off Windows.
+/// The window's `HWND`, which the Windows media controls attach to and the window
+/// frame is changed through (`src/title_bar.rs`); `None` off Windows.
 #[cfg(windows)]
 pub(crate) fn native_handle(window: &AppWindow) -> Option<u64> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};

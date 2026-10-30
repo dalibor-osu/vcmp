@@ -103,16 +103,21 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
   as predefined palette to choose from"), and is drawn as a dot beside the name in
   plain text. Labels show as chips on track rows and as a column in the Songs
   table. An album's three-dot menu has Labels too, for all its tracks.
+- 2026-10-30, the Windows title bar (issue #55, chosen from two offered ways): no
+  system title bar on Windows. VCMP draws its own minimise, maximise and close
+  buttons instead of keeping Windows' bar in the theme's colours. macOS and Linux
+  keep their system title bars.
 
 ## Awaiting the owner's review
 
 Decisions taken by the implementer, not yet the owner's. Confirm or change them,
 then move them to the sections above.
 
-- 2026-10-30, the Windows title bar (issue #55): it stays Windows' own, coloured
-  from the theme: the sidebar's colour for the bar, the text colour for the title,
-  a faint grey border, and Windows' dark frame under the dark theme. Windows 10 can
-  only make it dark or light. The other way, a frameless window with VCMP's own
-  minimise, maximise and close buttons in the sidebar's top row, looks more like
-  part of the app but has to rebuild dragging, Snap layouts, resizing and the
-  window menu; it is left for the owner to choose. macOS and Linux are unchanged.
+- 2026-10-30, the details of VCMP's own window buttons on Windows (the owner's
+  request below): minimise, maximise and close sit in the window's top right corner,
+  where Windows puts its own, 46 by 32 px like Windows' own, rather than in the
+  sidebar's top row beside "VCMP". Their hover is the surface grey of every other
+  button, not Windows' red for Close, since red means an error in VCMP. They are not
+  in the Tab order, like Windows' own; Alt+Space opens the window menu instead. The
+  window drags by a 16 px strip along its top, clear of every page's controls, and
+  by the sidebar down to its first section.

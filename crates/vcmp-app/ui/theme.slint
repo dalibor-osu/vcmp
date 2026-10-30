@@ -102,6 +102,13 @@ export global Theme {
     pure public function detail-cover-size(page-width: length) -> length {
         clamp(page-width - 2 * root.space-xxl - root.space-xl - 240px, root.detail-cover-min, root.detail-cover-max)
     }
+    // Windows: the window's own minimise, maximise and close buttons, at the top
+    // right, sized as Windows sizes its own (src/title_bar.rs). The window drags by
+    // a strip along its top, clear of every page's controls, and by the sidebar
+    // down to its first section.
+    out property <length> caption-button-width: 46px;
+    out property <length> caption-button-height: 32px;
+    out property <length> caption-drag-height: 16px;
     // Dialogs: the tag editor's form, and the pickers' grid of covers or photos.
     out property <length> dialog-width: 720px;
     out property <length> dialog-wide-width: 960px;

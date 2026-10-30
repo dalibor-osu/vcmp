@@ -1,0 +1,89 @@
+// The window's own minimise, maximise and close buttons, on Windows, where the
+// window has no system title bar (src/title_bar.rs).
+import { Theme } from "theme.slint";
+import { Glyph, Icon } from "icons.slint";
+
+export global WindowFrame {
+    // The window has no system title bar, so VCMP draws its buttons. Set from Rust
+    // on Windows once the native window is up; false elsewhere.
+    in property <bool> custom;
+    in property <bool> maximized;
+    // The window is the active one; the glyphs dim when it isn't, as Windows' own do.
+    in property <bool> active: true;
+    // Windows handles the pointer over the maximise button itself, so that it shows
+    // Snap layouts, and reports here whether it hovers or presses the button.
+    in property <bool> maximize-hovered;
+    in property <bool> maximize-pressed;
+    callback minimize();
+    callback toggle-maximized();
+    callback close();
+}
+
+component CaptionButton {
+    in property <Glyph> glyph;
+    in property <string> label;
+    // Hover and press reported by Windows rather than seen by the touch area.
+    in property <bool> hovered;
+    in property <bool> pressed;
+    callback clicked();
+
+    width: Theme.caption-button-width;
+    height: Theme.caption-button-height;
+    // Not in the Tab order, like Windows' own: Alt+Space opens the window menu, which
+    // minimises, maximises and closes from the keyboard.
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => {
+        root.clicked();
+    }
+
+    Rectangle {
+        background: touch.has-hover || touch.pressed || root.hovered || root.pressed ? Theme.colors.surface : transparent;
+        animate background { duration: Theme.duration-fast; }
+    }
+
+    Icon {
+        width: 16px;
+        height: 16px;
+        glyph: root.glyph;
+        tint: WindowFrame.active ? Theme.colors.text : Theme.colors.text-muted;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Minimise, maximise (restore when maximised) and close, side by side, for the top
+// right corner of the window.
+export component CaptionButtons {
+    HorizontalLayout {
+        CaptionButton {
+            glyph: Glyph.window-minimize;
+            label: @tr("Minimise");
+            clicked => {
+                WindowFrame.minimize();
+            }
+        }
+
+        CaptionButton {
+            glyph: WindowFrame.maximized ? Glyph.window-restore : Glyph.window-maximize;
+            label: WindowFrame.maximized ? @tr("Restore") : @tr("Maximise");
+            hovered: WindowFrame.maximize-hovered;
+            pressed: WindowFrame.maximize-pressed;
+            clicked => {
+                WindowFrame.toggle-maximized();
+            }
+        }
+
+        CaptionButton {
+            glyph: Glyph.window-close;
+            label: @tr("Close");
+            clicked => {
+                WindowFrame.close();
+            }
+        }
+    }
+}

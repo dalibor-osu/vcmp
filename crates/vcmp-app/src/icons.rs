@@ -39,6 +39,10 @@ pub fn source(glyph: Glyph) -> &'static str {
         Glyph::Plus => include_str!("../ui/icons/plus.svg"),
         Glyph::Minus => include_str!("../ui/icons/minus.svg"),
         Glyph::Sleep => include_str!("../ui/icons/sleep.svg"),
+        Glyph::WindowMinimize => include_str!("../ui/icons/window-minimize.svg"),
+        Glyph::WindowMaximize => include_str!("../ui/icons/window-maximize.svg"),
+        Glyph::WindowRestore => include_str!("../ui/icons/window-restore.svg"),
+        Glyph::WindowClose => include_str!("../ui/icons/window-close.svg"),
     }
 }
 
@@ -86,7 +90,7 @@ pub fn install(window: &AppWindow) {
 mod tests {
     use super::*;
 
-    const ALL: [Glyph; 22] = [
+    const ALL: [Glyph; 26] = [
         Glyph::Play,
         Glyph::Pause,
         Glyph::Previous,
@@ -109,6 +113,10 @@ mod tests {
         Glyph::Plus,
         Glyph::Minus,
         Glyph::Sleep,
+        Glyph::WindowMinimize,
+        Glyph::WindowMaximize,
+        Glyph::WindowRestore,
+        Glyph::WindowClose,
     ];
 
     #[test]

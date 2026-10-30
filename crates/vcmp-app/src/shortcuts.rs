@@ -16,8 +16,9 @@
 //!
 //! The system's scale factor changing (another monitor) and the native window being
 //! made both reset Slint's scale to the system's; the zoom goes back on top
-//! (`src/zoom.rs`). The native window being made also gives Windows' title bar the
-//! theme's colours (`src/title_bar.rs`).
+//! (`src/zoom.rs`). The native window being made also takes the title bar off on
+//! Windows, and its resizing and focus change the caption buttons
+//! (`src/title_bar.rs`).
 //!
 //! The keyboard's media keys control the player while the window has the focus.
 //! Desktops that send them to the playing app over MPRIS (GNOME, KDE, playerctl)
@@ -46,13 +47,15 @@ pub fn install(window: &AppWindow) {
             return EventResult::Propagate;
         };
         // The first event comes from a native window that Slint has just created and
-        // given the system's scale. On Windows its frame takes the theme's colours.
+        // given the system's scale. On Windows its title bar comes off.
         if !started.replace(true) {
+            title_bar::start(&window);
             zoom::apply_soon(&window);
-            title_bar::apply(&window);
         }
         match event {
             WindowEvent::ScaleFactorChanged { .. } => zoom::apply_soon(&window),
+            WindowEvent::Resized(_) => title_bar::resized(&window),
+            WindowEvent::Focused(focused) => title_bar::focused(&window, *focused),
             WindowEvent::ModifiersChanged(changed) => modifiers.set(changed.state()),
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = window.window().scale_factor();

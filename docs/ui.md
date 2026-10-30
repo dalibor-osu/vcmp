@@ -162,7 +162,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Zoom in Settings, from 80 to 200 %, with Ctrl+= and Ctrl+- (Ctrl+0 for 100 %) | The owner's request (2026-10-28): on a large 2K monitor VCMP looked small. It scales the whole window on top of the system's own scale, so every size in `theme.slint` grows together and the layout rules still hold. Buttons on either side of the value step it, as zooming goes a step at a time; the shortcuts are the ones browsers use |
 | Small marks after the playing track's artist: lossless (a waveform) and Last.fm (signal arcs, with a tick once the play counts) | The owner's request (2026-10-28). Muted and 14 px, so they inform without competing with the title; the scrobbled mark turns to text colour and changes shape, so the state never rests on colour. Their name shows above them under the pointer and is what a screen reader hears. The Last.fm mark shows only while an account is connected, and only for plays Last.fm would count (an artist, and longer than 30 s) |
 | The wheel over the volume slider changes the volume, 5 % a notch; over the position slider it scrolls the page | The owner's request (2026-10-28). Turning the wheel to set the volume is what people expect of a player; seeking by wheel would happen by accident while scrolling. The volume is saved once the wheel rests (`Theme.wheel-commit-delay`), not on every step |
-| On Windows the system's title bar stays, in the theme's colours: the bar in `mantle`, the title in `text` (`text-muted` while the window is inactive), the border in `surface`, and Windows' dark frame under the dark theme (`src/title_bar.rs`). **Awaiting the owner's review** | Issue #55: Windows painted the bar in its accent colour, a bright pink strip over the dark theme. Colouring it through DWM keeps everything Windows gives its own bar: dragging, double-click to maximise, Snap layouts on the maximise button, the window menu (Alt+Space), resizing at the edges, and the buttons' keyboard and screen reader access. `mantle` is the sidebar's and player bar's colour, so the bar joins the frame they make around the page. A frameless window with VCMP's own buttons in the sidebar's top row would look more like part of the app, but would have to rebuild all of that; it stays open for the owner. Windows 10 takes only the dark frame, and keeps the accent on the bar when the system puts it there. macOS and Linux keep the system's frame, which follows the system's light or dark mode |
+| On Windows no system title bar: VCMP's own minimise, maximise and close buttons in the top right corner (`ui/window-frame.slint`, `src/title_bar.rs`), 46 × 32 px as Windows' own. The window drags by a 16 px strip along its top and by the sidebar down to its first section. The frame's border is `surface` and Windows' dark frame follows the theme | The owner's choice (issue #55, 2026-10-30): Windows painted its bar in the accent colour, a pink strip over the dark theme, on a row of its own. The window keeps Windows' styles and only gives the title bar's room to the app, so Windows still snaps, maximises on a double-click of a drag area, opens the window menu on Alt+Space or a right-click, and resizes at the edges. The maximise button answers Windows as its own (`HTMAXBUTTON`), so Windows 11 shows Snap layouts over it. Top right is where Windows users look for the buttons, and the page headers start 40 px down, so the 32 px buttons cover nothing. The strip is 16 px because detail pages, dialogs and the now playing view put controls from 16 or 24 px down; the now playing view's menu moves below the buttons. **The placement, sizes and hover are awaiting the owner's review** (DESIGN.md) |
 
 ## Album grid
 
@@ -1011,13 +1011,15 @@ by `LibraryView`) keeps the `Labels` global current.
 - Zoom was tested headless and against the window's scale factor; how it looks on
   a real high-resolution monitor, and on moving the window to another monitor, is
   in [manual-testing.md](manual-testing.md).
-- Windows' title bar in the theme's colours is built and checked to compile for
-  Windows, but not yet seen working. On Windows 10 only the dark or light frame
-  follows the theme: Windows 10 has no caption colour, so "Show accent colour on
-  title bars and window borders" still paints the bar in the accent there. The
-  frame keeps the theme's colours under a high-contrast theme too, as the rest of
-  VCMP does. On macOS and Linux the frame follows the system's light or dark mode,
-  not VCMP's theme, so it can differ when the two differ.
+- VCMP's own window buttons on Windows are built and checked to compile for
+  Windows, but not yet seen working. A page scrolled under the 16 px drag strip
+  can't be clicked there; the strip drags instead. The system's title bar shows for
+  a moment at start, until the native window exists and it comes off. On Windows 10
+  the window's top border line is missing: Windows 10 draws it as part of the title
+  bar. The border's colour needs Windows 11. The caption buttons aren't in the Tab
+  order; the keyboard reaches them through the window menu (Alt+Space), as with
+  Windows' own. On macOS and Linux the system's title bar stays and follows the
+  system's light or dark mode, not VCMP's theme.
 
 - The history (back and forward) remembers sections and the album, artist and
   playlist pages, not a folder opened on the Folders page or the search typed, and

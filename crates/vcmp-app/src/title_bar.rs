@@ -1,70 +1,112 @@
-//! Windows' title bar and window border in the theme's colours, instead of the
-//! system's (often its accent colour): the bar in the sidebar's colour (`mantle`), the
-//! title in `text` (`text-muted` while the window is inactive), the border in
-//! `surface`, and Windows' dark frame under the dark theme. Windows 10 takes only the
-//! dark frame (`vcmp_integrations::window_frame`).
+//! Windows: the window without the system's title bar, and VCMP's own minimise,
+//! maximise and close buttons in its top right corner (`ui/window-frame.slint`).
+//! `vcmp_integrations::window_frame` takes the title bar off and tells Windows where
+//! the buttons and drag areas are; this module hands it their places, the scale and
+//! the theme's colours (the dark frame, and the border in `surface`), and carries
+//! the buttons' clicks back.
 //!
-//! Set once the native window exists (the winit hook in `src/shortcuts.rs`) and again
-//! whenever the theme's colours change (`AppWindow.frame-colors-changed`). macOS and
-//! Linux keep the system's frame.
+//! The title bar comes off once the native window exists (the winit hook in
+//! `src/shortcuts.rs`). Its places and colours are handed on again whenever the
+//! theme, the zoom or the sidebar's drag area changes (`AppWindow.frame-changed`).
+//! macOS and Linux keep the system's title bar: `WindowFrame.custom` stays false
+//! and no buttons show.
 
-use slint::{Color, ComponentHandle};
-use vcmp_integrations::window_frame::{self, FrameColours, Rgb};
+use std::time::Duration;
 
-use crate::{AppWindow, Theme, ThemePalette, media_keys};
+use slint::winit_030::WinitWindowAccessor;
+use slint::{ComponentHandle, Timer};
+use vcmp_integrations::window_frame::{self, Caption, Command, Frame, MaximizeButton};
 
-/// Sets the frame's colours again whenever the theme's change.
+use crate::{AppWindow, Theme, WindowFrame, media_keys};
+
+/// Answers the caption buttons and hands on changes to the frame.
 pub fn install(window: &AppWindow) {
+    let frame = window.global::<WindowFrame>();
+    frame.on_minimize(commander(window, Command::Minimize));
+    frame.on_toggle_maximized(commander(window, Command::ToggleMaximized));
+    frame.on_close(commander(window, Command::Close));
     let weak = window.as_weak();
-    window.on_frame_colors_changed(move || {
+    window.on_frame_changed(move || {
         if let Some(window) = weak.upgrade() {
             apply(&window);
         }
     });
 }
 
-/// Gives the native window the theme's frame colours; nothing without one, or off
-/// Windows.
-pub fn apply(window: &AppWindow) {
+/// Takes the system's title bar off the native window, which has just been made.
+pub fn start(window: &AppWindow) {
     let Some(hwnd) = media_keys::native_handle(window) else {
         return;
     };
-    let theme = window.global::<Theme>();
-    window_frame::set(hwnd, frame_colours(&theme.get_colors(), theme.get_dark()));
+    let weak = window.as_weak();
+    // Windows reports the maximise button from inside its window procedure; the UI
+    // hears of it once that has returned.
+    let report = move |state: MaximizeButton| {
+        let weak = weak.clone();
+        Timer::single_shot(Duration::ZERO, move || {
+            if let Some(window) = weak.upgrade() {
+                let frame = window.global::<WindowFrame>();
+                frame.set_maximize_hovered(state != MaximizeButton::Normal);
+                frame.set_maximize_pressed(state == MaximizeButton::Pressed);
+            }
+        });
+    };
+    let custom = window_frame::install(hwnd, frame(window), report);
+    window.global::<WindowFrame>().set_custom(custom);
+    resized(window);
 }
 
-/// The frame's colours for a theme palette.
-pub fn frame_colours(palette: &ThemePalette, dark: bool) -> FrameColours {
-    FrameColours {
-        dark,
-        caption: rgb(palette.mantle),
-        text: rgb(palette.text),
-        inactive_text: rgb(palette.text_muted),
-        border: rgb(palette.surface),
+/// Hands the frame its colours and places again.
+pub fn apply(window: &AppWindow) {
+    if !window.global::<WindowFrame>().get_custom() {
+        return;
+    }
+    if let Some(hwnd) = media_keys::native_handle(window) {
+        window_frame::set(hwnd, frame(window));
     }
 }
 
-fn rgb(colour: Color) -> Rgb {
-    [colour.red(), colour.green(), colour.blue()]
+/// The window was resized, maybe maximised or restored: the maximise button shows
+/// which.
+pub fn resized(window: &AppWindow) {
+    let maximized = window
+        .window()
+        .with_winit_window(|native| native.is_maximized())
+        .unwrap_or(false);
+    window.global::<WindowFrame>().set_maximized(maximized);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::theme;
+/// The window became active or stopped being it: the buttons' glyphs dim.
+pub fn focused(window: &AppWindow, focused: bool) {
+    window.global::<WindowFrame>().set_active(focused);
+}
 
-    #[test]
-    fn the_frame_takes_the_sidebar_and_text_colours() {
-        let dark = frame_colours(&theme::dark(), true);
-        assert!(dark.dark);
-        assert_eq!(dark.caption, [0x18, 0x18, 0x25], "Mocha's mantle");
-        assert_eq!(dark.text, [0xcd, 0xd6, 0xf4]);
-        assert_eq!(dark.inactive_text, [0xa6, 0xad, 0xc8]);
-        assert_eq!(dark.border, [0x31, 0x32, 0x44]);
+/// The frame as the window and the theme are now.
+fn frame(window: &AppWindow) -> Frame {
+    let theme = window.global::<Theme>();
+    let border = theme.get_colors().surface;
+    Frame {
+        dark: theme.get_dark(),
+        border: [border.red(), border.green(), border.blue()],
+        caption: Caption {
+            scale: window.window().scale_factor(),
+            button_width: theme.get_caption_button_width(),
+            button_height: theme.get_caption_button_height(),
+            drag_height: theme.get_caption_drag_height(),
+            sidebar_width: window.get_frame_sidebar_width(),
+            sidebar_drag_height: window.get_frame_sidebar_drag_height(),
+        },
+    }
+}
 
-        let light = frame_colours(&theme::light(), false);
-        assert!(!light.dark);
-        assert_eq!(light.caption, [0xe6, 0xe9, 0xef], "Latte's mantle");
-        assert_eq!(light.text, [0x4c, 0x4f, 0x69]);
+fn commander(window: &AppWindow, command: Command) -> impl Fn() + 'static {
+    let weak = window.as_weak();
+    move || {
+        if let Some(hwnd) = weak
+            .upgrade()
+            .and_then(|window| media_keys::native_handle(&window))
+        {
+            window_frame::command(hwnd, command);
+        }
     }
 }
