@@ -1,5 +1,6 @@
 //! The tools agents call. Reads go to the server's own library connection; changes go
-//! through [`Changes`], to the app. Every answer is JSON text.
+//! through [`Changes`], and playback through [`Playback`], to the app. Every answer is
+//! JSON text. The playback tools are in `playback.rs`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -18,6 +19,7 @@ use vcmp_library::{
     PlaylistId, TagEdit, Track, TrackId, valid_label_colour,
 };
 
+use crate::playback::{self, Playback};
 use crate::{Changes, PlaylistEdit};
 
 /// The most files one change of tags may cover, so the owner can still review it.
@@ -28,8 +30,8 @@ const DEFAULT_PAGE: u32 = 100;
 
 /// What every agent is told about VCMP when it connects.
 const INSTRUCTIONS: &str = "\
-VCMP is the owner's music player. These tools read their music library and ask for \
-changes to it.
+VCMP is the owner's music player. These tools read their music library, ask for \
+changes to it, and play it.
 
 Reading: search, list_albums, list_artists, get_album, get_tracks, list_tag_keys, \
 find_tracks_by_tag, list_labels, find_tracks_by_labels, list_playlists and \
@@ -85,33 +87,46 @@ restored.";
 pub struct VcmpServer {
     library: Arc<Mutex<Library>>,
     changes: Arc<dyn Changes>,
+    pub(crate) playback: Arc<dyn Playback>,
     tool_router: ToolRouter<Self>,
 }
 
 impl VcmpServer {
-    pub fn new(library: Arc<Mutex<Library>>, changes: Arc<dyn Changes>) -> Self {
+    pub fn new(
+        library: Arc<Mutex<Library>>,
+        changes: Arc<dyn Changes>,
+        playback: Arc<dyn Playback>,
+    ) -> Self {
         Self {
             library,
             changes,
-            tool_router: Self::tool_router(),
+            playback,
+            tool_router: Self::tool_router() + Self::playback_router(),
         }
     }
 
-    /// Runs `read` on the library, off the server's thread.
-    async fn read<T: Serialize + Send + 'static>(
+    /// Runs `read` on the library, off the server's thread, and answers its result.
+    pub(crate) async fn read<T: Serialize + Send + 'static>(
         &self,
         read: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
     ) -> Result<String, String> {
+        json(&self.read_raw(read).await?)
+    }
+
+    /// Runs `read` on the library, off the server's thread.
+    pub(crate) async fn read_raw<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String> {
         let library = self.library.clone();
-        let result = tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(move || {
             let library = library
                 .lock()
                 .map_err(|_| "the library connection broke".to_owned())?;
             read(&library)
         })
         .await
-        .map_err(|error| error.to_string())??;
-        json(&result)
+        .map_err(|error| error.to_string())?
     }
 
     /// Hands a change to the app, off the server's thread.
@@ -125,18 +140,30 @@ impl VcmpServer {
             .map_err(|error| error.to_string())??;
         json(&result)
     }
+
+    /// Hands a playback request to the app, off the server's thread.
+    pub(crate) async fn play_on<T: Serialize + Send + 'static>(
+        &self,
+        request: impl FnOnce(&dyn Playback) -> Result<T, String> + Send + 'static,
+    ) -> Result<String, String> {
+        let playback = self.playback.clone();
+        let result = tokio::task::spawn_blocking(move || request(playback.as_ref()))
+            .await
+            .map_err(|error| error.to_string())??;
+        json(&result)
+    }
 }
 
 fn json(value: &impl Serialize) -> Result<String, String> {
     serde_json::to_string_pretty(value).map_err(|error| error.to_string())
 }
 
-fn failed(error: vcmp_library::Error) -> String {
+pub(crate) fn failed(error: vcmp_library::Error) -> String {
     error.to_string()
 }
 
 /// How the history names who asked: the client's own title or name.
-fn agent(context: &RequestContext<RoleServer>) -> String {
+pub(crate) fn agent(context: &RequestContext<RoleServer>) -> String {
     context
         .client_info()
         .map(|info| info.title.unwrap_or(info.name))
@@ -839,7 +866,7 @@ impl ServerHandler for VcmpServer {
             .with_server_info(
                 Implementation::new("vcmp", env!("CARGO_PKG_VERSION")).with_title("VCMP"),
             )
-            .with_instructions(INSTRUCTIONS)
+            .with_instructions(format!("{INSTRUCTIONS}\n\n{}", playback::INSTRUCTIONS))
     }
 }
 
@@ -1013,7 +1040,7 @@ fn tracks_out(library: &Library, tracks: &[Track]) -> Result<Vec<serde_json::Val
         .collect()
 }
 
-fn track_out(
+pub(crate) fn track_out(
     library: &Library,
     track: &Track,
     tags: Option<BTreeMap<String, Vec<String>>>,

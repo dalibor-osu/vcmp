@@ -1,10 +1,12 @@
 //! The server over real HTTP on a free port, with changes made straight on a library
-//! connection of the test's own: the token and Origin checks, the handshake, reading
-//! tags, and changes that wait for review. Files are copies in a temporary directory.
+//! connection of the test's own and a recorder standing in for the player: the token
+//! and Origin checks, the handshake, reading tags, changes that wait for review, and
+//! playback with some tracks left out. Files are copies in a temporary directory.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use lofty::config::WriteOptions;
 use lofty::file::TaggedFileExt;
@@ -13,7 +15,11 @@ use serde_json::{Value, json};
 use vcmp_library::{
     ChangeSetId, ChangeStatus, LabelEdit, Library, NewLabel, PlaylistId, TagEdit, TrackId,
 };
-use vcmp_mcp::{Changes, PlaylistEdit, Server, ServerConfig, relay};
+use vcmp_mcp::Changes;
+use vcmp_mcp::{
+    Context, Control, Options, OutputDevices, Play, PlayState, Playback, PlaylistEdit, Repeat,
+    Server, ServerConfig, ShuffleKind, SleepTimer, Status, relay,
+};
 
 const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -83,10 +89,95 @@ impl Changes for Direct {
     }
 }
 
+/// What an agent asked of the player.
+#[derive(Debug, PartialEq)]
+enum Asked {
+    /// The tracks by id, the context, the start and shuffle.
+    Play(Vec<i64>, Context, Option<usize>, Option<bool>),
+    Queue(Vec<i64>, bool),
+    Control(Control),
+    Options(Options),
+    Device(Option<String>),
+    Sleep(SleepTimer),
+}
+
+/// The player's part: records what is asked and answers the status it is given.
+#[derive(Default)]
+struct Recorder {
+    asked: Mutex<Vec<Asked>>,
+    status: Mutex<Option<Status>>,
+}
+
+impl Recorder {
+    fn take(&self) -> Vec<Asked> {
+        std::mem::take(&mut self.asked.lock().unwrap())
+    }
+
+    fn ask(&self, asked: Asked) -> Result<(), String> {
+        self.asked.lock().unwrap().push(asked);
+        Ok(())
+    }
+}
+
+const DEVICES: [&str; 2] = ["Speakers", "Headphones"];
+
+impl Playback for Recorder {
+    fn play(&self, play: Play) -> Result<(), String> {
+        let ids = play.tracks.iter().map(|track| track.id.0).collect();
+        self.ask(Asked::Play(ids, play.context, play.start, play.shuffle))
+    }
+
+    fn queue(&self, tracks: Vec<vcmp_library::Track>, next: bool) -> Result<(), String> {
+        self.ask(Asked::Queue(
+            tracks.iter().map(|track| track.id.0).collect(),
+            next,
+        ))
+    }
+
+    fn control(&self, control: Control) -> Result<(), String> {
+        self.ask(Asked::Control(control))
+    }
+
+    fn set_options(&self, options: Options) -> Result<(), String> {
+        self.ask(Asked::Options(options))
+    }
+
+    fn output_devices(&self) -> Result<OutputDevices, String> {
+        Ok(OutputDevices {
+            devices: DEVICES.map(String::from).to_vec(),
+            chosen: Some("Headphones".into()),
+            fallback: Some("Speakers".into()),
+        })
+    }
+
+    fn set_output_device(&self, device: Option<String>) -> Result<(), String> {
+        if device
+            .as_deref()
+            .is_some_and(|name| !DEVICES.contains(&name))
+        {
+            return Err("there is no output device named that".into());
+        }
+        self.ask(Asked::Device(device))
+    }
+
+    fn set_sleep_timer(&self, timer: SleepTimer) -> Result<(), String> {
+        self.ask(Asked::Sleep(timer))
+    }
+
+    fn status(&self) -> Result<Status, String> {
+        self.status
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| "no status".to_owned())
+    }
+}
+
 struct Setup {
     // Dropped first: the server's thread stops before the directory goes.
     server: Server,
     library: Library,
+    player: Arc<Recorder>,
     http: ureq::Agent,
     _dir: tempfile::TempDir,
 }
@@ -108,6 +199,7 @@ fn start() -> Setup {
     let changes = Arc::new(Direct(Mutex::new(
         Library::open(&database, &cache).unwrap(),
     )));
+    let player = Arc::new(Recorder::default());
     let server = Server::start(
         ServerConfig {
             port: 0,
@@ -116,6 +208,7 @@ fn start() -> Setup {
             cache,
         },
         changes,
+        player.clone(),
     )
     .unwrap();
     let http = ureq::Agent::config_builder()
@@ -125,6 +218,7 @@ fn start() -> Setup {
     Setup {
         server,
         library,
+        player,
         http,
         _dir: dir,
     }
@@ -216,6 +310,7 @@ impl Setup {
             .unwrap()
             .to_owned();
         assert!(instructions.contains("album_artist"), "{instructions}");
+        assert!(instructions.contains("left_out"), "{instructions}");
         assert_eq!(answer(&body)["result"]["serverInfo"]["name"], "vcmp");
         self.post(
             &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
@@ -306,6 +401,8 @@ fn agents_read_every_tag_and_find_tracks_by_tag() {
         "get_tracks",
         "propose_tag_changes",
         "propose_playlist_deletion",
+        "play_tracks",
+        "get_now_playing",
     ] {
         assert!(names.contains(&expected), "{names:?}");
     }
@@ -706,4 +803,350 @@ fn the_relay_reads_the_settings_again_for_a_new_token() {
         "{answers:?}"
     );
     assert_eq!(reads.get(), 2);
+}
+
+/// Removes `b.flac` from the disk, as if its drive were unplugged; the library still
+/// counts it as available.
+fn lose_b(setup: &Setup) -> TrackId {
+    let b = id_of(&setup.library, "b.flac");
+    std::fs::remove_file(setup.library.track(b).unwrap().unwrap().path).unwrap();
+    b
+}
+
+#[test]
+fn agents_play_tracks_and_hear_which_were_left_out_and_why() {
+    let setup = start();
+    let mut session = setup.session();
+    let a = id_of(&setup.library, "a.flac");
+    let b = lose_b(&setup);
+
+    let answer = session
+        .call("play_tracks", json!({ "track_ids": [b.0, a.0, 999] }))
+        .unwrap();
+    assert_eq!(answer["playing"], 1);
+    assert_eq!(answer["starts_with"], Value::Null);
+    let left_out = answer["left_out"].as_array().unwrap();
+    assert_eq!(left_out.len(), 2);
+    assert_eq!(left_out[0]["track_id"], b.0);
+    assert_eq!(left_out[0]["title"], "B");
+    assert!(
+        left_out[0]["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("its file is missing"),
+        "{answer}"
+    );
+    assert_eq!(left_out[1]["track_id"], 999);
+    assert_eq!(left_out[1]["reason"], "there is no track 999");
+    assert_eq!(
+        setup.player.take(),
+        [Asked::Play(
+            vec![a.0],
+            Context::Agent("test-agent".into()),
+            None,
+            None
+        )]
+    );
+
+    // Starting at a track left out starts at the next one that plays.
+    let answer = session
+        .call(
+            "play_tracks",
+            json!({ "track_ids": [b.0, a.0], "start_track_id": b.0, "shuffle": false }),
+        )
+        .unwrap();
+    assert_eq!(answer["starts_with"]["title"], "A");
+    assert_eq!(
+        setup.player.take(),
+        [Asked::Play(
+            vec![a.0],
+            Context::Agent("test-agent".into()),
+            Some(0),
+            Some(false)
+        )]
+    );
+
+    let none = session
+        .call("play_tracks", json!({ "track_ids": [b.0, 999] }))
+        .unwrap_err();
+    assert!(
+        none.starts_with("none of these tracks can be played"),
+        "{none}"
+    );
+    assert!(none.contains("its file is missing"), "{none}");
+    assert!(none.contains("there is no track 999"), "{none}");
+    let elsewhere = session
+        .call(
+            "play_tracks",
+            json!({ "track_ids": [a.0], "start_track_id": b.0 }),
+        )
+        .unwrap_err();
+    assert!(elsewhere.contains("not among track_ids"), "{elsewhere}");
+    assert!(setup.player.take().is_empty(), "nothing more played");
+
+    let answer = session
+        .call(
+            "queue_tracks",
+            json!({ "track_ids": [a.0, b.0], "at": "next" }),
+        )
+        .unwrap();
+    assert_eq!(answer["queued"], 1);
+    assert_eq!(answer["left_out"][0]["track_id"], b.0);
+    session
+        .call("queue_tracks", json!({ "track_ids": [a.0] }))
+        .unwrap();
+    assert_eq!(
+        setup.player.take(),
+        [
+            Asked::Queue(vec![a.0], true),
+            Asked::Queue(vec![a.0], false)
+        ]
+    );
+}
+
+#[test]
+fn albums_playlists_labels_and_artists_play_as_their_pages_do() {
+    let setup = start();
+    let mut session = setup.session();
+    let a = id_of(&setup.library, "a.flac");
+    let b = id_of(&setup.library, "b.flac");
+    let album = setup.library.albums().unwrap()[0].id;
+    let artist = setup.library.artists().unwrap()[0].id;
+    let chill = setup.library.create_label("Chill", "palette:teal").unwrap();
+    setup.library.add_label(chill, &[b]).unwrap();
+    let playlist = setup.library.create_playlist("Mix").unwrap();
+    setup.library.add_to_playlist(playlist, &[b, a, b]).unwrap();
+    lose_b(&setup);
+
+    let answer = session
+        .call(
+            "play_album",
+            json!({ "album_id": album.0, "start_track_id": a.0, "shuffle": true }),
+        )
+        .unwrap();
+    assert_eq!(answer["playing"], 1);
+    assert_eq!(answer["left_out"][0]["track_id"], b.0);
+    session
+        .call("play_artist", json!({ "artist_id": artist.0 }))
+        .unwrap();
+    let answer = session
+        .call(
+            "play_playlist",
+            json!({ "playlist_id": playlist.0, "start_position": 2 }),
+        )
+        .unwrap_err();
+    assert!(answer.contains("from the one to start with"), "{answer}");
+    let answer = session
+        .call(
+            "play_playlist",
+            json!({ "playlist_id": playlist.0, "start_position": 0 }),
+        )
+        .unwrap();
+    assert_eq!(answer["playing"], 1);
+    assert_eq!(answer["starts_with"]["id"], a.0);
+    let positions: Vec<&Value> = answer["left_out"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| &entry["position"])
+        .collect();
+    assert_eq!(positions, [&json!(0), &json!(2)]);
+    assert_eq!(
+        setup.player.take(),
+        [
+            Asked::Play(vec![a.0], Context::Album(album), Some(0), Some(true)),
+            Asked::Play(vec![a.0], Context::Artist(artist), None, None),
+            Asked::Play(vec![a.0], Context::Playlist(playlist), Some(0), None),
+        ]
+    );
+
+    let only_lost = session
+        .call("play_label", json!({ "label": "chill" }))
+        .unwrap_err();
+    assert!(only_lost.contains("its file is missing"), "{only_lost}");
+    let unknown = session
+        .call("play_label", json!({ "label": "loud" }))
+        .unwrap_err();
+    assert!(unknown.contains("list_labels"), "{unknown}");
+    assert_eq!(
+        session
+            .call("play_album", json!({ "album_id": 999 }))
+            .unwrap_err(),
+        "there is no album 999"
+    );
+    assert!(setup.player.take().is_empty());
+}
+
+#[test]
+fn agents_press_the_players_buttons_and_set_its_options() {
+    let setup = start();
+    let mut session = setup.session();
+    for (arguments, control) in [
+        (json!({ "action": "toggle" }), Control::TogglePlayPause),
+        (json!({ "action": "next" }), Control::Next),
+        (
+            json!({ "action": "seek", "position_seconds": 12.5 }),
+            Control::Seek(Duration::from_millis(12_500)),
+        ),
+        (json!({ "action": "show_window" }), Control::Raise),
+    ] {
+        session.call("playback_control", arguments).unwrap();
+        assert_eq!(setup.player.take(), [Asked::Control(control)]);
+    }
+    let seek = session
+        .call("playback_control", json!({ "action": "seek" }))
+        .unwrap_err();
+    assert!(seek.contains("position_seconds"), "{seek}");
+    let quit = session
+        .call("playback_control", json!({ "action": "quit" }))
+        .unwrap_err();
+    assert!(quit.contains("quit"), "no tool closes VCMP: {quit}");
+
+    session
+        .call(
+            "edit_queue",
+            json!({ "action": "move", "position": 2, "to": 0 }),
+        )
+        .unwrap();
+    session
+        .call("edit_queue", json!({ "action": "clear_up_next" }))
+        .unwrap();
+    assert_eq!(
+        setup.player.take(),
+        [
+            Asked::Control(Control::MoveInUpNext { from: 2, to: 0 }),
+            Asked::Control(Control::ClearUpNext),
+        ]
+    );
+
+    session
+        .call(
+            "set_playback_options",
+            json!({ "shuffle": true, "shuffle_kind": "true_random", "repeat": "one", "volume_percent": 40 }),
+        )
+        .unwrap();
+    assert_eq!(
+        setup.player.take(),
+        [Asked::Options(Options {
+            shuffle: Some(true),
+            shuffle_kind: Some(ShuffleKind::TrueRandom),
+            repeat: Some(Repeat::One),
+            volume: Some(0.4),
+        })]
+    );
+    let loud = session
+        .call("set_playback_options", json!({ "volume_percent": 150 }))
+        .unwrap_err();
+    assert!(loud.contains("0 to 100"), "{loud}");
+
+    session
+        .call(
+            "set_sleep_timer",
+            json!({ "timer": "minutes", "minutes": 30 }),
+        )
+        .unwrap();
+    session
+        .call("set_sleep_timer", json!({ "timer": "end_of_track" }))
+        .unwrap();
+    let long = session
+        .call(
+            "set_sleep_timer",
+            json!({ "timer": "minutes", "minutes": 600 }),
+        )
+        .unwrap_err();
+    assert!(long.contains("1 to 90"), "{long}");
+    assert_eq!(
+        setup.player.take(),
+        [
+            Asked::Sleep(SleepTimer::Minutes(30)),
+            Asked::Sleep(SleepTimer::EndOfTrack),
+        ]
+    );
+
+    let devices = session.call("list_output_devices", json!({})).unwrap();
+    assert_eq!(devices["devices"], json!(DEVICES));
+    assert_eq!(devices["chosen"], "Headphones");
+    assert_eq!(devices["playing_through_instead"], "Speakers");
+    session
+        .call("set_output_device", json!({ "device": "Speakers" }))
+        .unwrap();
+    session.call("set_output_device", json!({})).unwrap();
+    assert!(
+        session
+            .call("set_output_device", json!({ "device": "Radio" }))
+            .is_err()
+    );
+    assert_eq!(
+        setup.player.take(),
+        [Asked::Device(Some("Speakers".into())), Asked::Device(None)]
+    );
+}
+
+#[test]
+fn now_playing_names_the_tracks_and_what_they_play_from() {
+    let setup = start();
+    let mut session = setup.session();
+    let a = setup
+        .library
+        .track(id_of(&setup.library, "a.flac"))
+        .unwrap()
+        .unwrap();
+    let b = setup
+        .library
+        .track(id_of(&setup.library, "b.flac"))
+        .unwrap()
+        .unwrap();
+    let album = setup.library.albums().unwrap()[0].id;
+    let elsewhere = PathBuf::from("/not/in/the/library.flac");
+    *setup.player.status.lock().unwrap() = Some(Status {
+        state: PlayState::Paused,
+        current: Some(a.path.clone()),
+        position: Duration::from_millis(61_240),
+        duration: Some(Duration::from_secs(200)),
+        volume: 0.5,
+        muted: false,
+        shuffle: true,
+        shuffle_kind: ShuffleKind::FewerRepeats,
+        repeat: Repeat::All,
+        output: OutputDevices {
+            devices: Vec::new(),
+            chosen: None,
+            fallback: None,
+        },
+        sleep_timer: SleepTimer::Minutes(25),
+        context: Some(Context::Album(album)),
+        up_next: vec![b.path.clone()],
+        upcoming: vec![elsewhere.clone(), b.path.clone()],
+    });
+
+    let now = session
+        .call("get_now_playing", json!({ "upcoming_limit": 1 }))
+        .unwrap();
+    assert_eq!(now["state"], "paused");
+    assert_eq!(now["track"]["title"], "A");
+    assert_eq!(now["track"]["id"], a.id.0);
+    assert_eq!(now["position_seconds"], 61.2);
+    assert_eq!(now["duration_seconds"], 200);
+    assert_eq!(now["volume_percent"], 50);
+    assert_eq!(now["shuffle"], true);
+    assert_eq!(now["shuffle_kind"], "fewer_repeats");
+    assert_eq!(now["repeat"], "all");
+    assert_eq!(now["output_device"], Value::Null);
+    assert_eq!(
+        now["sleep_timer"],
+        json!({ "timer": "minutes", "minutes_left": 25 })
+    );
+    assert_eq!(
+        now["context"],
+        json!({ "kind": "album", "id": album.0, "name": "Album" })
+    );
+    assert_eq!(now["up_next"][0]["position"], 0);
+    assert_eq!(now["up_next"][0]["track"]["title"], "B");
+    assert_eq!(now["upcoming"].as_array().unwrap().len(), 1);
+    assert_eq!(now["upcoming"][0]["position"], 1);
+    assert_eq!(
+        now["upcoming"][0]["track"],
+        json!({ "path": elsewhere.to_string_lossy() })
+    );
+    assert_eq!(now["more_upcoming"], 1);
 }

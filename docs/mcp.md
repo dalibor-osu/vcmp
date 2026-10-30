@@ -1,7 +1,7 @@
 # MCP server
 
-How `crates/vcmp-mcp` lets AI agents work with the library, and how the app takes
-their changes. The agreed decisions are in the
+How `crates/vcmp-mcp` lets AI agents work with the library and control playback, and
+how the app takes their changes. The agreed decisions are in the
 [MCP spec](specs/2026-10-19-mcp-library-server.md); the change sets agents' changes
 become are in [library.md](library.md#change-sets), and their review in
 [ui.md](ui.md). Keep this file in sync with the crate.
@@ -30,6 +30,7 @@ become are in [library.md](library.md#change-sets), and their review in
 | A request with an `Origin` header gets 403 (rmcp's Origin check with an empty allow list, enforced) | Browsers send `Origin` on cross-site requests and MCP clients don't, so a web page can't drive the server through the browser |
 | `Host` must be a loopback name (rmcp's default) | Against DNS rebinding |
 | No write to the library from the server's thread | Tag changes, label changes, undos and playlist deletions become change sets the owner reviews; playlist edits go through the app |
+| Playback only with its own switch (Settings, AI agents, "Let AI agents control playback"; setting `mcp.playback`, off by default) | An agent can't start music unasked. The player checks the setting on every request, so turning it off takes effect at once; the tools stay listed and answer with an error naming the switch. Playback acts at once, without review, and no tool closes VCMP |
 | A cover an agent gives by web address is fetched only for `propose_tag_changes`: http or https, up to 5 redirects, 30 s, at most 10 MB, and it must start like a JPEG or PNG | The download asks nothing of the library; what it brings goes into files only once the owner has seen the picture in the review and accepted it. A cover from a file must be given by its absolute path, with the same size and format checks |
 
 The token is in the library database like the other settings, readable by any program
@@ -57,13 +58,32 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 | `propose_undo` | Records the undo of an accepted change of tags or labels |
 | `propose_playlist_deletion` | Records a deletion for review |
 | `create_playlist`, `rename_playlist`, `add_to_playlist`, `remove_from_playlist`, `move_in_playlist` | Done at once |
+| `play_tracks` | Plays tracks by id (at most 500) in place of what plays: a queue context of its own, named after the agent in the queue panel ("Next from Claude"). Optional `start_track_id` and `shuffle` (true or false; left out, it stays as it is) |
+| `play_album`, `play_playlist`, `play_label`, `play_artist` | Play these as their pages' play buttons do, with the same queue context and order (an artist: their albums, then their appearances elsewhere). A label by name; a playlist's start by entry position |
+| `queue_tracks` | Puts tracks into Up next, `next` or at the `end` |
+| `playback_control` | Play, pause, toggle, stop, next, previous, seek (`position_seconds`), and `show_window` (brings the window to the front). There is no quit |
+| `edit_queue` | Skip to an entry, remove or move an Up next entry, clear Up next; positions as `get_now_playing` lists them |
+| `set_playback_options` | Shuffle on or off, its kind (`fewer_repeats`, `true_random`), repeat (`off`, `all`, `one`), volume 0 to 100 |
+| `list_output_devices`, `set_output_device` | The devices as Settings lists them (listed afresh, so Settings' list follows), the chosen one and the one playing instead when it is missing; choosing one by name (exactly, else ignoring case), or the system default |
+| `set_sleep_timer` | Off, end of this track, or 1 to 90 minutes |
+| `get_now_playing` | The track, playing, paused or stopped, position, duration, volume, mute, shuffle, repeat, output device, sleep timer, what the queue plays from, Up next and the next tracks (10 by default, at most 100) |
+
+The play and queue tools read what to play on the server's own connection, so a
+track that can't be played is left out there: one whose file is gone (the library
+marks it unavailable, or it isn't on the disk any more), one the library doesn't
+know, or one whose path isn't valid Unicode. The answer names each under
+`left_out` with the reason, and playing starts at the next playable track when the
+one to start with is left out (as the window does for playlists). When nothing can
+be played, the tool answers with an error listing why.
 
 Every track an answer lists carries its labels by name. The server's instructions,
 sent when an agent connects, explain the key naming, the review, that labels are the
 owner's own names kept in VCMP and not tags (look at them first when asked for music
 by mood), and what each of the nine fields does in VCMP (grouping by album and album
-artist, Unknown albums, MusicBrainz release IDs). The agent's name in the history is
-the client's title or name from its handshake.
+artist, Unknown albums, MusicBrainz release IDs). The agent's name in the history and in the
+queue panel is the client's title or name from its handshake. The instructions also
+list the playback tools, say that playback needs its own switch, and ask the agent
+to tell the owner about tracks left out.
 
 ## Changes go through the app
 
@@ -72,6 +92,19 @@ posted to Slint's event loop with `invoke_from_event_loop`, runs on
 `AgentService` there, and the server's thread waits up to 30 seconds for the answer.
 So a change set shows in the sidebar the moment it is recorded, and playlist edits
 show in the window at once. The crate itself never depends on Slint.
+
+`Playback` is the seam for the player, kept apart from `Changes` because nothing in
+it is a change to the library. `AppPlayback` (`src/player_service/agent_playback.rs`)
+implements it the same way, posting each call to `PlayerService` on the event loop
+and waiting up to 30 seconds. There it checks the playback switch, then does what
+the window does: the play buttons' queue contexts, `media_control` for the
+buttons (with `Control::Quit` never reachable), the bar's shuffle, repeat, volume
+and sleep timer functions, and Settings' device choice, all saved in the settings as
+the window saves them. So the bar, the queue panel, the OS media controls, Discord and
+Last.fm follow an agent exactly as they follow the owner. `get_now_playing` reads the
+service's state on the UI thread (what the bar and the queue panel show) and gets the
+files back as paths; the server turns them into tracks on its own connection. Device
+lists come from the server's thread, as listing devices can take a while.
 
 ## The stdio relay
 
@@ -103,12 +136,15 @@ ends the session.
 ## Testing
 
 `crates/vcmp-mcp/tests/server.rs` starts the server on a free port with a stand-in
-for the app (`Changes` done at once on a test connection) and talks real HTTP to it:
-the token and Origin checks, the handshake, reading tags, change sets that wait, and
-playlist edits. The same file runs the relay over in-memory input and output against
+for the app (`Changes` done at once on a test connection, and a recorder for
+`Playback`) and talks real HTTP to it: the token and Origin checks, the handshake,
+reading tags, change sets that wait, playlist edits, and every playback tool,
+including requests with missing files and unknown tracks. The same file runs the relay over in-memory input and output against
 that server: a whole session, the answers when nothing listens or the switch is off,
 and a new token. `crates/vcmp-app/tests/agents.rs` covers the switch, the port and
-token, what the relay reads from the settings, and the review in the window. A real
+token, what the relay reads from the settings, the review in the window, the
+playback switch, and `PlayerService`'s side of playback with a recorder in place of
+the engine (the commands sent, the settings saved, the state read back). A real
 client is in [manual-testing.md](manual-testing.md).
 
 ## Known limits
@@ -129,7 +165,10 @@ client is in [manual-testing.md](manual-testing.md).
   through the relay, the error says that VCMP was restarted.
 - A cover by web address is downloaded on the server's thread pool while the agent
   waits; a slow site holds that request up to 30 seconds.
-- Agents can't play anything yet: playback control is the labels spec's second
-  pull request.
+- A playback tool answers once the player has taken the request, before the engine
+  has acted on it: `get_now_playing` right after `play_tracks` can still show the
+  track before.
+- Positions in `edit_queue` are those the queue panel shows: Up next and at most
+  100 tracks after it. Earlier tracks (the history) aren't listed.
 - A change waits for the window's event loop to take it; when that takes more than
   30 seconds, the agent is told that VCMP didn't answer in time.
