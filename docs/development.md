@@ -18,6 +18,13 @@ cargo run -p vcmp-app
 A release build is `cargo build --release -p vcmp-app`, and the program lands in
 `target/release/`.
 
+On Windows the build needs Visual Studio's "Desktop development with C++" (the MSVC
+linker and the Windows SDK). Every Windows executable carries VCMP's manifest
+(`crates/vcmp-app/windows/`), which `build.rs` compiles with `embed-resource`:
+through the SDK's `rc.exe` with MSVC, and `x86_64-w64-mingw32-windres` with MinGW-w64,
+which the local release image has. The build stops if the manifest can't be
+compiled, since VCMP doesn't start without it ([ui.md](ui.md#known-limits)).
+
 ## Test
 
 ```bash
