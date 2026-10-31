@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, Modal } from "components.slint";
+import { Button, Modal, ScrollArea } from "components.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
 
 // Where a cover search stands; the picker words it.
@@ -89,7 +88,7 @@ export component CoverPicker inherits Modal {
         cancel-button.focus();
     }
 
-    scroll := ScrollView {
+    scroll := ScrollArea {
         vertical-stretch: 1;
 
         VerticalLayout {

@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, Modal, ProgressBar, TextField } from "components.slint";
+import { Button, Modal, ProgressBar, ScrollArea, TextField } from "components.slint";
 
 // The tags the editor shows and saves, as text. Numbers are checked when saved.
 export struct TagValues {
@@ -217,7 +216,7 @@ export component TagEditorView inherits Modal {
         root.wrap-last += 1;
     }
 
-    scroll := ScrollView {
+    scroll := ScrollArea {
         vertical-stretch: 1;
         preferred-height: body.preferred-height;
 

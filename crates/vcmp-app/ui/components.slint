@@ -17,9 +17,36 @@ export component FocusRing inherits Rectangle {
     border-radius: self.radius + 3px;
 }
 
+// Every scrolling part but the album grid and the songs table: the std-widgets
+// `ScrollView` without its scroll bars, which it drew over the content and widened on
+// hover (docs/ui.md, "No scroll bars anywhere"). The wheel, the touchpad and the
+// keyboard focus scroll it, as before; a press-and-drag doesn't, so rows can be
+// dragged in it.
+export component ScrollArea {
+    out property <length> visible-height <=> flickable.height;
+    in-out property <length> content-height <=> flickable.content-height;
+    in-out property <length> content-y <=> flickable.content-y;
+
+    // As the `ScrollView`'s: it takes the room it is given.
+    min-height: 50px;
+    min-width: 50px;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    preferred-height: 100%;
+    preferred-width: 100%;
+
+    flickable := Flickable {
+        mouse-drag-pan-enabled: false;
+        width: parent.width;
+        height: parent.height;
+
+        @children
+    }
+}
+
 // Scrolls a view while a drag holds the pointer near its top or bottom edge: faster
 // the closer the pointer is to the edge, fastest at it or past it. The owner says
-// where the view is and binds `content-y` to its ScrollView's.
+// where the view is and binds `content-y` to its ScrollArea's.
 export component EdgeScroll {
     width: 0;
     height: 0;
@@ -1075,7 +1102,7 @@ export component TextLink {
 
 // A dialog over the sidebar and pages: the scrim dims them and takes the pointer, and
 // the card in the middle holds the children, top to bottom. The card is as tall as
-// its content, up to the room the window leaves; a `ScrollView` among the children
+// its content, up to the room the window leaves; a `ScrollArea` among the children
 // with a vertical stretch gives up height first. Tab and Shift+Tab go round the
 // card's controls rather than to the page behind: past the last control the dialog
 // asks for its first (`focus-first`), before the first for its last (`focus-last`).

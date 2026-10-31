@@ -1,7 +1,6 @@
-import { ScrollView } from "std-widgets.slint";
 import "../../../assets/fonts/sora/Sora[wght].ttf";
 import { ReduceMotion, Theme, ThemeMode, ThemePalette } from "theme.slint";
-import { NavItem, PlaylistLink } from "components.slint";
+import { NavItem, PlaylistLink, ScrollArea } from "components.slint";
 import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
 import { FolderRow } from "folders-page.slint";
 import { SongColumn, SongRow, SongSelection } from "songs-page.slint";
@@ -431,7 +430,7 @@ export component AppWindow inherits Window {
                         // The wordmark, the sections and the playlists scroll together
                         // when the window is too short for them; the scan status and the
                         // update note stay below.
-                        sidebar-scroll := ScrollView {
+                        sidebar-scroll := ScrollArea {
                             y: 0;
                             width: parent.width;
                             height: parent.height - sidebar-foot.height;
@@ -847,14 +846,14 @@ export component AppWindow inherits Window {
                                 root.queue-folder-file(index, next);
                             }
                         }
-                        if root.current-page == Page.settings: ScrollView {
+                        if root.current-page == Page.settings: ScrollArea {
                             x: 0;
                             width: root.page-width;
                             SettingsPage {
                                 width: parent.width;
                             }
                         }
-                        if root.current-page == Page.about: ScrollView {
+                        if root.current-page == Page.about: ScrollArea {
                             x: 0;
                             width: root.page-width;
                             AboutPage {

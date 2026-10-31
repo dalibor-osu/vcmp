@@ -2,9 +2,8 @@
 // tracks, Play and Shuffle. Labels are made and edited in Settings, or from any
 // track's menu (labels.slint).
 
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, FocusRing } from "components.slint";
+import { Button, FocusRing, ScrollArea } from "components.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
 import { LabelDot, LabelEntry, Labels } from "labels.slint";
 
@@ -143,7 +142,7 @@ export component LabelView {
             reject
         }
 
-        scroll := ScrollView {
+        scroll := ScrollArea {
             width: parent.width;
             height: parent.height;
 
@@ -346,7 +345,7 @@ export component LabelsPage inherits Rectangle {
             }
         }
 
-        if Labels.all.length > 0: ScrollView {
+        if Labels.all.length > 0: ScrollArea {
             vertical-stretch: 1;
 
             VerticalLayout {

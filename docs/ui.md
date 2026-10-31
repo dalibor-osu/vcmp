@@ -13,7 +13,7 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | File | Holds |
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, the detail pages' cover size, the zoom, durations, drag scrolling |
-| `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
+| `ui/components.slint` | `FocusRing`, `ScrollArea` (every scrolling part but the album grid and the songs table, without a scroll bar), `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
@@ -73,6 +73,7 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | Every text pairing reaches 4.5:1 and every control boundary 3:1, in both palettes | `src/theme.rs` |
 | Every wrapped text sets `min-height: self.preferred-height` (or its height outright). Slint 1.18.1 measures an element an `if` creates at its single-line width, so a wrapped text there lost its last lines ([slint-ui/slint#13655](https://github.com/slint-ui/slint/issues/13655), fixed after 1.18.1); a text's own preferred height follows its real width. Drop the rule once Slint is past the fix | `tests/ui_invariants.rs` |
 | Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
+| No std-widgets `ScrollView`: every scrolling part is a `ScrollArea`, which draws no scroll bar; the queue and Settings show none, and the queue's rows and Clear end inside the panel | `tests/ui_invariants.rs`, `tests/player.rs` |
 
 ## Palettes
 
@@ -130,6 +131,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty library pages (Albums, Artists, Songs, Folders) | The single action those empty screens exist for; every other button is outlined. Not yet true: Play, the tag editor's save buttons and the review's Write button are filled too, which audit 001 (finding 5) leaves open with the accent's jobs (finding 3) |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
+| No scroll bars anywhere | The owner's decision (2026-10-30, issue #67). The std-widgets `ScrollView` drew its bar over the content and widened it on hover: in the queue it covered the durations, the remove buttons and Clear, on a light grey track that matched nothing else in VCMP. The album grid and the Songs page already scrolled without one. The wheel, the touchpad and the keyboard (the focus brings what it reaches into view) scroll every part; `ScrollArea` in `components.slint` is the std `ScrollView` without its bars, so nothing needs theming |
 | The sidebar's sections and playlists scroll as one, above its foot | Eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
 | A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
@@ -187,8 +189,8 @@ thumbnail as for any cover, so animated pictures add nothing to its cost (see
 A card under the pointer sits on a `surface` fill reaching into the gap around it,
 as hovered rows do, and its muted second line turns to `text` on it. The fill
 reaches `space-s` past the card and the focus ring 3 px, so a `CardGrid` inside a
-`ScrollView` takes its side margins from padding inside the scrolling part: a
-`ScrollView` clips at its own edges, and a grid flush with them loses the fill's
+`ScrollArea` takes its side margins from padding inside the scrolling part: a
+`ScrollArea` clips at its own edges, and a grid flush with them loses the fill's
 left side (`tests/search.rs` checks the Search and artist pages).
 
 Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
@@ -1041,6 +1043,9 @@ by `LibraryView`) keeps the `Labels` global current.
   not on the picture itself. A GIF meant to play once loops like any other.
 - A label held by only some of the chosen tracks is marked by words in the menu
   ("on some"), not by a mixed check mark: Slint's `MenuItem` has none.
+- Without scroll bars, a scrolling part doesn't show how long it is or where it is
+  scrolled to, and a mouse without a wheel scrolls it only by dragging rows near
+  its edge where that works (the queue and playlists) or by the keyboard.
 - The custom colour picker's shades and hues work with the mouse only; the keyboard
   picks a custom colour by typing its hex code.
 - The tag editor can't empty a field that differs between an album's tracks in one
