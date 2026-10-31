@@ -1200,7 +1200,12 @@ fn an_album_card_leaves_out_tracks_whose_file_is_gone() {
     app.sent.take();
     app.state().invoke_queue_album(app.card("Double"), true);
     assert_eq!(app.up_next_after(&[]), app.paths(&["c.flac", "a.flac"]));
-    app.state().invoke_queue_album(app.card("Single"), true);
+    // The library lists "Single" no more, but a card shown before its file went
+    // still has its id.
+    let track = app.library.track_id_for_path(&app.music.join("d.flac"));
+    let track = app.library.track(track.unwrap().unwrap()).unwrap().unwrap();
+    app.state()
+        .invoke_queue_album(track.album_id.unwrap().0 as i32, true);
     assert!(app.sent.take().is_empty(), "no file of the album is there");
 }
 
