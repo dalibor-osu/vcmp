@@ -15,7 +15,8 @@ engine.
 let (player, events) = Player::new(PlayerOptions::default())?;
 player.send(Command::PlayContext { entries, origin: Some("album:42".into()), start: Some(3) });
 // events: StateChanged, TrackChanged, Position, QueueChanged, TrackFailed,
-//         OutputChanged, OutputFailed, RestoreFailed, Decoding, StopAfterCurrent
+//         OutputChanged, OutputFailed, RestoreFailed, Decoding, StopAfterCurrent,
+//         Synced
 ```
 
 - **Events into Slint (workstream 4):** forward them from a thread blocking on the
@@ -31,6 +32,11 @@ player.send(Command::PlayContext { entries, origin: Some("album:42".into()), sta
   - Any value unique per artist and per album works, such as a database id.
 - **Playable formats:** MP3, FLAC, WAV and Ogg Vorbis. Opus is not supported (see the
   spec's risk table).
+- **Waiting for a command's effect:** `Command::Sync(token)` is answered with
+  `Event::Synced(token)` once the commands sent before it are done. Events come in
+  order, so whoever sees `Synced` has seen what those commands caused. The app
+  uses it to answer AI agents only once the window shows the result of their
+  request (see [mcp.md](mcp.md#changes-go-through-the-app)).
 - **Open files:** `Event::Decoding` names the track whose file the engine has open
   (see [Open files](#open-files)). The tag editor uses it on Windows, which can't
   replace an open file.

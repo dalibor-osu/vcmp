@@ -99,6 +99,10 @@ pub enum Command {
     /// Skipping keeps it set for the new track. It is cleared once it has stopped,
     /// by [`Command::Stop`], and when the queue runs out.
     StopAfterCurrent(bool),
+    /// Answered with [`Event::Synced`] carrying the same token once the commands sent
+    /// before it are done and their events sent. The events come in order, so a
+    /// caller that waits for it has seen what those commands did.
+    Sync(u64),
 }
 
 /// What the engine reports.
@@ -134,6 +138,8 @@ pub enum Event {
     /// Whether playback stops after the current track, sent when that changes: when
     /// asked, and when it is cleared, which it is also once it has stopped.
     StopAfterCurrent(bool),
+    /// The answer to [`Command::Sync`].
+    Synced(u64),
 }
 
 /// How much of a track must have played for Previous to restart it instead.

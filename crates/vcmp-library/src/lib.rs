@@ -319,12 +319,9 @@ impl Library {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<TrackId>> {
-        let holds = "EXISTS (SELECT 1 FROM track_tags g WHERE g.track_id = t.id AND g.key = ?1
-                     AND (?2 IS NULL OR g.value = ?2))";
         let mut statement = self.conn.prepare(&format!(
-            "SELECT t.id FROM tracks t WHERE t.available = 1 AND {} {holds}
-             ORDER BY t.id LIMIT ?3 OFFSET ?4",
-            if missing { "NOT" } else { "" }
+            "SELECT t.id FROM tracks t WHERE {} ORDER BY t.id LIMIT ?3 OFFSET ?4",
+            by_tag(missing)
         ))?;
         let ids = statement
             .query_map(params![key, value, limit as i64, offset as i64], |row| {
@@ -332,6 +329,21 @@ impl Library {
             })?
             .collect::<rusqlite::Result<_>>()?;
         Ok(ids)
+    }
+
+    /// How many tracks [`Library::tracks_by_tag`] finds in all.
+    pub fn count_tracks_by_tag(
+        &self,
+        key: &str,
+        value: Option<&str>,
+        missing: bool,
+    ) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM tracks t WHERE {}", by_tag(missing)),
+            params![key, value],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
     }
 
     /// Writes tag edits into the tracks' files, then re-reads them into the database
@@ -399,4 +411,14 @@ impl Library {
     pub fn search(&self, text: &str, limit: usize) -> Result<SearchResults> {
         query::search(&self.conn, &self.artwork, text, limit)
     }
+}
+
+/// The condition on `tracks t` for an available track holding the tag key `?1` (with
+/// the value `?2`, unless null), or with `missing` one that doesn't hold it at all.
+fn by_tag(missing: bool) -> String {
+    format!(
+        "t.available = 1 AND {} EXISTS (SELECT 1 FROM track_tags g WHERE g.track_id = t.id
+         AND g.key = ?1 AND (?2 IS NULL OR g.value = ?2))",
+        if missing { "NOT" } else { "" }
+    )
 }
