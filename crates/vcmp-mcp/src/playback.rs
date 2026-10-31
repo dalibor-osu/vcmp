@@ -35,7 +35,8 @@ choice: play_label plays it.";
 
 /// Playback agents ask for, done by the app on its own thread at once, so the window,
 /// the OS media controls, Discord and Last.fm follow. Each call returns once the app
-/// has done it; the error is a reason to tell the agent.
+/// has done it and [`Playback::status`] shows the result, such as the next track after
+/// a skip; the error is a reason to tell the agent.
 pub trait Playback: Send + Sync + 'static {
     /// Makes `play.tracks` what plays, and plays.
     fn play(&self, play: Play) -> Result<(), String>;
@@ -178,6 +179,9 @@ pub struct Status {
     /// The files in Up next, then the context's next ones, in play order.
     pub up_next: Vec<PathBuf>,
     pub upcoming: Vec<PathBuf>,
+    /// How many tracks the context holds. With repeat all, or true random shuffle,
+    /// `upcoming` goes on past them, to the queue panel's limit.
+    pub context_len: usize,
 }
 
 /// The most minutes the sleep timer counts down from, as the window's longest choice.
@@ -597,7 +601,17 @@ fn status_out(
         SleepTimer::EndOfTrack => ("end_of_track", None),
         SleepTimer::Minutes(minutes) => ("minutes", Some(minutes)),
     };
-    let shown = &status.upcoming[..upcoming.min(status.upcoming.len())];
+    // A context that never ends is listed for one pass, as many entries as it holds:
+    // the rest repeats it, or draws from it at random.
+    let repeats = status.context_len > 0
+        && (status.repeat == Repeat::All
+            || (status.shuffle && status.shuffle_kind == ShuffleKind::TrueRandom));
+    let pass = if repeats {
+        &status.upcoming[..status.context_len.min(status.upcoming.len())]
+    } else {
+        &status.upcoming[..]
+    };
+    let shown = &pass[..upcoming.min(pass.len())];
     Ok(serde_json::json!({
         "state": state_name(status.state),
         "track": status.current.as_ref().map(|path| queued_out(library, path)).transpose()?,
@@ -617,7 +631,8 @@ fn status_out(
         "context": status.context.as_ref().map(|context| context_out(library, context)).transpose()?,
         "up_next": entries(&status.up_next, 0)?,
         "upcoming": entries(shown, status.up_next.len())?,
-        "more_upcoming": status.upcoming.len() - shown.len(),
+        "more_upcoming": pass.len() - shown.len(),
+        "repeats": repeats,
     }))
 }
 
@@ -923,7 +938,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "What plays now: the track, playing, paused or stopped, the position, volume, shuffle, repeat, output device and sleep timer, what it plays from, Up next, and the tracks after it."
+        description = "What plays now: the track, playing, paused or stopped, the position, volume, shuffle, repeat, output device and sleep timer, what it plays from, Up next, and the tracks after it. With repeats true (repeat all, or true_random shuffle) the tracks after it go on without end: they are listed for one pass, as many as the context holds."
     )]
     async fn get_now_playing(
         &self,

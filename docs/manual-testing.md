@@ -202,6 +202,11 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Right-click an album card on the Albums page and on an artist's page, and
       open an album page's three-dot menu → Labels: the label goes on every track
       of the album. New label… from there makes one and puts it on them.
+- [ ] With a track in Up next, right-click an album card → Play next: the queue
+      panel lists the album's tracks before that track, in the album page's order;
+      Add to queue on another card lists them after it. Do the same on an artist's
+      albums and Search's albums, and from the keyboard (the Menu key, Shift+F10)
+      on the current card. While stopped, the album waits in Up next.
 - [ ] Songs → Labels: pick one label, then two: only songs with both stay; the
       chips beside the button take a label out. Albums → Labels: albums with at
       least one labelled track stay.
@@ -296,6 +301,14 @@ animated WebP and an APNG. For album covers, edit copies only.
       its sidebar entry: the section opens on its grid.
 - [ ] Make the window as short as it goes: the sidebar scrolls and the focused
       entry stays in view.
+- [ ] No scroll bar shows anywhere, also with the pointer at a scrolling part's
+      right edge: the queue with a long album and tracks in Next in queue (the
+      durations, the remove buttons and Clear are whole), Settings, About, the
+      sidebar in a short window, the album, artist, playlist, label and Folders
+      pages, Search, and the dialogs (tag editor, cover and photo pickers, change
+      review and history). Each scrolls with the mouse wheel, with two fingers on a
+      touchpad (gliding on after a flick), and Tab to a control out of view brings
+      it into view.
 - [ ] On a full screen, Settings and About sit in a column in the middle of the
       page, and the column narrows with the window down to 720 px.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the
@@ -385,7 +398,13 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       shuffle and repeat on, set the volume to 30 and to bring VCMP to the front:
       the bar's buttons, slider and the OS media widget follow each time, and the
       settings come back after a restart. Ask what plays: it names the track, the
-      position and what comes next as the queue panel shows it.
+      position and what comes next as the queue panel shows it. Ask it to skip
+      and say what plays in the same breath (it reads `get_now_playing` right
+      after `next`): it names the new track, not the one before.
+- [ ] Ask it to play one track with repeat on all, then what comes next: it lists
+      that track once and says the queue repeats, not the same track a hundred
+      times. Ask how many tracks have no MusicBrainzReleaseId: it answers from one
+      `find_tracks_by_tag` call (its `total`).
 - [ ] Ask it to play next a track, add two to the end of Up next, then move and
       remove one: the queue panel follows.
 - [ ] Unplug (or rename) the folder of one track of a playlist, then ask it to play

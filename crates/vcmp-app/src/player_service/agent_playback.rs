@@ -4,7 +4,8 @@
 //! server has already left out the tracks that can't be played.
 
 use std::path::PathBuf;
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::time::Duration;
 
 use slint::ComponentHandle;
 use vcmp_integrations::media_controls::Control as MediaControl;
@@ -19,6 +20,10 @@ use crate::{PlayState, PlayerState, Repeat, Shuffle, ShuffleKind, SleepTimer};
 
 /// The context origin of tracks an agent chose to play, before the agent's name.
 const AGENT_ORIGIN: &str = "agent";
+/// How long a request that the engine acts on waits for the window to show the
+/// result. A skip waits for the next file to open, which a disk that sleeps may take
+/// seconds for.
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What agents ask of the player, brought from the server's thread to the service on
 /// the UI thread. Each call waits for the window to take it.
@@ -44,6 +49,23 @@ impl AppPlayback {
         }
     }
 
+    /// Like [`on_ui`](Self::on_ui) for work that sends the engine commands, then waits
+    /// until the window has taken the events they caused, so that `status` reads the
+    /// result: a skip changes the track only once the engine has opened the next file.
+    /// Past [`SETTLE_TIMEOUT`] it answers anyway; the request still stands.
+    fn on_ui_settled<T: Send + 'static>(
+        work: impl FnOnce(&PlayerService) -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String> {
+        let (result, settled) = Self::on_ui(move |service| {
+            let result = work(service)?;
+            Ok((result, service.agent_sync()))
+        })?;
+        if settled.recv_timeout(SETTLE_TIMEOUT) == Err(RecvTimeoutError::Timeout) {
+            log::warn!("the player took longer than {SETTLE_TIMEOUT:?} over an agent's request");
+        }
+        Ok(result)
+    }
+
     /// Lists the output devices on this thread, as listing may take a while, and
     /// gives the list to the service.
     fn list_devices() -> Result<Vec<String>, String> {
@@ -56,19 +78,19 @@ impl AppPlayback {
 
 impl Playback for AppPlayback {
     fn play(&self, play: Play) -> Result<(), String> {
-        Self::on_ui(move |service| service.agent_play(play))
+        Self::on_ui_settled(move |service| service.agent_play(play))
     }
 
     fn queue(&self, tracks: Vec<Track>, next: bool) -> Result<(), String> {
-        Self::on_ui(move |service| service.agent_queue(&tracks, next))
+        Self::on_ui_settled(move |service| service.agent_queue(&tracks, next))
     }
 
     fn control(&self, control: Control) -> Result<(), String> {
-        Self::on_ui(move |service| service.agent_control(control))
+        Self::on_ui_settled(move |service| service.agent_control(control))
     }
 
     fn set_options(&self, options: Options) -> Result<(), String> {
-        Self::on_ui(move |service| {
+        Self::on_ui_settled(move |service| {
             service.agent_options(options);
             Ok(())
         })
@@ -108,6 +130,29 @@ impl PlayerService {
         } else {
             Err("The owner hasn't let AI agents control playback: they can turn on \"Let AI agents control playback\" in VCMP's Settings, under AI agents.".into())
         }
+    }
+
+    /// Asks the engine to answer once it has done the commands sent so far. The
+    /// receiver hears once the window has taken that answer, and so every event
+    /// before it.
+    pub fn agent_sync(&self) -> Receiver<()> {
+        let token = self.last_sync.get() + 1;
+        self.last_sync.set(token);
+        let (sender, receiver) = mpsc::channel();
+        self.syncs.borrow_mut().push((token, sender));
+        self.player.send(Command::Sync(token));
+        receiver
+    }
+
+    /// The engine answered [`Command::Sync`] with `token`, and so every token before.
+    pub(super) fn synced(&self, token: u64) {
+        self.syncs.borrow_mut().retain(|(waiting, sender)| {
+            if *waiting > token {
+                return true;
+            }
+            let _ = sender.send(());
+            false
+        });
     }
 
     /// Plays what an agent chose, as the window's play buttons do: shuffle turned on
@@ -307,6 +352,7 @@ impl PlayerService {
             context: view.origin.as_deref().and_then(context),
             up_next: view.up_next.iter().map(path).collect(),
             upcoming: view.upcoming.iter().map(path).collect(),
+            context_len: view.context_len,
         })
     }
 

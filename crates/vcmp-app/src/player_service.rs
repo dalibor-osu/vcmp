@@ -213,6 +213,10 @@ pub struct PlayerService {
     // The sleep timer's minute ticks, and the minutes left (0 while none counts down).
     sleep_timer: Timer,
     sleep_minutes: Cell<i32>,
+    // Agents waiting for the engine to answer `Command::Sync` with their token, and
+    // the last token handed out.
+    syncs: RefCell<Vec<(u64, mpsc::Sender<()>)>>,
+    last_sync: Cell<u64>,
 }
 
 /// Told the file the engine has open, or `None`.
@@ -275,6 +279,8 @@ impl PlayerService {
             tags_notice_file: RefCell::default(),
             sleep_timer: Timer::default(),
             sleep_minutes: Cell::new(0),
+            syncs: RefCell::default(),
+            last_sync: Cell::new(0),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -423,6 +429,14 @@ impl PlayerService {
                     } else {
                         Command::AddToQueue(vec![entry])
                     });
+                }
+            }
+        });
+        state.on_queue_album({
+            let weak = weak.clone();
+            move |album, next| {
+                if let Some(service) = weak.upgrade() {
+                    service.queue_album(AlbumId(i64::from(album)), next);
                 }
             }
         });
@@ -846,6 +860,29 @@ impl PlayerService {
             .filter(|track| track.available)
             .filter_map(entry)
             .collect();
+        self.send_to_up_next(entries, next);
+    }
+
+    /// Puts every track of `album` into Up next, at its front (`next`) or its end, in
+    /// the album page's order; tracks whose file is gone are left out. For an album
+    /// card's menu.
+    pub fn queue_album(&self, album: AlbumId, next: bool) {
+        let tracks = match self.library.album_tracks(album) {
+            Ok(tracks) => tracks,
+            Err(error) => {
+                log::error!("could not read the tracks of album {}: {error}", album.0);
+                return;
+            }
+        };
+        let entries: Vec<QueueEntry> = tracks
+            .iter()
+            .filter(|track| track.available)
+            .filter_map(entry)
+            .collect();
+        self.send_to_up_next(entries, next);
+    }
+
+    fn send_to_up_next(&self, entries: Vec<QueueEntry>, next: bool) {
         if entries.is_empty() {
             return;
         }
@@ -1436,6 +1473,10 @@ impl PlayerService {
                 if let Some(listener) = &*self.on_open_file.borrow() {
                     listener(path.as_deref());
                 }
+                return;
+            }
+            Event::Synced(token) => {
+                self.synced(token);
                 return;
             }
         }

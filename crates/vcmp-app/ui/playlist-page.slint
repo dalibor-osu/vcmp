@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, EdgeScroll, IconButton, TextField } from "components.slint";
+import { Button, EdgeScroll, IconButton, ScrollArea, TextField } from "components.slint";
 import { Glyph } from "icons.slint";
 import { Confirmation } from "confirmation.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
@@ -140,7 +139,7 @@ export component PlaylistView {
             reject
         }
 
-        scroll := ScrollView {
+        scroll := ScrollArea {
             width: parent.width;
             height: parent.height;
 

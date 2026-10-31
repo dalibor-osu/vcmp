@@ -289,6 +289,7 @@ impl Engine {
                 self.set_stop_after_current(on);
                 self.check_prepared();
             }
+            Command::Sync(token) => self.emit(Event::Synced(token)),
         }
     }
 
