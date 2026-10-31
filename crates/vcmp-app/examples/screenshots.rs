@@ -75,7 +75,7 @@ struct Shot {
     agents: Option<Agents>,
     // The sleep timer counts down in the player bar.
     sleep: bool,
-    // Settings asks whether to delete the agents' backups, in its dialog.
+    // The confirmation dialog asks whether to delete the agents' backups, over Settings.
     confirm: bool,
 }
 
@@ -287,8 +287,8 @@ const SHOTS: &[Shot] = &[
         ThemeMode::Dark,
         Agents::PlaylistDeletion,
     ),
-    confirm("confirm-light", ThemeMode::Light),
-    confirm("confirm-dark", ThemeMode::Dark),
+    confirm("confirm-dialog-light", ThemeMode::Light),
+    confirm("confirm-dialog-dark", ThemeMode::Dark),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -453,13 +453,14 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     window.set_queue_open(shot.album.is_some() && !shot.tags);
     show_agents(window, shot.agents);
     if shot.confirm {
-        // Asked through the real button, so the shots show the real words; Cancel
-        // answers it before the next shot.
-        window.global::<AgentState>().set_has_finished(true);
-        ElementHandle::find_by_accessible_label(window, "Delete backups…")
-            .find(|element| element.accessible_role() == Some(AccessibleRole::Button))
-            .expect("the Delete backups… button")
-            .invoke_accessible_default_action();
+        // The words Settings uses for the backups; Cancel answers before the next shot.
+        window.global::<Confirmation>().invoke_ask(
+            "Delete the backups of every finished change?".into(),
+            "None of them can be undone afterwards. Changes waiting for review stay.".into(),
+            "Delete backups".into(),
+            "Delete backups".into(),
+            "Keep the backups".into(),
+        );
     }
     for _ in 0..shot.tabs {
         press(window, Key::Tab);

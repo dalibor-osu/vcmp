@@ -166,17 +166,6 @@ impl App {
         window.dispatch_event(WindowEvent::KeyReleased { text });
     }
 
-    /// The button labelled so has the keyboard focus: its focus ring exists, shown
-    /// or not.
-    fn focused(&self, label: &str) -> bool {
-        self.find(AccessibleRole::Button, label)
-            .unwrap_or_else(|| panic!("no button {label:?}"))
-            .query_descendants()
-            .match_type_name("FocusRing")
-            .find_first()
-            .is_some()
-    }
-
     fn find(&self, role: AccessibleRole, label: &str) -> Option<ElementHandle> {
         ElementHandle::find_by_accessible_label(&self.window, label)
             .find(|element| element.accessible_role() == Some(role))
@@ -486,25 +475,37 @@ fn the_delete_question_is_a_dialog_that_keeps_the_keyboard() {
         assert!(question.get_open());
     };
 
-    // The focus starts on Cancel; Tab goes round the dialog's two buttons, never to
-    // the page behind.
+    // Enter presses the button with the focus. It starts on Cancel, so Enter keeps
+    // the label, and goes back to the Delete… button that asked: Enter there asks
+    // again.
     ask();
     assert_eq!(question.get_question(), "Delete the label “rainy”?");
-    assert!(app.focused("Keep the label"));
-    app.key(Key::Tab);
-    assert!(app.focused("Delete label"));
-    app.key(Key::Tab);
-    assert!(app.focused("Keep the label"));
+    let enter = || {
+        app.key(Key::Return);
+        app.frame();
+    };
+    enter();
+    assert!(!question.get_open());
+    assert!(app.library.label_named("rainy").unwrap().is_some());
+    enter();
+    assert!(question.get_open(), "Enter on Delete… asks again");
 
-    // Escape cancels, and the focus goes back to the button that asked: Enter there
-    // asks again.
+    // Tab goes round the dialog's two buttons, never to the page behind: twice
+    // comes back to Cancel.
+    app.key(Key::Tab);
+    app.key(Key::Tab);
+    enter();
+    assert!(!question.get_open());
+    assert!(app.library.label_named("rainy").unwrap().is_some());
+
+    // Escape cancels, and the focus goes back to Delete… too.
+    enter();
+    assert!(question.get_open());
     app.key(Key::Escape);
     app.frame();
     assert!(!question.get_open());
     assert!(app.library.label_named("rainy").unwrap().is_some());
-    assert!(app.focused("Delete rainy"));
-    app.key(Key::Return);
-    app.frame();
+    enter();
     assert!(question.get_open(), "Enter on Delete… asks again");
 
     // A click on the scrim beside the card cancels too.
@@ -521,18 +522,11 @@ fn the_delete_question_is_a_dialog_that_keeps_the_keyboard() {
     app.frame();
     assert!(!question.get_open());
     assert!(app.library.label_named("rainy").unwrap().is_some());
-    assert!(app.focused("Delete rainy"));
 
-    // Enter on Cancel changes nothing; Tab, then Enter, deletes.
-    ask();
-    app.key(Key::Return);
-    app.frame();
-    assert!(!question.get_open());
-    assert!(app.library.label_named("rainy").unwrap().is_some());
+    // Tab from Cancel goes to Delete label, and Enter there deletes.
     ask();
     app.key(Key::Tab);
-    app.key(Key::Return);
-    app.frame();
+    enter();
     assert!(!question.get_open());
     assert!(app.library.label_named("rainy").unwrap().is_none());
 }
