@@ -11,11 +11,13 @@ use std::time::Duration;
 
 use common::{Song, add};
 use i_slint_backend_testing::{AccessibleRole, ElementHandle, mock_elapsed_time};
-use slint::{ComponentHandle, LogicalSize, Model, ModelRc};
+use slint::platform::{Key, PointerEventButton, WindowEvent};
+use slint::{ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc, SharedString};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{PlayerControl, PlayerService};
 use vcmp_app::{
-    AppWindow, LabelFilterPage, LabelProblem, Labels, Page, SongSelection, TrackRow, TrackSelection,
+    AppWindow, Confirmation, LabelFilterPage, LabelProblem, Labels, Page, SongSelection, TrackRow,
+    TrackSelection,
 };
 use vcmp_library::{AlbumId, LabelId, Library, TrackId};
 use vcmp_playback::Command;
@@ -147,6 +149,21 @@ impl App {
             .iter()
             .map(|choice| (choice.name.to_string(), choice.checked, choice.partial))
             .collect()
+    }
+
+    /// Lets the window catch up: a dialog shown, and the answer to a question handed
+    /// to the page that asked it.
+    fn frame(&self) {
+        slint::platform::update_timers_and_animations();
+        let _ = ElementHandle::find_by_accessible_label(&self.window, "Cancel").count();
+        slint::platform::update_timers_and_animations();
+    }
+
+    fn key(&self, key: Key) {
+        let text: SharedString = key.into();
+        let window = self.window.window();
+        window.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(WindowEvent::KeyReleased { text });
     }
 
     fn find(&self, role: AccessibleRole, label: &str) -> Option<ElementHandle> {
@@ -436,9 +453,81 @@ fn the_sidebar_and_settings_list_the_labels() {
         .invoke_accessible_default_action();
     // Deleting asks first.
     assert!(app.library.label_named("rainy").unwrap().is_some());
+    app.frame();
     app.find(AccessibleRole::Button, "Delete label")
         .expect("the question")
         .invoke_accessible_default_action();
+    app.frame();
+    assert!(app.library.label_named("rainy").unwrap().is_none());
+}
+
+#[test]
+fn the_delete_question_is_a_dialog_that_keeps_the_keyboard() {
+    let app = start();
+    app.make("rainy", 8);
+    app.window.set_selected_index(7);
+    let question = app.window.global::<Confirmation>();
+    let ask = || {
+        app.find(AccessibleRole::Button, "Delete rainy")
+            .unwrap()
+            .invoke_accessible_default_action();
+        app.frame();
+        assert!(question.get_open());
+    };
+
+    // Enter presses the button with the focus. It starts on Cancel, so Enter keeps
+    // the label, and goes back to the Delete… button that asked: Enter there asks
+    // again.
+    ask();
+    assert_eq!(question.get_question(), "Delete the label “rainy”?");
+    let enter = || {
+        app.key(Key::Return);
+        app.frame();
+    };
+    enter();
+    assert!(!question.get_open());
+    assert!(app.library.label_named("rainy").unwrap().is_some());
+    enter();
+    assert!(question.get_open(), "Enter on Delete… asks again");
+
+    // Tab goes round the dialog's two buttons, never to the page behind: twice
+    // comes back to Cancel.
+    app.key(Key::Tab);
+    app.key(Key::Tab);
+    enter();
+    assert!(!question.get_open());
+    assert!(app.library.label_named("rainy").unwrap().is_some());
+
+    // Escape cancels, and the focus goes back to Delete… too.
+    enter();
+    assert!(question.get_open());
+    app.key(Key::Escape);
+    app.frame();
+    assert!(!question.get_open());
+    assert!(app.library.label_named("rainy").unwrap().is_some());
+    enter();
+    assert!(question.get_open(), "Enter on Delete… asks again");
+
+    // A click on the scrim beside the card cancels too.
+    let window = app.window.window();
+    let corner = LogicalPosition::new(4.0, 4.0);
+    window.dispatch_event(WindowEvent::PointerPressed {
+        position: corner,
+        button: PointerEventButton::Left,
+    });
+    window.dispatch_event(WindowEvent::PointerReleased {
+        position: corner,
+        button: PointerEventButton::Left,
+    });
+    app.frame();
+    assert!(!question.get_open());
+    assert!(app.library.label_named("rainy").unwrap().is_some());
+
+    // Tab from Cancel goes to Delete label, and Enter there deletes.
+    ask();
+    app.key(Key::Tab);
+    enter();
+    assert!(!question.get_open());
     assert!(app.library.label_named("rainy").unwrap().is_none());
 }
 

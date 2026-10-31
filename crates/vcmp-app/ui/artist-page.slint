@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, IconButton, SectionHeading, TextLink } from "components.slint";
+import { Button, IconButton, ScrollArea, SectionHeading, TextLink } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
@@ -100,7 +99,7 @@ export component ArtistView {
             reject
         }
 
-        scroll := ScrollView {
+        scroll := ScrollArea {
             width: parent.width;
             height: parent.height;
 

@@ -218,6 +218,9 @@ pub struct ByTagArgs {
     offset: Option<u32>,
     /// Default 100, at most 500.
     limit: Option<u32>,
+    /// List each track by its id, title, artist, album and album id only, a fraction
+    /// of the size (default false); get_tracks has the rest.
+    brief: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -479,7 +482,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Available tracks holding a tag key (with a value, when given), or with missing true those without it, such as every track without a MusicBrainzReleaseId."
+        description = "Available tracks holding a tag key (with a value, when given), or with missing true those without it, such as every track without a MusicBrainzReleaseId. total counts them all, whatever the page; brief lists each track in a few fields."
     )]
     async fn find_tracks_by_tag(
         &self,
@@ -487,22 +490,25 @@ impl VcmpServer {
     ) -> Result<String, String> {
         let (offset, limit) = page(args.offset, args.limit);
         self.read(move |library| {
+            let value = args.value.as_deref();
+            let missing = args.missing.unwrap_or(false);
+            let total = library
+                .count_tracks_by_tag(&args.key, value, missing)
+                .map_err(failed)?;
             let ids = library
-                .tracks_by_tag(
-                    &args.key,
-                    args.value.as_deref(),
-                    args.missing.unwrap_or(false),
-                    offset,
-                    limit,
-                )
+                .tracks_by_tag(&args.key, value, missing, offset, limit)
                 .map_err(failed)?;
             let mut tracks = Vec::with_capacity(ids.len());
             for id in ids {
                 if let Some(track) = library.track(id).map_err(failed)? {
-                    tracks.push(track_out(library, &track, None)?);
+                    tracks.push(if args.brief.unwrap_or(false) {
+                        brief_track_out(&track)
+                    } else {
+                        track_out(library, &track, None)?
+                    });
                 }
             }
-            Ok(tracks)
+            Ok(serde_json::json!({ "total": total, "tracks": tracks }))
         })
         .await
     }
@@ -1082,6 +1088,17 @@ pub(crate) fn track_out(
         out["tags"] = serde_json::json!(tags);
     }
     Ok(out)
+}
+
+/// A track in the few fields that tell it apart, for long lists.
+fn brief_track_out(track: &Track) -> serde_json::Value {
+    serde_json::json!({
+        "id": track.id.0,
+        "title": track.title,
+        "artist": track.artist,
+        "album": track.album,
+        "album_id": track.album_id.map(|id| id.0),
+    })
 }
 
 fn label_out(label: &Label) -> serde_json::Value {

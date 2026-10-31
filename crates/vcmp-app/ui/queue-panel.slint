@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, EdgeScroll, FocusRing, IconButton, MenuHost } from "components.slint";
+import { Button, EdgeScroll, FocusRing, IconButton, MenuHost, ScrollArea } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
@@ -270,14 +269,14 @@ export component QueuePanel inherits Rectangle {
         }
 
         if root.count == 0: Text {
-            text: @tr("Nothing comes next. Play an album, or choose Play next or Add to queue in a track's menu on an album page.");
+            text: @tr("Nothing comes next. Play an album, or choose Play next or Add to queue in the menu of an album card or a track.");
             color: Theme.colors.text-muted;
             font-size: Theme.font-small;
             wrap: word-wrap;
             min-height: self.preferred-height;
         }
 
-        scroll := ScrollView {
+        scroll := ScrollArea {
             vertical-stretch: 1;
             visible: root.count > 0;
 

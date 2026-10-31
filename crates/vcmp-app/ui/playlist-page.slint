@@ -1,7 +1,7 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, EdgeScroll, IconButton, TextField } from "components.slint";
+import { Button, EdgeScroll, IconButton, ScrollArea, TextField } from "components.slint";
 import { Glyph } from "icons.slint";
+import { Confirmation } from "confirmation.slint";
 import { BackButton, TrackList, TrackRow } from "album-page.slint";
 import { MovingPicture, PictureFrame, PictureSlot } from "picture.slint";
 
@@ -35,7 +35,8 @@ export struct PlaylistDetail {
 }
 
 // One playlist: its picture and name, what can be done with it, and its tracks in
-// order. The name turns into a field while it is renamed; deleting asks first.
+// order. The name turns into a field while it is renamed; deleting asks first, in a
+// dialog (`Confirmation`).
 export component PlaylistView {
     in property <PlaylistDetail> playlist;
     // Names the page the back button returns to.
@@ -66,13 +67,15 @@ export component PlaylistView {
 
     // Turns the name into a field, focused with the name selected.
     public function start-rename() {
-        root.confirming-delete = false;
         root.new-name = root.playlist.name;
         root.renaming = true;
     }
 
     private property <string> new-name;
-    private property <bool> confirming-delete;
+    // The dialog shows this page's question.
+    private property <bool> asked;
+    private property <int> answers: Confirmation.answers;
+    private property <string> name: root.playlist.name;
     // The picture as large as the page allows beside the details.
     private property <length> picture-size: Theme.detail-cover-size(root.width);
 
@@ -84,9 +87,22 @@ export component PlaylistView {
         more.focus();
     }
 
-    function cancel-delete() {
-        root.confirming-delete = false;
-        more.focus();
+    // Asks first, with the same warning an agent's request to delete shows: there is
+    // no undo. The tracks stay in the library.
+    function ask-delete() {
+        root.asked = true;
+        Confirmation.ask(@tr("Delete “{}”?", root.playlist.name), @tr("This can't be undone. Its tracks stay in your library."), @tr("Delete playlist"), @tr("Delete {}", root.playlist.name), @tr("Keep {}", root.playlist.name));
+    }
+
+    changed answers => {
+        if root.asked {
+            root.asked = false;
+            if Confirmation.accepted {
+                root.delete();
+            } else {
+                more.focus();
+            }
+        }
     }
 
     // Scrolls so the row at window y `top` with `height` is inside the view.
@@ -100,9 +116,11 @@ export component PlaylistView {
         }
     }
 
-    changed playlist => {
-        // Another playlist opened while this one was being renamed or deleted.
-        root.confirming-delete = false;
+    changed name => {
+        // Renamed, by an agent, while the question named it.
+        if root.asked {
+            Confirmation.answer(false);
+        }
     }
 
     forward-focus: back-button;
@@ -115,17 +133,13 @@ export component PlaylistView {
         focus-on-tab-navigation: false;
         key-pressed(event) => {
             if event.text == Key.Escape {
-                if root.confirming-delete {
-                    root.cancel-delete();
-                } else {
-                    root.back();
-                }
+                root.back();
                 return accept;
             }
             reject
         }
 
-        scroll := ScrollView {
+        scroll := ScrollArea {
             width: parent.width;
             height: parent.height;
 
@@ -310,7 +324,7 @@ export component PlaylistView {
                                     MenuItem {
                                         title: @tr("Delete playlist…");
                                         activated => {
-                                            root.confirming-delete = true;
+                                            root.ask-delete();
                                         }
                                     }
                                 }
@@ -320,45 +334,6 @@ export component PlaylistView {
                                     label: @tr("More for {}", root.playlist.name);
                                     clicked => {
                                         actions.show({ x: 0, y: self.height });
-                                    }
-                                }
-                            }
-                        }
-
-                        // Asks before deleting, with the same warning an agent's request
-                        // to delete shows: there is no undo. The tracks stay in the
-                        // library.
-                        if root.confirming-delete: VerticalLayout {
-                            spacing: Theme.space-m;
-
-                            Text {
-                                text: @tr("Delete “{}”? This can't be undone. Its tracks stay in your library.", root.playlist.name);
-                                color: Theme.colors.text;
-                                font-size: Theme.font-body;
-                                wrap: word-wrap;
-                                min-height: self.preferred-height;
-                            }
-
-                            HorizontalLayout {
-                                spacing: Theme.space-m;
-                                alignment: start;
-
-                                Button {
-                                    text: @tr("Delete playlist");
-                                    label: @tr("Delete {}", root.playlist.name);
-                                    clicked => {
-                                        root.confirming-delete = false;
-                                        root.delete();
-                                    }
-                                }
-                                Button {
-                                    text: @tr("Cancel");
-                                    label: @tr("Keep {}", root.playlist.name);
-                                    init => {
-                                        self.focus();
-                                    }
-                                    clicked => {
-                                        root.cancel-delete();
                                     }
                                 }
                             }

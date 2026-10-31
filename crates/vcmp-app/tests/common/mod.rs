@@ -15,6 +15,7 @@ const FIXTURE: &str = concat!(
     "/../vcmp-library/tests/fixtures/silence.flac"
 );
 
+#[derive(Clone, Copy)]
 pub struct Song<'a> {
     pub title: &'a str,
     pub artist: &'a str,

@@ -30,7 +30,7 @@ use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
     AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeGroup,
-    ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, CoverSearch as CoverPicker,
+    ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, Confirmation, CoverSearch as CoverPicker,
     CoverSearchStatus, LastfmState, LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState,
     ReduceMotion, ReviewStatus, SelectionChange, ServerStatus, SleepTimer, TagChange,
     TagEditorState, TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection, UpdateState,
@@ -75,6 +75,10 @@ struct Shot {
     agents: Option<Agents>,
     // The sleep timer counts down in the player bar.
     sleep: bool,
+    // The confirmation dialog asks whether to delete the agents' backups, over Settings.
+    confirm: bool,
+    // The pointer rests at the queue panel's right edge, where a scroll bar would show.
+    queue_edge: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -111,6 +115,8 @@ const fn shot(
         selection: false,
         agents: None,
         sleep: false,
+        confirm: false,
+        queue_edge: false,
     }
 }
 
@@ -197,6 +203,21 @@ const fn update(name: &'static str, mode: ThemeMode) -> Shot {
     }
 }
 
+const fn confirm(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        confirm: true,
+        ..shot(name, mode, 7, None, 0)
+    }
+}
+
+/// An album with the queue panel, the pointer at the panel's right edge.
+const fn queue_edge(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        queue_edge: true,
+        ..shot(name, mode, 1, Some(ALBUM), 0)
+    }
+}
+
 const fn cover_picker(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         cover_picker: true,
@@ -228,6 +249,8 @@ const SHOTS: &[Shot] = &[
     shot("songs-dark", ThemeMode::Dark, 5, None, 0),
     shot("folders-light", ThemeMode::Light, 6, None, 0),
     shot("folders-dark", ThemeMode::Dark, 6, None, 0),
+    queue_edge("queue-edge-light", ThemeMode::Light),
+    queue_edge("queue-edge-dark", ThemeMode::Dark),
     now_playing("now-playing-light", ThemeMode::Light),
     now_playing("now-playing-dark", ThemeMode::Dark),
     sleep("sleep-timer-light", ThemeMode::Light),
@@ -277,6 +300,8 @@ const SHOTS: &[Shot] = &[
         ThemeMode::Dark,
         Agents::PlaylistDeletion,
     ),
+    confirm("confirm-dialog-light", ThemeMode::Light),
+    confirm("confirm-dialog-dark", ThemeMode::Dark),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -316,6 +341,7 @@ fn press(window: &AppWindow, key: Key) {
 }
 
 fn prepare(window: &AppWindow, shot: &Shot) {
+    window.global::<Confirmation>().invoke_answer(false);
     let theme = window.global::<Theme>();
     theme.set_mode(shot.mode);
     window.set_selected_index(shot.page);
@@ -439,6 +465,16 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     // The album shots show the queue panel too.
     window.set_queue_open(shot.album.is_some() && !shot.tags);
     show_agents(window, shot.agents);
+    if shot.confirm {
+        // The words Settings uses for the backups; Cancel answers before the next shot.
+        window.global::<Confirmation>().invoke_ask(
+            "Delete the backups of every finished change?".into(),
+            "None of them can be undone afterwards. Changes waiting for review stay.".into(),
+            "Delete backups".into(),
+            "Delete backups".into(),
+            "Keep the backups".into(),
+        );
+    }
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
@@ -700,6 +736,18 @@ fn hover_first_card(window: &AppWindow) {
     }
 }
 
+fn hover_queue_edge(window: &AppWindow) {
+    if let Some(panel) = ElementHandle::find_by_element_type_name(window, "QueuePanel").next() {
+        let (position, size) = (panel.absolute_position(), panel.size());
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: LogicalPosition::new(
+                position.x + size.width - 4.0,
+                position.y + size.height / 2.0,
+            ),
+        });
+    }
+}
+
 fn save(window: &AppWindow, path: &Path) {
     let buffer = window.window().take_snapshot().expect("snapshot");
     let file = BufWriter::new(File::create(path).expect("create png"));
@@ -758,7 +806,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref()))
             };
             player.handle_event(Event::QueueChanged(QueueView {
-                up_next: tracks.iter().rev().take(1).map(entry).collect(),
+                // A few in Next in queue, so the panel holds more than it shows.
+                up_next: tracks.iter().rev().take(4).map(entry).collect(),
                 upcoming: tracks.iter().skip(1).map(entry).collect(),
                 origin: Some(format!("album:{}", album.id.0)),
                 ..QueueView::default()
@@ -805,6 +854,9 @@ fn main() -> Result<(), slint::PlatformError> {
             Some(shot) => {
                 if shot.page == 0 {
                     hover_first_card(&window);
+                }
+                if shot.queue_edge {
+                    hover_queue_edge(&window);
                 }
                 let path = out_dir.join(format!("{}.png", shot.name));
                 save(&window, &path);

@@ -3,9 +3,9 @@
 // one waits, and the dialog that reviews one. Rust keeps `AgentState` current and implements its callbacks
 // (src/agents.rs).
 
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, Modal, ProgressBar, SectionHeading, SettingRow, TextField, TextLink, Toggle } from "components.slint";
+import { Button, Modal, ProgressBar, ScrollArea, SectionHeading, SettingRow, TextField, TextLink, Toggle } from "components.slint";
+import { Confirmation } from "confirmation.slint";
 
 export enum ServerStatus { off, running, failed }
 export enum ChangeKind { tags, undo, playlist, labels, label-undo }
@@ -246,7 +246,8 @@ global AgentWords {
 // whether agents may control playback then, the changes agents asked for, and the
 // backups that keep them undoable.
 export component AgentsSection inherits VerticalLayout {
-    private property <bool> confirming-delete;
+    // The dialog asks about deleting the backups.
+    private property <bool> asked;
 
     spacing: Theme.space-xs;
 
@@ -385,48 +386,23 @@ export component AgentsSection inherits VerticalLayout {
         description: AgentState.backups-size == "" ? @tr("A written change can be undone for 30 days, with the covers it replaced. Deleting the backups frees their room, and those changes can't be undone after.")
             : @tr("A written change can be undone for 30 days, with the covers it replaced. The covers kept now take {}. Deleting the backups frees that room, and those changes can't be undone after.", AgentState.backups-size);
 
+        // Asks first, in a dialog (`Confirmation`).
         Button {
-            text: @tr("Delete backups…");
-            enabled: AgentState.has-finished && !root.confirming-delete;
-            clicked => {
-                root.confirming-delete = true;
-            }
-        }
-    }
-
-    // Asks first, with the focus on Cancel.
-    if root.confirming-delete: VerticalLayout {
-        spacing: Theme.space-m;
-        padding-bottom: Theme.space-m;
-
-        Text {
-            text: @tr("Delete the backups of every finished change? None of them can be undone afterwards. Changes waiting for review stay.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        HorizontalLayout {
-            spacing: Theme.space-m;
-            alignment: start;
-
-            Button {
-                text: @tr("Delete backups");
-                clicked => {
-                    root.confirming-delete = false;
-                    AgentState.delete-backups();
-                }
-            }
-            Button {
-                text: @tr("Cancel");
-                label: @tr("Keep the backups");
-                init => {
+            property <int> answers: Confirmation.answers;
+            changed answers => {
+                if root.asked {
+                    root.asked = false;
+                    if Confirmation.accepted {
+                        AgentState.delete-backups();
+                    }
                     self.focus();
                 }
-                clicked => {
-                    root.confirming-delete = false;
-                }
+            }
+            text: @tr("Delete backups…");
+            enabled: AgentState.has-finished;
+            clicked => {
+                root.asked = true;
+                Confirmation.ask(@tr("Delete the backups of every finished change?"), @tr("None of them can be undone afterwards. Changes waiting for review stay."), @tr("Delete backups"), @tr("Delete backups"), @tr("Keep the backups"));
             }
         }
     }
@@ -469,7 +445,7 @@ export component ChangeHistory inherits Modal {
         root.wrap-last += 1;
     }
 
-    scroll := ScrollView {
+    scroll := ScrollArea {
         vertical-stretch: 1;
         preferred-height: body.preferred-height;
 
@@ -792,7 +768,7 @@ export component ChangeReview inherits Modal {
         root.wrap-last += 1;
     }
 
-    scroll := ScrollView {
+    scroll := ScrollArea {
         vertical-stretch: 1;
         preferred-height: body.preferred-height;
 

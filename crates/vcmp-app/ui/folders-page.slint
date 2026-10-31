@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { FocusRing, SectionHeading } from "components.slint";
+import { FocusRing, ScrollArea, SectionHeading } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 import { TrackList, TrackRow } from "album-page.slint";
@@ -262,7 +261,7 @@ export component FolderBrowser {
             }
             if !root.has-sources: AddFolderButton { }
 
-            scroll := ScrollView {
+            scroll := ScrollArea {
                 vertical-stretch: 1;
 
                 VerticalLayout {

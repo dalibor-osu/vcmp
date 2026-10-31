@@ -13,7 +13,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | File | Holds |
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, the detail pages' cover size, the zoom, durations, drag scrolling |
-| `ui/components.slint` | `FocusRing`, `MenuHost` (see "Menus over lists"), `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
+| `ui/components.slint` | `FocusRing`, `MenuHost` (see "Menus over lists"), `ScrollArea` (every scrolling part but the album grid and the songs table, without a scroll bar), `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor, the pickers and the confirmation) |
+| `ui/confirmation.slint` | `Confirmation` global and `ConfirmDialog`: the "are you sure?" before deleting a playlist, a label or the agents' backups |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
@@ -73,6 +74,7 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | Every text pairing reaches 4.5:1 and every control boundary 3:1, in both palettes | `src/theme.rs` |
 | Every wrapped text sets `min-height: self.preferred-height` (or its height outright). Slint 1.18.1 measures an element an `if` creates at its single-line width, so a wrapped text there lost its last lines ([slint-ui/slint#13655](https://github.com/slint-ui/slint/issues/13655), fixed after 1.18.1); a text's own preferred height follows its real width. Drop the rule once Slint is past the fix | `tests/ui_invariants.rs` |
 | Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
+| No std-widgets `ScrollView`: every scrolling part is a `ScrollArea`, which draws no scroll bar; the queue and Settings show none, and the queue's rows and Clear end inside the panel | `tests/ui_invariants.rs`, `tests/player.rs` |
 
 ## Palettes
 
@@ -130,6 +132,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | Chevron on the album page's back button | Shows the direction of the action; it's the one arrow in the UI |
 | Accent-filled button only for "Add music folder…" on the empty library pages (Albums, Artists, Songs, Folders) | The single action those empty screens exist for; every other button is outlined. Not yet true: Play, the tag editor's save buttons and the review's Write button are filled too, which audit 001 (finding 5) leaves open with the accent's jobs (finding 3) |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
+| No scroll bars anywhere | The owner's decision (2026-10-30, issue #67). The std-widgets `ScrollView` drew its bar over the content and widened it on hover: in the queue it covered the durations, the remove buttons and Clear, on a light grey track that matched nothing else in VCMP. The album grid and the Songs page already scrolled without one. The wheel, the touchpad and the keyboard (the focus brings what it reaches into view) scroll every part; `ScrollArea` in `components.slint` is the std `ScrollView` without its bars, so nothing needs theming |
 | The sidebar's sections and playlists scroll as one, above its foot | Eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
 | A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
@@ -144,6 +147,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | The artist photo picker is the cover picker's twin | The same pattern as an album's "Find cover online", so one way of working covers both. The fanart.tv credit stays under the photo, as its terms ask |
 | The tag editor is the same kind of dialog, not a separate window | One dialog pattern again, 720 px wide (`Theme.dialog-width`) and as tall as the form. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
 | A dialog keeps the keyboard: Tab and Shift+Tab go round its controls | The page behind is in sight but not in use. A focus that moved to it would be hidden behind the scrim, and Escape would no longer reach the dialog |
+| Every "are you sure?" is one dialog (`ConfirmDialog`), 480 px wide (`Theme.dialog-narrow-width`): the question, what the answer means, a button naming the action ("Delete playlist", "Delete label", "Delete backups") and Cancel, with the focus on Cancel | The owner's request (issue #66): the question put under Play and Shuffle pushed the page down and looked out of place beside the header. One component asks before deleting a playlist, a label or the agents' backups, so any later question looks and acts the same. It holds a sentence or two, so it is narrower than the tag editor. The action's button stays outlined like every delete; the focus starts on Cancel, so an Enter pressed by accident keeps everything. Escape and a click beside it cancel, as there is nothing typed to lose. Closing puts the focus back on the button that asked, while it is still there: after a delete the row or the page may be gone. The page that asks calls `Confirmation.ask` and watches `Confirmation.answers`, since Slint can't hand a callback to a global |
 | A click beside a picker closes it; beside the tag editor it does nothing | A picker holds nothing to lose. The tag editor holds typed values, so only Cancel and Escape close it |
 | The tag editor's buttons stay at the foot of the dialog while the form scrolls | Save and Cancel are in view in a short window however far the form is scrolled, and so is the sentence saying why nothing was written |
 | An album's differing values show as empty fields saying "Several values" | Writing only the fields the user changed is the safe default for a batch: a field left alone can't flatten twelve track numbers into one |
@@ -187,9 +191,17 @@ thumbnail as for any cover, so animated pictures add nothing to its cost (see
 A card under the pointer sits on a `surface` fill reaching into the gap around it,
 as hovered rows do, and its muted second line turns to `text` on it. The fill
 reaches `space-s` past the card and the focus ring 3 px, so a `CardGrid` inside a
-`ScrollView` takes its side margins from padding inside the scrolling part: a
-`ScrollView` clips at its own edges, and a grid flush with them loses the fill's
+`ScrollArea` takes its side margins from padding inside the scrolling part: a
+`ScrollArea` clips at its own edges, and a grid flush with them loses the fill's
 left side (`tests/search.rs` checks the Search and artist pages).
+
+An album card's menu (a right click, or the Menu key or Shift+F10 on the current
+card) opens on the Albums page, an artist's albums and Search's albums. It starts
+with Play next and Add to queue, which put every track of the album into Up next
+(`PlayerState.queue-album`, `PlayerService::queue_album`): at its front or its end,
+in the album page's order (`Library::album_tracks`), leaving out tracks whose file
+is gone, as the track menus do. With Up next empty both give the same queue. Below
+them come the labels for every track (see [Labels](#labels)).
 
 Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
 on every frame, which doubled the grid's render time.
@@ -351,8 +363,9 @@ the new view in too.
   Delete playlist….
   - **Rename** turns the name into a field: Enter or Save keeps it, Escape or Cancel
     leaves it. An empty name keeps the old one.
-  - **Delete** asks first, on the page, with the focus on Cancel; Escape cancels.
-    The tracks stay in the library.
+  - **Delete** asks first, in the confirmation dialog (`ConfirmDialog`), with the
+    focus on Cancel; Escape, Cancel or a click beside it keep the playlist and put
+    the focus back on the More button. The tracks stay in the library.
   - **Choose picture** opens the system's file dialog for images. A file that can't
     be read as a picture leaves the picture as it was and says so on the page. An
     animated GIF, WebP or PNG plays on the page (see
@@ -752,6 +765,8 @@ The Albums page tells apart why it is empty:
   - the track list is one tab stop (Up/Down, Home/End, Enter);
   - a track's menu (right click, or the Menu key on the current track) offers Play
     now, Play next (front of Up next) and Add to queue (end of Up next);
+- **An album card's menu** offers Play next and Add to queue for the whole album
+  (see [Album grid](#album-grid)).
   - the playing track gets a play mark and an accent title.
 - **Space** plays and pauses everywhere except while typing in a text field, so
   controls are activated with Enter. Slint routes keys only to the focused element
@@ -998,8 +1013,9 @@ by `LibraryView`) keeps the `Labels` global current.
   hovered row (`src/theme.rs` tests it). A custom colour is drawn as it is.
 - **Menus.** Every track menu (track lists, the songs table, the queue, the now
   playing "…" menu) has a Labels submenu: each label as a checkable item, and New
-  label…. Album cards (the Albums grid, an artist's albums, search) have a menu of
-  their own, for every track the album has now, and so does the album page's More
+  label…. Album cards (the Albums grid, an artist's albums, search) have labels in
+  their own menu, below Play next and Add to queue, for every track the album has
+  now, and so does the album page's More
   menu (the three dots beside Shuffle), which asks for the album's labels when its
   button is pressed. Slint's menus have no mixed state, so a label only
   some chosen tracks hold reads "chill (on some)". Choosing a label puts it on all of
@@ -1032,8 +1048,8 @@ by `LibraryView`) keeps the `Labels` global current.
   (no name, too long, taken, not a colour) shows in the error colour. Made from a
   menu, the new label goes on the menu's tracks.
 - **Settings** lists every label with its dot and count, Edit… (the dialog) and
-  Delete…, which asks first, on the page, with the focus on Cancel and how many
-  tracks lose it.
+  Delete…, which asks first in the confirmation dialog, saying how many tracks lose
+  it. Cancelled, the focus goes back to that Delete… button.
 
 ## Menus over lists
 
@@ -1079,6 +1095,9 @@ window's top left on Linux, so there is no shift to speak of.
   not on the picture itself. A GIF meant to play once loops like any other.
 - A label held by only some of the chosen tracks is marked by words in the menu
   ("on some"), not by a mixed check mark: Slint's `MenuItem` has none.
+- Without scroll bars, a scrolling part doesn't show how long it is or where it is
+  scrolled to, and a mouse without a wheel scrolls it only by dragging rows near
+  its edge where that works (the queue and playlists) or by the keyboard.
 - The custom colour picker's shades and hues work with the mouse only; the keyboard
   picks a custom colour by typing its hex code.
 - The tag editor can't empty a field that differs between an album's tracks in one

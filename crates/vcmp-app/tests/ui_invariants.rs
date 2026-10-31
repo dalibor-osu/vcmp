@@ -1,6 +1,7 @@
 //! Source checks for the rules in ui/theme.slint and the localization policy: colours
 //! and durations come only from the Theme global, and user-visible text goes through
-//! `@tr()`. Also a Slint 1.18.1 workaround every wrapped text needs.
+//! `@tr()`. Also a Slint 1.18.1 workaround every wrapped text needs, and no scroll
+//! bars.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -126,6 +127,29 @@ fn durations_only_in_theme() {
     assert!(
         violations.is_empty(),
         "durations must come from Theme:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Nothing scrolls in the std-widgets `ScrollView`, which draws its bar over the
+/// content and widens it on hover; `ScrollArea` (components.slint) scrolls without
+/// one (docs/ui.md, "No scroll bars anywhere").
+#[test]
+fn no_scroll_bars() {
+    let mut violations = Vec::new();
+    for path in slint_sources() {
+        let source = fs::read_to_string(&path).expect("readable .slint file");
+        for (index, line) in source.lines().enumerate() {
+            let code = strip_comment(line);
+            let mut words = code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'));
+            if words.any(|word| word == "ScrollView") {
+                violations.push(format!("{}:{}: {}", path.display(), index + 1, code.trim()));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "scroll in a ScrollArea, not a ScrollView:\n{}",
         violations.join("\n")
     );
 }

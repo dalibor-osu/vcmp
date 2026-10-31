@@ -1734,4 +1734,20 @@ fn tracks_are_found_by_a_tag_they_hold_or_lack() {
             .unwrap()
             .is_empty()
     );
+    assert_eq!(
+        library
+            .count_tracks_by_tag("TrackArtist", Some("Artist"), false)
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        library.count_tracks_by_tag("Composer", None, true).unwrap(),
+        3
+    );
+    assert_eq!(
+        library
+            .count_tracks_by_tag("TrackTitle", None, true)
+            .unwrap(),
+        0
+    );
 }

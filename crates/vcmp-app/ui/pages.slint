@@ -1,6 +1,6 @@
-import { AboutSlint, Palette, ScrollView } from "std-widgets.slint";
+import { AboutSlint, Palette } from "std-widgets.slint";
 import { ReduceMotion, Theme, ThemeMode } from "theme.slint";
-import { Button, Dropdown, FocusRing, IconButton, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
+import { Button, Dropdown, FocusRing, IconButton, ScrollArea, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
 import { Glyph } from "icons.slint";
 import { LibraryState } from "library-state.slint";
 import { AddFolderButton, LibrarySection } from "library-settings.slint";
@@ -968,7 +968,7 @@ export component SearchPage inherits Rectangle {
 
         // The side margins are inside the scrolling part: a card's hover fill and
         // focus ring reach past the card, and the view clips at its own edges.
-        scroll := ScrollView {
+        scroll := ScrollArea {
             vertical-stretch: 1;
 
             VerticalLayout {

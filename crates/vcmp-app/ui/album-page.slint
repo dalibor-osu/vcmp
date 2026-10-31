@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, FocusRing, IconButton, MenuHost } from "components.slint";
+import { Button, FocusRing, IconButton, MenuHost, ScrollArea } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { CoverSearch } from "cover-picker.slint";
 import { Playlists } from "playlist-state.slint";
@@ -823,7 +822,7 @@ export component AlbumView {
             reject
         }
 
-        scroll := ScrollView {
+        scroll := ScrollArea {
             width: parent.width;
             height: parent.height;
 

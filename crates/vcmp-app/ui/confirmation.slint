@@ -1,0 +1,109 @@
+import { Theme } from "theme.slint";
+import { Button, Modal } from "components.slint";
+
+// The "are you sure?" asked before something that can't be undone, such as deleting
+// a playlist. One question at a time, shown by the window as `ConfirmDialog`. The
+// page that asks remembers it did, calls `ask`, and watches `answers`: when it goes
+// up, `accepted` says whether to go ahead. Either way the page puts the focus back
+// on the button that asked, if it is still there.
+export global Confirmation {
+    // The dialog is shown.
+    out property <bool> open;
+    // What is asked, the consequence, the button that goes ahead (its text and
+    // spoken label) and the spoken label of Cancel.
+    out property <string> question;
+    out property <string> detail;
+    out property <string> action;
+    out property <string> action-label;
+    out property <string> cancel-label;
+    // Goes up by one with every answer.
+    out property <int> answers;
+    // The last answer was to go ahead.
+    out property <bool> accepted;
+
+    public function ask(question: string, detail: string, action: string, action-label: string, cancel-label: string) {
+        self.question = question;
+        self.detail = detail;
+        self.action = action;
+        self.action-label = action-label;
+        self.cancel-label = cancel-label;
+        self.open = true;
+    }
+
+    public function answer(accept: bool) {
+        if self.open {
+            self.open = false;
+            self.accepted = accept;
+            self.answers += 1;
+        }
+    }
+}
+
+// The question as a dialog over the sidebar and pages, like the tag editor. The
+// focus starts on Cancel, so an Enter pressed by accident changes nothing; Escape and
+// a click beside the dialog cancel too.
+export component ConfirmDialog inherits Modal {
+    label: Confirmation.question;
+    card-width: Theme.dialog-narrow-width;
+    init => {
+        cancel-button.focus();
+    }
+    escape => {
+        Confirmation.answer(false);
+    }
+    scrim-clicked => {
+        Confirmation.answer(false);
+    }
+    focus-first => {
+        action-button.focus();
+    }
+    focus-last => {
+        cancel-button.focus();
+    }
+
+    VerticalLayout {
+        padding: Theme.space-xl;
+        spacing: Theme.space-xl;
+
+        VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: Confirmation.question;
+                color: Theme.colors.text;
+                font-size: Theme.font-large;
+                font-weight: Theme.weight-strong;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            // In the text colour, not muted: it is what the answer decides.
+            Text {
+                text: Confirmation.detail;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-m;
+            alignment: start;
+
+            action-button := Button {
+                text: Confirmation.action;
+                label: Confirmation.action-label;
+                clicked => {
+                    Confirmation.answer(true);
+                }
+            }
+            cancel-button := Button {
+                text: @tr("Cancel");
+                label: Confirmation.cancel-label;
+                clicked => {
+                    Confirmation.answer(false);
+                }
+            }
+        }
+    }
+}
