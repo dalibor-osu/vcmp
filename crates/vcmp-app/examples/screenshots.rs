@@ -30,7 +30,7 @@ use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::updates;
 use vcmp_app::{
     AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeGroup,
-    ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, CoverSearch as CoverPicker,
+    ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, Confirmation, CoverSearch as CoverPicker,
     CoverSearchStatus, LastfmState, LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState,
     ReduceMotion, ReviewStatus, SelectionChange, ServerStatus, SleepTimer, TagChange,
     TagEditorState, TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection, UpdateState,
@@ -75,6 +75,8 @@ struct Shot {
     agents: Option<Agents>,
     // The sleep timer counts down in the player bar.
     sleep: bool,
+    // The confirmation dialog asks whether to delete the agents' backups, over Settings.
+    confirm: bool,
     // The pointer rests at the queue panel's right edge, where a scroll bar would show.
     queue_edge: bool,
 }
@@ -113,6 +115,7 @@ const fn shot(
         selection: false,
         agents: None,
         sleep: false,
+        confirm: false,
         queue_edge: false,
     }
 }
@@ -197,6 +200,13 @@ const fn update(name: &'static str, mode: ThemeMode) -> Shot {
     Shot {
         update: true,
         ..shot(name, mode, 8, None, 0)
+    }
+}
+
+const fn confirm(name: &'static str, mode: ThemeMode) -> Shot {
+    Shot {
+        confirm: true,
+        ..shot(name, mode, 7, None, 0)
     }
 }
 
@@ -290,6 +300,8 @@ const SHOTS: &[Shot] = &[
         ThemeMode::Dark,
         Agents::PlaylistDeletion,
     ),
+    confirm("confirm-dialog-light", ThemeMode::Light),
+    confirm("confirm-dialog-dark", ThemeMode::Dark),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -329,6 +341,7 @@ fn press(window: &AppWindow, key: Key) {
 }
 
 fn prepare(window: &AppWindow, shot: &Shot) {
+    window.global::<Confirmation>().invoke_answer(false);
     let theme = window.global::<Theme>();
     theme.set_mode(shot.mode);
     window.set_selected_index(shot.page);
@@ -452,6 +465,16 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     // The album shots show the queue panel too.
     window.set_queue_open(shot.album.is_some() && !shot.tags);
     show_agents(window, shot.agents);
+    if shot.confirm {
+        // The words Settings uses for the backups; Cancel answers before the next shot.
+        window.global::<Confirmation>().invoke_ask(
+            "Delete the backups of every finished change?".into(),
+            "None of them can be undone afterwards. Changes waiting for review stay.".into(),
+            "Delete backups".into(),
+            "Delete backups".into(),
+            "Keep the backups".into(),
+        );
+    }
     for _ in 0..shot.tabs {
         press(window, Key::Tab);
     }
