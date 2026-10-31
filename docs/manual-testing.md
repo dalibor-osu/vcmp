@@ -291,6 +291,14 @@ animated WebP and an APNG. For album covers, edit copies only.
       its sidebar entry: the section opens on its grid.
 - [ ] Make the window as short as it goes: the sidebar scrolls and the focused
       entry stays in view.
+- [ ] No scroll bar shows anywhere, also with the pointer at a scrolling part's
+      right edge: the queue with a long album and tracks in Next in queue (the
+      durations, the remove buttons and Clear are whole), Settings, About, the
+      sidebar in a short window, the album, artist, playlist, label and Folders
+      pages, Search, and the dialogs (tag editor, cover and photo pickers, change
+      review and history). Each scrolls with the mouse wheel, with two fingers on a
+      touchpad (gliding on after a flick), and Tab to a control out of view brings
+      it into view.
 - [ ] On a full screen, Settings and About sit in a column in the middle of the
       page, and the column narrows with the window down to 720 px.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the

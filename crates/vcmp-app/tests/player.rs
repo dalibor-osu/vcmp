@@ -991,6 +991,60 @@ fn up_next_scrolls_while_a_drag_is_held_at_its_edge() {
     );
 }
 
+/// No scroll bar is drawn over the queue or Settings (docs/ui.md, "No scroll bars
+/// anywhere"): the rows, with their durations and remove buttons, and Clear end
+/// inside the panel, and the wheel still scrolls the list.
+#[test]
+fn the_queue_and_settings_scroll_without_a_bar() {
+    let app = start(|_| {});
+    app.window
+        .window()
+        .set_size(slint::LogicalSize::new(1100.0, 600.0));
+    let bars =
+        |app: &App| ElementHandle::find_by_element_type_name(&app.window, "ScrollBar").count();
+    app.press(AccessibleRole::Tab, "Settings");
+    assert_eq!(bars(&app), 0, "Settings shows no scroll bar");
+
+    app.window.set_queue_open(true);
+    let up_next = (0..30)
+        .map(|i| app.entry(if i % 2 == 0 { "1.flac" } else { "2.flac" }))
+        .collect();
+    app.service.handle_event(Event::QueueChanged(QueueView {
+        up_next,
+        ..QueueView::default()
+    }));
+    let panel = ElementHandle::find_by_element_type_name(&app.window, "QueuePanel")
+        .next()
+        .expect("the queue panel is open");
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert_eq!(bars(&app), 0, "the queue panel shows no scroll bar");
+
+    let right = panel.absolute_position().x + panel.size().width;
+    let rows =
+        || ElementHandle::find_by_element_type_name(&app.window, "QueueLine").collect::<Vec<_>>();
+    let clear = ElementHandle::find_by_accessible_label(&app.window, "Clear the queue")
+        .next()
+        .expect("Clear");
+    for element in rows().iter().chain([&clear]) {
+        let end = element.absolute_position().x + element.size().width;
+        assert!(
+            end <= right + 0.5,
+            "ends at {end}, past the panel at {right}"
+        );
+    }
+
+    let list = ElementHandle::find_by_accessible_label(&app.window, "Coming up")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::List))
+        .expect("the list");
+    let top = list.absolute_position().y;
+    rows()[0].scroll(0.0, -200.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert!(
+        list.absolute_position().y < top,
+        "the wheel scrolls the list"
+    );
+}
+
 #[test]
 fn album_tracks_go_into_up_next() {
     let app = start(|_| {});

@@ -1,6 +1,5 @@
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, EdgeScroll, FocusRing, IconButton } from "components.slint";
+import { Button, EdgeScroll, FocusRing, IconButton, ScrollArea } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
@@ -277,7 +276,7 @@ export component QueuePanel inherits Rectangle {
             min-height: self.preferred-height;
         }
 
-        scroll := ScrollView {
+        scroll := ScrollArea {
             vertical-stretch: 1;
             visible: root.count > 0;
 

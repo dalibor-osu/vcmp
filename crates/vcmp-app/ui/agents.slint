@@ -3,9 +3,8 @@
 // one waits, and the dialog that reviews one. Rust keeps `AgentState` current and implements its callbacks
 // (src/agents.rs).
 
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, Modal, ProgressBar, SectionHeading, SettingRow, TextField, TextLink, Toggle } from "components.slint";
+import { Button, Modal, ProgressBar, ScrollArea, SectionHeading, SettingRow, TextField, TextLink, Toggle } from "components.slint";
 
 export enum ServerStatus { off, running, failed }
 export enum ChangeKind { tags, undo, playlist, labels, label-undo }
@@ -469,7 +468,7 @@ export component ChangeHistory inherits Modal {
         root.wrap-last += 1;
     }
 
-    scroll := ScrollView {
+    scroll := ScrollArea {
         vertical-stretch: 1;
         preferred-height: body.preferred-height;
 
@@ -792,7 +791,7 @@ export component ChangeReview inherits Modal {
         root.wrap-last += 1;
     }
 
-    scroll := ScrollView {
+    scroll := ScrollArea {
         vertical-stretch: 1;
         preferred-height: body.preferred-height;
 
