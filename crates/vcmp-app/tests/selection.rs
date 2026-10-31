@@ -235,16 +235,18 @@ fn clicks_select_and_the_play_button_or_a_double_click_plays() {
 #[test]
 fn a_right_click_beside_an_open_menu_reaches_the_row_under_the_pointer() {
     let app = start();
-    app.click("Two");
-    // A right click on a row outside the selection selects that row alone and opens
-    // its menu.
+    // A track's menu asks for that track's labels before it opens.
+    let opened = Rc::new(RefCell::new(Vec::new()));
+    let record = opened.clone();
+    app.window
+        .global::<TrackSelection>()
+        .on_prepare_labels(move |_, row| record.borrow_mut().push(row));
     app.right_click("Four");
-    assert_eq!(app.selected(), ["Four"]);
     app.right_click("One");
     assert_eq!(
-        app.selected(),
-        ["One"],
-        "the row under the pointer, not one far below"
+        *opened.borrow(),
+        [app.index("Four"), app.index("One")],
+        "the second menu is for the row under the pointer, not one far below"
     );
 }
 
