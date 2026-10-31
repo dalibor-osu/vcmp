@@ -426,6 +426,14 @@ impl PlayerService {
                 }
             }
         });
+        state.on_queue_album({
+            let weak = weak.clone();
+            move |album, next| {
+                if let Some(service) = weak.upgrade() {
+                    service.queue_album(AlbumId(i64::from(album)), next);
+                }
+            }
+        });
         state.on_remove_from_up_next({
             let weak = weak.clone();
             move |index| {
@@ -846,6 +854,29 @@ impl PlayerService {
             .filter(|track| track.available)
             .filter_map(entry)
             .collect();
+        self.send_to_up_next(entries, next);
+    }
+
+    /// Puts every track of `album` into Up next, at its front (`next`) or its end, in
+    /// the album page's order; tracks whose file is gone are left out. For an album
+    /// card's menu.
+    pub fn queue_album(&self, album: AlbumId, next: bool) {
+        let tracks = match self.library.album_tracks(album) {
+            Ok(tracks) => tracks,
+            Err(error) => {
+                log::error!("could not read the tracks of album {}: {error}", album.0);
+                return;
+            }
+        };
+        let entries: Vec<QueueEntry> = tracks
+            .iter()
+            .filter(|track| track.available)
+            .filter_map(entry)
+            .collect();
+        self.send_to_up_next(entries, next);
+    }
+
+    fn send_to_up_next(&self, entries: Vec<QueueEntry>, next: bool) {
         if entries.is_empty() {
             return;
         }

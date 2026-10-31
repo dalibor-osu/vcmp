@@ -30,7 +30,7 @@ use vcmp_integrations::musicbrainz::{AlbumQuery, Cover, Lookup};
 use vcmp_library::{AlbumId, CoverArtId, Library};
 use vcmp_playback::{
     AudioFormat, Command, Event, NowPlaying, OutputInfo, PlaybackError, PlaybackSnapshot,
-    PlaybackState, QueueEntry, QueueSlot, QueueSnapshot, QueueView, RepeatMode, ShuffleMode,
+    PlaybackState, Queue, QueueEntry, QueueSlot, QueueSnapshot, QueueView, RepeatMode, ShuffleMode,
     TrackRef,
 };
 
@@ -112,25 +112,34 @@ struct App {
 
 /// A window with one two-track album, and saved settings applied by `prepare`.
 fn start(prepare: impl FnOnce(&Library)) -> App {
+    let songs = [
+        (
+            "1.flac",
+            Song {
+                track: 1,
+                ..Song::new("Opening", "Band", "Record")
+            },
+        ),
+        (
+            "2.flac",
+            Song {
+                track: 2,
+                ..Song::new("Closing", "Band", "Record")
+            },
+        ),
+    ];
+    start_with(&songs, &[], prepare)
+}
+
+/// A window with `songs`, of which the files named in `missing` were scanned and
+/// then deleted, and saved settings applied by `prepare`.
+fn start_with(songs: &[(&str, Song)], missing: &[&str], prepare: impl FnOnce(&Library)) -> App {
     i_slint_backend_testing::init_no_event_loop();
     let dir = tempfile::tempdir().unwrap();
     let music = dunce::canonicalize(dir.path()).unwrap().join("music");
-    add(
-        &music,
-        "1.flac",
-        Song {
-            track: 1,
-            ..Song::new("Opening", "Band", "Record")
-        },
-    );
-    add(
-        &music,
-        "2.flac",
-        Song {
-            track: 2,
-            ..Song::new("Closing", "Band", "Record")
-        },
-    );
+    for (name, song) in songs {
+        add(&music, name, *song);
+    }
     let mut library = Library::open(
         &dir.path().join("library.sqlite3"),
         &dir.path().join("cache"),
@@ -138,6 +147,12 @@ fn start(prepare: impl FnOnce(&Library)) -> App {
     .unwrap();
     library.add_source(&music, true).unwrap();
     library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+    if !missing.is_empty() {
+        for name in missing {
+            std::fs::remove_file(music.join(name)).unwrap();
+        }
+        library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+    }
     prepare(&library);
 
     let library = Rc::new(library);
@@ -1007,6 +1022,132 @@ fn album_tracks_go_into_up_next() {
         matches!(&sent[1], Command::AddToQueue(entries) if *entries[0].track.id == *app.path("1.flac")),
         "{sent:?}"
     );
+}
+
+/// A two-disc album, "Double", whose file names sort in neither disc nor track
+/// order, and a single; the files in `missing` are gone.
+fn start_two_discs(missing: &[&str]) -> App {
+    let songs = [
+        (
+            "a.flac",
+            Song {
+                disc: 2,
+                track: 1,
+                ..Song::new("Third", "Band", "Double")
+            },
+        ),
+        (
+            "b.flac",
+            Song {
+                disc: 1,
+                track: 2,
+                ..Song::new("Second", "Band", "Double")
+            },
+        ),
+        (
+            "c.flac",
+            Song {
+                disc: 1,
+                track: 1,
+                ..Song::new("First", "Band", "Double")
+            },
+        ),
+        ("d.flac", Song::new("Lone", "Band", "Single")),
+    ];
+    start_with(&songs, missing, |_| {})
+}
+
+impl App {
+    /// The id an album card has for the album named `title`.
+    fn card(&self, title: &str) -> i32 {
+        let album = self.library.albums().unwrap();
+        let album = album.iter().find(|album| album.title == title).unwrap();
+        album.id.0 as i32
+    }
+
+    /// Up next once the commands sent so far reach an engine queue that held `held`.
+    fn up_next_after(&self, held: &[&str]) -> Vec<String> {
+        let mut queue = Queue::new();
+        queue.add_to_queue(held.iter().map(|name| self.entry(name)));
+        for command in self.sent.take() {
+            match command {
+                Command::PlayNext(entries) => queue.play_next(entries),
+                Command::AddToQueue(entries) => queue.add_to_queue(entries),
+                other => panic!("only queueing was expected, not {other:?}"),
+            }
+        }
+        queue
+            .up_next()
+            .map(|entry| entry.track.id.to_string())
+            .collect()
+    }
+
+    fn paths(&self, names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| self.path(name)).collect()
+    }
+}
+
+#[test]
+fn an_album_cards_play_next_puts_the_album_before_up_next() {
+    let app = start_two_discs(&[]);
+    app.sent.take();
+    app.state().invoke_queue_album(app.card("Double"), true);
+    assert_eq!(
+        app.up_next_after(&["d.flac"]),
+        app.paths(&["c.flac", "b.flac", "a.flac", "d.flac"])
+    );
+}
+
+#[test]
+fn an_album_cards_add_to_queue_puts_the_album_after_up_next() {
+    let app = start_two_discs(&[]);
+    app.sent.take();
+    app.state().invoke_queue_album(app.card("Double"), false);
+    assert_eq!(
+        app.up_next_after(&["d.flac"]),
+        app.paths(&["d.flac", "c.flac", "b.flac", "a.flac"])
+    );
+}
+
+#[test]
+fn with_up_next_empty_an_album_card_queues_the_same_either_way() {
+    let app = start_two_discs(&[]);
+    app.sent.take();
+    app.state().invoke_queue_album(app.card("Double"), true);
+    let play_next = app.up_next_after(&[]);
+    app.state().invoke_queue_album(app.card("Double"), false);
+    assert_eq!(app.up_next_after(&[]), play_next);
+    assert_eq!(play_next, app.paths(&["c.flac", "b.flac", "a.flac"]));
+}
+
+#[test]
+fn an_album_card_queues_discs_then_tracks_as_the_album_page_lists_them() {
+    let app = start_two_discs(&[]);
+    app.press(AccessibleRole::Button, "Double, Band");
+    let page: Vec<String> = app
+        .window
+        .get_album_tracks()
+        .iter()
+        .map(|row| row.title.to_string())
+        .collect();
+    assert_eq!(page, ["First", "Second", "Third"]);
+    app.sent.take();
+    app.state().invoke_queue_album(app.card("Double"), false);
+    assert_eq!(
+        app.up_next_after(&[]),
+        app.paths(&["c.flac", "b.flac", "a.flac"]),
+        "First, Second, Third"
+    );
+}
+
+#[test]
+fn an_album_card_leaves_out_tracks_whose_file_is_gone() {
+    let app = start_two_discs(&["b.flac", "d.flac"]);
+    app.sent.take();
+    app.state().invoke_queue_album(app.card("Double"), true);
+    assert_eq!(app.up_next_after(&[]), app.paths(&["c.flac", "a.flac"]));
+    app.state().invoke_queue_album(app.card("Single"), true);
+    assert!(app.sent.take().is_empty(), "no file of the album is there");
 }
 
 #[test]

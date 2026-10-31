@@ -137,6 +137,9 @@ export global PlayerState {
     // Puts a context track (by its place among them) into Up next: at its front
     // (`next`), or at its end.
     callback queue-upcoming(int, bool);
+    // Puts every track of an album (by its id) into Up next: at its front (`next`),
+    // or at its end. From an album card's menu.
+    callback queue-album(int, bool);
     callback move-in-up-next(int, int);
     callback clear-up-next();
     // An index into `output-devices`, or -1 for the system default.

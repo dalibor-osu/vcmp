@@ -191,6 +191,14 @@ reaches `space-s` past the card and the focus ring 3 px, so a `CardGrid` inside 
 `ScrollView` clips at its own edges, and a grid flush with them loses the fill's
 left side (`tests/search.rs` checks the Search and artist pages).
 
+An album card's menu (a right click, or the Menu key or Shift+F10 on the current
+card) opens on the Albums page, an artist's albums and Search's albums. It starts
+with Play next and Add to queue, which put every track of the album into Up next
+(`PlayerState.queue-album`, `PlayerService::queue_album`): at its front or its end,
+in the album page's order (`Library::album_tracks`), leaving out tracks whose file
+is gone, as the track menus do. With Up next empty both give the same queue. Below
+them come the labels for every track (see [Labels](#labels)).
+
 Covers are uploaded as RGBA. With RGB images the GPU renderer converts every cover
 on every frame, which doubled the grid's render time.
 
@@ -752,6 +760,8 @@ The Albums page tells apart why it is empty:
   - the track list is one tab stop (Up/Down, Home/End, Enter);
   - a track's menu (right click, or the Menu key on the current track) offers Play
     now, Play next (front of Up next) and Add to queue (end of Up next);
+- **An album card's menu** offers Play next and Add to queue for the whole album
+  (see [Album grid](#album-grid)).
   - the playing track gets a play mark and an accent title.
 - **Space** plays and pauses everywhere except while typing in a text field, so
   controls are activated with Enter. Slint routes keys only to the focused element
@@ -998,8 +1008,9 @@ by `LibraryView`) keeps the `Labels` global current.
   hovered row (`src/theme.rs` tests it). A custom colour is drawn as it is.
 - **Menus.** Every track menu (track lists, the songs table, the queue, the now
   playing "…" menu) has a Labels submenu: each label as a checkable item, and New
-  label…. Album cards (the Albums grid, an artist's albums, search) have a menu of
-  their own, for every track the album has now, and so does the album page's More
+  label…. Album cards (the Albums grid, an artist's albums, search) have labels in
+  their own menu, below Play next and Add to queue, for every track the album has
+  now, and so does the album page's More
   menu (the three dots beside Shuffle), which asks for the album's labels when its
   button is pressed. Slint's menus have no mixed state, so a label only
   some chosen tracks hold reads "chill (on some)". Choosing a label puts it on all of
