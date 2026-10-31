@@ -1129,15 +1129,26 @@ window's top left on Linux, so there is no shift to speak of.
 - Zoom was tested headless and against the window's scale factor; how it looks on
   a real high-resolution monitor, and on moving the window to another monitor, is
   in [manual-testing.md](manual-testing.md).
-- VCMP's own window buttons on Windows are built and checked to compile for
-  Windows, but not yet seen working. A page scrolled under the 16 px drag strip
-  can't be clicked there; the strip drags instead. The system's title bar shows for
-  a moment at start, until the native window exists and it comes off. On Windows 10
+- VCMP's own minimise, maximise and close buttons were seen working on Windows 11
+  (2026-10-30); Snap layouts, dragging, resizing at the edges and Windows 10 are not
+  yet seen. A page scrolled under the 16 px drag strip can't be clicked there; the
+  strip drags instead. The system's title bar shows for a moment at start, until
+  the native window exists and it comes off.
+- Taking the title bar off makes the client area taller, which Slint takes, but the
+  OpenGL surface keeps its first height until the window really changes size: the UI
+  was then drawn for the new height into the old one, pushed up past the window's
+  top, until it was resized by hand. `window_frame.rs` therefore resizes the window
+  by a pixel and back right after taking the title bar off. On Windows 10
   the window's top border line is missing: Windows 10 draws it as part of the title
   bar. The border's colour needs Windows 11. The caption buttons aren't in the Tab
   order; the keyboard reaches them through the window menu (Alt+Space), as with
   Windows' own. On macOS and Linux the system's title bar stays and follows the
   system's light or dark mode, not VCMP's theme.
+- The buttons' subclassing (`window_frame.rs`) calls `GetWindowSubclass`, which only
+  version 6 of the common controls exports. Every Windows executable therefore
+  carries a manifest asking for it (`crates/vcmp-app/windows/`, linked by
+  `build.rs`). Without it Windows loads version 5.82 and refuses to start VCMP
+  (`0xC0000139`, an entry point not found), as every build from #58 to #64 did.
 
 - The history (back and forward) remembers sections and the album, artist and
   playlist pages, not a folder opened on the Folders page or the search typed, and

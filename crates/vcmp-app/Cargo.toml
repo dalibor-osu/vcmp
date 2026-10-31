@@ -35,6 +35,7 @@ raw-window-handle = "0.6.2"
 slint = { workspace = true, features = ["raw-window-handle-06"] }
 
 [build-dependencies]
+embed-resource = "3.0.12"
 slint-build.workspace = true
 
 [dev-dependencies]

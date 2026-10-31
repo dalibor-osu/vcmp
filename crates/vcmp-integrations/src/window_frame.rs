@@ -106,12 +106,12 @@ mod platform {
         DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DefWindowProcW, GetClientRect, HTCAPTION, HTCLIENT, HTMAXBUTTON, HTTOP, HTTOPLEFT,
-        HTTOPRIGHT, IsZoomed, NCCALCSIZE_PARAMS, PostMessageW, SC_CLOSE, SC_MAXIMIZE, SC_MINIMIZE,
-        SC_RESTORE, SM_CXPADDEDBORDER, SM_CYSIZEFRAME, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-        SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE, WM_NCDESTROY,
-        WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
-        WM_NCMOUSEMOVE, WM_SETTINGCHANGE, WM_SYSCOMMAND, WM_THEMECHANGED,
+        DefWindowProcW, GetClientRect, GetWindowRect, HTCAPTION, HTCLIENT, HTMAXBUTTON, HTTOP,
+        HTTOPLEFT, HTTOPRIGHT, IsZoomed, NCCALCSIZE_PARAMS, PostMessageW, SC_CLOSE, SC_MAXIMIZE,
+        SC_MINIMIZE, SC_RESTORE, SM_CXPADDEDBORDER, SM_CYSIZEFRAME, SWP_FRAMECHANGED,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, WM_NCCALCSIZE,
+        WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP,
+        WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_SETTINGCHANGE, WM_SYSCOMMAND, WM_THEMECHANGED,
     };
     use windows_sys::core::BOOL;
 
@@ -162,6 +162,7 @@ mod platform {
                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
+        refresh_size(window);
         true
     }
 
@@ -170,6 +171,42 @@ mod platform {
         if let Some(state) = state(window) {
             state.frame.set(frame);
             apply_colours(window, frame);
+        }
+    }
+
+    /// Resizes the window by a pixel and back. Slint takes the taller client area that
+    /// the frame change reports, but the OpenGL surface keeps the height it was made
+    /// with until the window really changes size: without this the UI is drawn for
+    /// the new height into the old one, pushed up past the window's top, until the
+    /// window is resized by hand.
+    fn refresh_size(window: HWND) {
+        if is_maximized(window) {
+            return;
+        }
+        let mut rect = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        // SAFETY: reads the window's rectangle, then sets its size twice.
+        unsafe {
+            if GetWindowRect(window, &mut rect) == 0 {
+                return;
+            }
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+            for height in [height + 1, height] {
+                SetWindowPos(
+                    window,
+                    null_mut(),
+                    0,
+                    0,
+                    width,
+                    height,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+            }
         }
     }
 

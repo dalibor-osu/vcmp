@@ -480,13 +480,20 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Output device list shows the WASAPI device names.
 - [ ] The `windows-x64.zip` from a release unpacks and `vcmp.exe` starts without
       a console window, after SmartScreen's More info → Run anyway.
+- [ ] The same for a `windows-x64.zip` from `packaging/release-local.sh`, built with
+      MinGW: its manifest comes from `windres`, which only that build uses.
+      **(never seen working)**
 - [ ] No system title bar, on Windows 11 and 10: VCMP's minimise, maximise and
       close buttons sit in the top right corner, in both themes, and their glyphs
       dim while another window is active. Each one works, and hovering it fills
       it. Maximise turns into Restore while the window is maximised. Turn on
       Settings → Personalisation → Colours → "Show accent colour on title bars and
       window borders": nothing pink appears (Windows 11 also keeps a faint grey
-      border). **(never seen working)**
+      border). **(the buttons seen working on Windows 11, 2026-10-30; the rest not
+      yet)**
+- [ ] At start the whole window shows at once: the "VCMP" wordmark in full and the
+      window buttons in the top right, with no resizing needed, also at 125 % and
+      150 % display scaling.
 - [ ] Hovering the maximise button on Windows 11 shows Snap layouts, and picking
       one snaps VCMP there. **(never seen working)**
 - [ ] Drag the window by the strip along its top (over the page, above the title)
