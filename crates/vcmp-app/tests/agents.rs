@@ -587,11 +587,21 @@ fn deleting_the_backups_asks_first() {
     assert_ne!(state.get_backups_size(), "");
 
     app.open_settings();
+    // The question is a dialog; its answer reaches Settings on the next frame.
+    let frame = || {
+        slint::platform::update_timers_and_animations();
+        let _ = ElementHandle::find_by_accessible_label(&app.window, "Keep the backups").count();
+        slint::platform::update_timers_and_animations();
+    };
     app.press("Delete backups…");
+    frame();
     app.press("Keep the backups");
+    frame();
     assert_eq!(state.get_history().row_count(), 1);
     app.press("Delete backups…");
+    frame();
     app.press("Delete backups");
+    frame();
     assert_eq!(state.get_history().row_count(), 0);
     assert_eq!(state.get_backups_size(), "");
     assert!(!state.get_has_finished());

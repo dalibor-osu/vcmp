@@ -160,6 +160,11 @@ reading the code or with a simulated system, so they are the most likely to fail
 
 - [ ] Make a playlist from New playlist and from a track's menu; rename it, delete
       it.
+- [ ] More → Delete playlist… opens a dialog over the dimmed sidebar and pages,
+      with the focus on Cancel (press Tab first to see the ring) and the page not
+      moving. Tab and Shift+Tab stay on its two buttons. Escape, Cancel and a click
+      beside it each keep the playlist and put the focus back on the More button;
+      Delete playlist deletes it and the grid comes back. In both themes.
 - [ ] Reorder by dragging and with Alt+Up/Down. In a playlist longer than the
       window, hold a dragged track near the bottom, then the top: the page scrolls
       smoothly, faster nearer the edge, and the track lands where the line shows.
@@ -202,8 +207,8 @@ reading the code or with a simulated system, so they are the most likely to fail
       least one labelled track stay.
 - [ ] Open a label from the sidebar: its tracks, Play, Shuffle; the queue panel
       names the label. Back, Escape and the mouse's back button return.
-- [ ] Edit… renames and recolours; a taken name says so. Delete… asks, saying how
-      many tracks lose it.
+- [ ] Edit… renames and recolours; a taken name says so. Delete… asks in a dialog,
+      saying how many tracks lose it; Escape gives the focus back to Delete….
 
 ### Covers and artist photos
 
@@ -396,7 +401,8 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Start a second program on the port (`python3 -m http.server 8267`), turn the
       switch off and on: Settings says the port is in use; another port in Port
       works. New token: the old one gets "401" (Claude Code fails to connect).
-- [ ] Delete backups… asks first, then empties the list of finished changes.
+- [ ] Delete backups… asks first, in a dialog, then empties the list of finished
+      changes.
 
 ## Linux
 

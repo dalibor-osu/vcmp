@@ -8,6 +8,7 @@
 import { Theme } from "theme.slint";
 import { Button, FocusRing, Modal, SectionHeading, TextField } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
+import { Confirmation } from "confirmation.slint";
 
 // One label, as Rust gives it.
 export struct LabelEntry {
@@ -706,10 +707,11 @@ export component LabelEditor inherits Modal {
 }
 
 // The Labels section of Settings: every label with its colour and number of tracks,
-// Edit and Delete for each, and New label. Deleting asks first, saying how many
-// tracks lose the label.
+// Edit and Delete for each, and New label. Deleting asks first, in a dialog
+// (`Confirmation`), saying how many tracks lose the label.
 export component LabelsSection inherits VerticalLayout {
-    private property <int> confirming: -1;
+    // The label the dialog asks about, or -1.
+    private property <int> asking: -1;
 
     spacing: Theme.space-xs;
 
@@ -725,96 +727,69 @@ export component LabelsSection inherits VerticalLayout {
         min-height: self.preferred-height;
     }
 
-    for label in Labels.all: VerticalLayout {
-        HorizontalLayout {
-            spacing: Theme.space-l;
-            padding-top: Theme.space-s;
-            padding-bottom: Theme.space-s;
+    for label in Labels.all: HorizontalLayout {
+        spacing: Theme.space-l;
+        padding-top: Theme.space-s;
+        padding-bottom: Theme.space-s;
 
-            VerticalLayout {
-                alignment: center;
+        VerticalLayout {
+            alignment: center;
 
-                LabelDot {
-                    light: label.light;
-                    dark: label.dark;
-                    size: 14px;
-                }
+            LabelDot {
+                light: label.light;
+                dark: label.dark;
+                size: 14px;
             }
-            VerticalLayout {
-                alignment: center;
-                horizontal-stretch: 1;
-                spacing: 2px;
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 2px;
 
-                Text {
-                    text: label.name;
-                    color: Theme.colors.text;
-                    font-size: Theme.font-body;
-                    font-weight: Theme.weight-strong;
-                    overflow: elide;
-                }
-                Text {
-                    text: @tr("{n} track" | "{n} tracks" % label.count);
-                    color: Theme.colors.text-muted;
-                    font-size: Theme.font-small;
-                }
+            Text {
+                text: label.name;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                overflow: elide;
             }
-            VerticalLayout {
-                alignment: center;
-
-                Button {
-                    text: @tr("Edit…");
-                    label: @tr("Edit {}", label.name);
-                    clicked => {
-                        root.confirming = -1;
-                        Labels.edit(label.id);
-                    }
-                }
+            Text {
+                text: @tr("{n} track" | "{n} tracks" % label.count);
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
             }
-            VerticalLayout {
-                alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
 
-                Button {
-                    text: @tr("Delete…");
-                    label: @tr("Delete {}", label.name);
-                    clicked => {
-                        root.confirming = label.id;
-                    }
+            Button {
+                text: @tr("Edit…");
+                label: @tr("Edit {}", label.name);
+                clicked => {
+                    Labels.edit(label.id);
                 }
             }
         }
+        VerticalLayout {
+            alignment: center;
 
-        // Asks first, with the focus on Cancel.
-        if root.confirming == label.id: VerticalLayout {
-            spacing: Theme.space-m;
-            padding-bottom: Theme.space-m;
-
-            Text {
-                text: @tr("Delete the label “{0}”? It is taken off the track that has it. The track stays in your library." | "Delete the label “{0}”? It is taken off the {n} tracks that have it. The tracks stay in your library." % label.count, label.name);
-                color: Theme.colors.text;
-                font-size: Theme.font-body;
-                wrap: word-wrap;
-                min-height: self.preferred-height;
-            }
-            HorizontalLayout {
-                spacing: Theme.space-m;
-                alignment: start;
-
-                Button {
-                    text: @tr("Delete label");
-                    clicked => {
-                        root.confirming = -1;
-                        Labels.delete(label.id);
+            Button {
+                property <int> answers: Confirmation.answers;
+                changed answers => {
+                    if root.asking == label.id {
+                        root.asking = -1;
+                        if Confirmation.accepted {
+                            Labels.delete(label.id);
+                        } else {
+                            self.focus();
+                        }
                     }
                 }
-                Button {
-                    text: @tr("Cancel");
-                    label: @tr("Keep the label");
-                    init => {
-                        self.focus();
-                    }
-                    clicked => {
-                        root.confirming = -1;
-                    }
+                text: @tr("Delete…");
+                label: @tr("Delete {}", label.name);
+                clicked => {
+                    root.asking = label.id;
+                    Confirmation.ask(@tr("Delete the label “{}”?", label.name), @tr("It is taken off the track that has it. The track stays in your library." | "It is taken off the {n} tracks that have it. The tracks stay in your library." % label.count), @tr("Delete label"), @tr("Delete label"), @tr("Keep the label"));
                 }
             }
         }
@@ -827,7 +802,6 @@ export component LabelsSection inherits VerticalLayout {
         Button {
             text: @tr("New label…");
             clicked => {
-                root.confirming = -1;
                 Labels.edit(-1);
             }
         }

@@ -29,8 +29,9 @@ import { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeHistory, Chang
 import { LabelChoice, LabelEditor, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour } from "labels.slint";
 import { LabelDetail, LabelsPage } from "label-page.slint";
 import { CaptionButtons, WindowFrame } from "window-frame.slint";
+import { ConfirmDialog, Confirmation } from "confirmation.slint";
 
-export { WindowFrame }
+export { Confirmation, WindowFrame }
 export { LabelChoice, LabelDetail, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour }
 export { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
 export { LastfmProblem, LastfmState, LastfmStatus }
@@ -335,7 +336,7 @@ export component AppWindow inherits Window {
     changed frame-colors => {
         root.frame-changed();
     }
-    private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.now-playing-open || CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open;
+    private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.now-playing-open || CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open || Confirmation.open;
     out property <length> frame-sidebar-width: sidebar.width;
     out property <length> frame-sidebar-drag-height: root.sidebar-covered ? 0px : max(0px, sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y - Theme.space-s);
     changed frame-sidebar-drag-height => {
@@ -925,6 +926,13 @@ export component AppWindow inherits Window {
 
                 // Making or editing a label, from Settings, the Labels page or a menu.
                 if Labels.editor-open: LabelEditor {
+                    width: parent.width;
+                    height: parent.height;
+                }
+
+                // An "are you sure?" before deleting, last so it is over any dialog
+                // that asks one.
+                if Confirmation.open: ConfirmDialog {
                     width: parent.width;
                     height: parent.height;
                 }

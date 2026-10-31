@@ -78,7 +78,7 @@ export global Theme {
     out property <length> font-heading: 16px;
     out property <length> font-wordmark: 20px;
     out property <length> font-title: 26px;
-    // The artist under an album page's title.
+    // The artist under an album page's title, and a confirmation's question.
     out property <length> font-large: 20px;
     // The track title in the now playing view, the one larger text, and a step up
     // in a window wide enough for the largest cover.
@@ -112,6 +112,8 @@ export global Theme {
     // Dialogs: the tag editor's form, and the pickers' grid of covers or photos.
     out property <length> dialog-width: 720px;
     out property <length> dialog-wide-width: 960px;
+    // An "are you sure?": a question, a sentence or two and two buttons.
+    out property <length> dialog-narrow-width: 480px;
 
     out property <duration> duration-fast: root.reduced-motion ? 0ms : 120ms;
     out property <duration> duration-medium: root.reduced-motion ? 0ms : 220ms;

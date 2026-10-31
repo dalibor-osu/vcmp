@@ -13,7 +13,8 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | File | Holds |
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, the detail pages' cover size, the zoom, durations, drag scrolling |
-| `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
+| `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor, the pickers and the confirmation) |
+| `ui/confirmation.slint` | `Confirmation` global and `ConfirmDialog`: the "are you sure?" before deleting a playlist, a label or the agents' backups |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
@@ -144,6 +145,7 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | The artist photo picker is the cover picker's twin | The same pattern as an album's "Find cover online", so one way of working covers both. The fanart.tv credit stays under the photo, as its terms ask |
 | The tag editor is the same kind of dialog, not a separate window | One dialog pattern again, 720 px wide (`Theme.dialog-width`) and as tall as the form. A second window would need its own focus, theme and close handling on three platforms, for a form that is used now and then |
 | A dialog keeps the keyboard: Tab and Shift+Tab go round its controls | The page behind is in sight but not in use. A focus that moved to it would be hidden behind the scrim, and Escape would no longer reach the dialog |
+| Every "are you sure?" is one dialog (`ConfirmDialog`), 480 px wide (`Theme.dialog-narrow-width`): the question, what the answer means, a button naming the action ("Delete playlist", "Delete label", "Delete backups") and Cancel, with the focus on Cancel | The owner's request (issue #66): the question put under Play and Shuffle pushed the page down and looked out of place beside the header. One component asks before deleting a playlist, a label or the agents' backups, so any later question looks and acts the same. It holds a sentence or two, so it is narrower than the tag editor. The action's button stays outlined like every delete; the focus starts on Cancel, so an Enter pressed by accident keeps everything. Escape and a click beside it cancel, as there is nothing typed to lose. Closing puts the focus back on the button that asked, while it is still there: after a delete the row or the page may be gone. The page that asks calls `Confirmation.ask` and watches `Confirmation.answers`, since Slint can't hand a callback to a global |
 | A click beside a picker closes it; beside the tag editor it does nothing | A picker holds nothing to lose. The tag editor holds typed values, so only Cancel and Escape close it |
 | The tag editor's buttons stay at the foot of the dialog while the form scrolls | Save and Cancel are in view in a short window however far the form is scrolled, and so is the sentence saying why nothing was written |
 | An album's differing values show as empty fields saying "Several values" | Writing only the fields the user changed is the safe default for a batch: a field left alone can't flatten twelve track numbers into one |
@@ -351,8 +353,9 @@ the new view in too.
   Delete playlist….
   - **Rename** turns the name into a field: Enter or Save keeps it, Escape or Cancel
     leaves it. An empty name keeps the old one.
-  - **Delete** asks first, on the page, with the focus on Cancel; Escape cancels.
-    The tracks stay in the library.
+  - **Delete** asks first, in the confirmation dialog (`ConfirmDialog`), with the
+    focus on Cancel; Escape, Cancel or a click beside it keep the playlist and put
+    the focus back on the More button. The tracks stay in the library.
   - **Choose picture** opens the system's file dialog for images. A file that can't
     be read as a picture leaves the picture as it was and says so on the page. An
     animated GIF, WebP or PNG plays on the page (see
@@ -1032,8 +1035,8 @@ by `LibraryView`) keeps the `Labels` global current.
   (no name, too long, taken, not a colour) shows in the error colour. Made from a
   menu, the new label goes on the menu's tracks.
 - **Settings** lists every label with its dot and count, Edit… (the dialog) and
-  Delete…, which asks first, on the page, with the focus on Cancel and how many
-  tracks lose it.
+  Delete…, which asks first in the confirmation dialog, saying how many tracks lose
+  it. Cancelled, the focus goes back to that Delete… button.
 
 ## Known limits
 
