@@ -1,14 +1,15 @@
-//! Colour palettes for the UI's `Theme` global: Catppuccin Latte (light) and Mocha
-//! (dark), with pink as the single accent and Catppuccin red for errors.
+//! Colour palettes for the UI's `Theme` global: VCMP's own pastel light and dark
+//! palettes (inspired by Catppuccin), with pink as the single accent and red for
+//! errors.
 //!
-//! Latte's own pink is too pale to meet contrast requirements on its light
-//! backgrounds, so the light accent is a darker shade of the same hue. Latte's red
+//! A pastel pink is too pale to meet contrast requirements on the light
+//! backgrounds, so the light accent is a darker shade of the same hue. The light red
 //! reaches 4.5:1 only on base, which is where errors are written. The scrim behind a
 //! dialog is the palette's darkest colour, translucent.
 //!
-//! Labels take their colours from Catppuccin too: Mocha's as they are on the dark
-//! theme, and Latte's darkened, in the same hue, until a label's dot reaches 3:1 on
-//! the surface fill of a hovered row (most of Latte's are paler than that).
+//! Labels take pastel colours too: as they are on the dark theme, and darkened, in
+//! the same hue, on the light one until a label's dot reaches 3:1 on the surface
+//! fill of a hovered row (most pastels are paler than that).
 
 use slint::{Color, ComponentHandle};
 

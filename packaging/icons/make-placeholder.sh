@@ -1,5 +1,5 @@
 #!/bin/sh
-# Generates the placeholder app icon: a "V" in Sora, Catppuccin Pink on the dark
+# Generates the placeholder app icon: a "V" in Sora, the accent pink on the dark
 # theme's base colour. VCMP has no logo yet; replace these files when it does.
 # PNGs are 8-bit RGBA: the macOS icon converter rejects 16-bit ones.
 # Needs ImageMagick 7 (`magick`). Run from anywhere; the files land next to this script.

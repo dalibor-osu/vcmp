@@ -20,7 +20,11 @@ by a music enthusiast for music enthusasts.
 
 I really like catppuccin and similar pastel color palettes
 
-Chosen later from offered options (2026-10-17): Catppuccin Pink as the single neon
+2026-10-31: VCMP's palettes are its own. Catppuccin is an inspiration for them, not a
+palette VCMP implements: the code and documentation don't present it as one or use
+its flavour and colour names.
+
+Chosen later from offered options (2026-10-17): a pastel pink as the single neon
 accent.
 
 ## Typography
@@ -42,13 +46,13 @@ user dislikes that.
 ## App icon
 
 Chosen from offered options (2026-10-17): VCMP has no logo yet, so the installers use
-a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
+a plain placeholder (a "V" in Sora, the accent pink on the dark base,
 `packaging/icons/`) until the real logo exists.
 
 ## Owner decisions on flagged patterns
 
-- 2026-10-17, R-01 (neon or pastel palettes): kept. The Catppuccin-style pastel
-  palette and the subtle neon accent are deliberate brand identity; R-01 still
+- 2026-10-17, R-01 (neon or pastel palettes): kept. The pastel palette (inspired
+  by Catppuccin) and the subtle neon accent are deliberate brand identity; R-01 still
   limits the dose (neon on 1-2 focal elements per screen).
 
 ## Owner requests
@@ -70,7 +74,7 @@ a plain placeholder (a "V" in Sora, Catppuccin Pink on the dark base,
 - 2026-10-18, after the first antislop audit (`anti-slop/audit-001-2026-10-18.md`):
   - In a small window the queue covers the whole page area instead of sitting on
     its side; it doesn't cover the sidebar.
-  - Errors use Catppuccin Red.
+  - Errors use a pastel red.
   - No neon: the glow is gone. Pink stays the single accent.
   - The accent's many jobs (finding 3), which buttons are filled (finding 5) and the
     page widths on a full screen (finding 9) are open: the owner isn't sure yet

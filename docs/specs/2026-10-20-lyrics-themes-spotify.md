@@ -26,8 +26,8 @@ out of scope and left only seams for them:
   is the agreed future home for lyrics: a comment in `ui/now-playing.slint` marks
   the spot, and [ui.md, Now playing view](../ui.md#now-playing-view) says so too.
 - **Themes.** `ui/theme.slint` has one `ThemePalette` of 9 colour tokens on `main`. It is
-  filled from Rust (`src/theme.rs`) with Catppuccin Latte and Mocha, pink accent and
-  red errors. A `ThemeMode` (System / Light / Dark, saved as `ui.theme`) picks which
+  filled from Rust (`src/theme.rs`) with VCMP's light and dark palettes, pink accent
+  and red errors. A `ThemeMode` (System / Light / Dark, saved as `ui.theme`) picks which
   one is shown. Contrast tests run on those two palettes only
   ([ui.md, Palettes](../ui.md#palettes)). The v1 invariant holds: no component
   contains a colour, so a theme only has to supply other values.
@@ -181,8 +181,8 @@ away; VCMP should simply offer different themes.
 
 | Option | What it means |
 |---|---|
-| Presets + theme files (Recommended) | Built-in Catppuccin flavours (Latte, Frappe, Macchiato, Mocha) with an accent picker, plus user theme files (the 9 tokens in a TOML file) loaded from the data folder. Covers most users and power users; no editor UI to build. |
-| Presets and accent only | Flavours and accent picker, no user files. Smallest, every combination contrast-tested ahead; no truly own colours. |
+| Presets + theme files (Recommended) | Four built-in themes (one light, three dark of different depths) with an accent picker, plus user theme files (the 9 tokens in a TOML file) loaded from the data folder. Covers most users and power users; no editor UI to build. |
+| Presets and accent only | Built-in themes and accent picker, no user files. Smallest, every combination contrast-tested ahead; no truly own colours. |
 | In-app theme editor | Presets plus colour pickers per token with live preview and import/export. Most approachable for own themes; Slint has no colour picker, so one must be built. |
 
 **Answer: Presets + theme files**
@@ -202,7 +202,7 @@ away; VCMP should simply offer different themes.
 |---|---|
 | Load it, show a warning (Recommended) | The theme applies, Settings names the failing pairs. User's choice respected; an unreadable theme is possible but explained. |
 | Refuse it | The file is listed as invalid and not applied. Accessibility guaranteed; frustrating for someone who wants a low-contrast look. |
-| Fix it automatically | Failing colours are lightened or darkened until they pass, as Latte's pink is today. Always readable; the result differs from what the file says. |
+| Fix it automatically | Failing colours are lightened or darkened until they pass, as the light theme's pink is today. Always readable; the result differs from what the file says. |
 
 **Answer: Load it, show a warning**
 
@@ -210,9 +210,9 @@ away; VCMP should simply offer different themes.
 
 | Option | What it means |
 |---|---|
-| Keep a 'System' entry (Recommended) | The theme list starts with 'System (Latte / Mocha)', the default, which follows the OS; every other entry is fixed. New users still match their OS; one special entry in the list. |
-| No OS following | Every entry is a fixed theme; new installs start on Mocha. Simplest model; a light-mode OS user starts dark until they change it. |
-| Default follows once | No System entry; on first start VCMP picks Latte or Mocha from the OS, then it stays fixed. Good first impression; doesn't track later OS changes. |
+| Keep a 'System' entry (Recommended) | The theme list starts with 'System (light / dark)', the default, which follows the OS; every other entry is fixed. New users still match their OS; one special entry in the list. |
+| No OS following | Every entry is a fixed theme; new installs start on the dark theme. Simplest model; a light-mode OS user starts dark until they change it. |
+| Default follows once | No System entry; on first start VCMP picks the light or dark theme from the OS, then it stays fixed. Good first impression; doesn't track later OS changes. |
 
 **Answer: Default follows once**
 
@@ -241,11 +241,11 @@ away; VCMP should simply offer different themes.
 Three workstreams, built in the agreed order. Each one ships on its own and leaves
 the app releasable.
 
-**1. Themes.** The Light / Dark / System switch becomes a single theme list. It
-offers the four Catppuccin flavours (Latte, Frappe, Macchiato, Mocha) with an accent
-picker, then any user theme files. Settings shows a contrast warning for a user theme
-that fails WCAG AA. The saved `ui.theme` value is migrated, and DESIGN.md and ui.md
-record the new model. Depends on nothing.
+**1. Themes.** The Light / Dark / System switch becomes a single theme list. It offers
+four built-in themes (one light, three dark of different depths; their names are still
+to be chosen) with an accent picker, then any user theme files. Settings shows a
+contrast warning for a user theme that fails WCAG AA. The saved `ui.theme` value is
+migrated, and DESIGN.md and ui.md record the new model. Depends on nothing.
 
 **2. Lyrics.** Lyrics are read from embedded tags and sidecar `.lrc` files, with an
 optional LRCLIB lookup behind an off-by-default "Find lyrics online" switch. Fetched
@@ -289,14 +289,15 @@ changes them; workstream 3 also updates CLAUDE.md's stack and crate tables.
 - **The `Theme` global takes one palette and the kind from Rust;** `ThemeMode`,
   `light-colors` and `dark-colors` go. Reason: with no mode, the choice lives in one
   place, Rust, which also validates files.
-- **`ui.theme` holds a theme id** (`latte`, `mocha`, ..., or `file:<name>`) plus the
-  accent for built-ins. Migration: `light` becomes Latte and `dark` becomes Mocha.
-  `system` and a fresh install get Latte or Mocha from the OS once, then stay fixed.
+- **`ui.theme` holds a theme id** (one per built-in theme, or `file:<name>`) plus
+  the accent for built-ins. Migration: `light` and `dark` become the built-in themes
+  made from today's light and dark palettes. `system` and a fresh install get the
+  light or dark one from the OS once, then stay fixed.
   A user theme whose file is gone falls back to the built-in of its kind, and
   Settings says so. Reason: the owner's "default follows once"; nobody's look
   changes on upgrade.
-- **The accent picker offers the Catppuccin accents on built-in flavours only.**
-  On light flavours an accent is darkened in hue until it reaches 4.5:1, as pink is
+- **The accent picker offers a set of built-in accents on built-in themes only.**
+  On light themes an accent is darkened in hue until it reaches 4.5:1, as pink is
   today. The contrast tests cover every flavour and accent pair. User files define
   their own accent. Reason: every built-in combination stays guaranteed AA.
 - **The contrast check moves from test-only code into the app,** and both the tests
@@ -388,7 +389,7 @@ changes them; workstream 3 also updates CLAUDE.md's stack and crate tables.
 | Synced lyrics drift by up to 250 ms | Medium | Low | Interpolation between position events; `[offset:]` honoured |
 | A user theme makes the UI unreadable | Medium | Low: the user chose it | Contrast warning that names the failing pairs; built-in themes always one click away |
 | Removing the System entry: users who switch their OS between light and dark lose automatic following | Medium | Low | The owner's decision; record it in DESIGN.md; reconsider if users ask |
-| Light-flavour accents darkened for contrast may stop looking like their Catppuccin colour | Medium | Low | Leave out an accent that can't pass recognisably, rather than shipping it pale |
+| Light-theme accents darkened for contrast may stop looking like the colour they were picked as | Medium | Low | Leave out an accent that can't pass recognisably, rather than shipping it pale |
 
 **Questions deliberately left open**
 

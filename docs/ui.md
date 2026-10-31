@@ -4,9 +4,10 @@ How VCMP's Slint UI is put together and why. Visual direction comes from
 [DESIGN.md](DESIGN.md); this file records how the code applies it. Keep it in sync
 with `crates/vcmp-app/ui/`.
 
-Design Read: a desktop music player shell for music enthusiasts, in a calm Catppuccin
-pastel language with one pink accent and no glow (the owner dropped the neon on
-2026-10-18), dial ENERGY 1 / RHYTHM 2 / MOTION 2 (the dials come from DESIGN.md).
+Design Read: a desktop music player shell for music enthusiasts, in a calm pastel
+language (inspired by Catppuccin) with one pink accent and no glow (the owner dropped
+the neon on 2026-10-18), dial ENERGY 1 / RHYTHM 2 / MOTION 2 (the dials come from
+DESIGN.md).
 
 ## Files
 
@@ -78,27 +79,27 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 
 ## Palettes
 
-Catppuccin Latte (light) and Mocha (dark), with Pink as the single accent and Red for
-errors.
+VCMP's own light and dark palettes, inspired by Catppuccin, with pink as the single
+accent and red for errors.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
 | base | `#eff1f5` | `#1e1e2e` | Content background |
 | mantle | `#e6e9ef` | `#181825` | Sidebar |
 | surface | `#ccd0da` | `#313244` | Hover, selected item, control track |
-| outline | `#7c7f93` (overlay2) | `#6c7086` (overlay0) | Control boundaries |
+| outline | `#7c7f93` | `#6c7086` | Control boundaries |
 | text | `#4c4f69` | `#cdd6f4` | Text |
-| text-muted | `#5c5f77` (subtext1) | `#a6adc8` (subtext0) | Descriptions, only on base or mantle |
-| accent | `#a1197d` | `#f5c2e7` (pink) | Current page, selected option, switched-on state |
+| text-muted | `#5c5f77` | `#a6adc8` | Descriptions, only on base or mantle |
+| accent | `#a1197d` | `#f5c2e7` | Current page, selected option, switched-on state |
 | on-accent | `#eff1f5` | `#11111b` | Text and marks on accent |
-| error | `#d20f39` (red) | `#f38ba8` (red) | What is wrong, as text on base only |
-| scrim | `#4c4f69` at 45 % (text) | `#11111b` at 70 % (crust) | Dims the sidebar and pages behind a dialog |
+| error | `#d20f39` | `#f38ba8` | What is wrong, as text on base only |
+| scrim | `#4c4f69` at 45 % (text) | `#11111b` at 70 % | Dims the sidebar and pages behind a dialog |
 
-Latte's own pink (`#ea76cb`) reaches only 2.3:1 on Latte base, so the light accent is
-the same hue darkened to 6.3:1. Latte's subtext0 and overlay0 fail contrast on its
-backgrounds, so the light theme uses subtext1 and overlay2 instead. Even subtext1 is
-4.05:1 on Latte's surface, so a row filled for hover or selection turns its
-secondary text to `text`. Latte's red is 4.80:1 on base but 4.46:1 on mantle, so
+A pastel pink (`#ea76cb`) reaches only 2.3:1 on the light base, so the light accent is
+the same hue darkened to 6.3:1. Paler greys fail contrast on the light backgrounds, so
+the light theme's muted text and outlines are the darker `#5c5f77` and `#7c7f93`. Even
+`#5c5f77` is 4.05:1 on the light surface, so a row filled for hover or selection turns
+its secondary text to `text`. The light red is 4.80:1 on base but 4.46:1 on mantle, so
 errors are written on base only. Nothing is drawn on the scrim; a dialog's card is
 base, with a surface border, so the dialog's text keeps base's contrast.
 
@@ -1006,10 +1007,10 @@ storage in [library.md](library.md#labels)). `LabelBrowser` (`src/labels.rs`, ow
 by `LibraryView`) keeps the `Labels` global current.
 
 - **A colour is only a dot** (`LabelDot`) beside the name, in the text colour (muted
-  on rows until the row is hovered or selected, like their other secondary text).
-  So any colour the owner picks leaves the name readable in both themes. The
-  palette is Catppuccin: Mocha's colours on the dark theme, Latte's darkened in
-  the same hue on the light one until each reaches 3:1 on `surface`, the fill of a
+  on rows until the row is hovered or selected, like their other secondary text). So
+  any colour the owner picks leaves the name readable in both themes. The label
+  palette is pastel (inspired by Catppuccin) on the dark theme, and darkened in the
+  same hue on the light one until each colour reaches 3:1 on `surface`, the fill of a
   hovered row (`src/theme.rs` tests it). A custom colour is drawn as it is.
 - **Menus.** Every track menu (track lists, the songs table, the queue, the now
   playing "…" menu) has a Labels submenu: each label as a checkable item, and New

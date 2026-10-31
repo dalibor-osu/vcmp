@@ -366,8 +366,8 @@ creates only the rows in view with label chips.
 
 Open questions, settled during implementation or by the owner then: the exact chip
 layout in rows and the Songs column (UI work with antislop), the palette's colours
-(Catppuccin-based per DESIGN.md), the maximum label name length, whether label
-filters are remembered between runs, and the volume cap for agents.
+(pastel, inspired by Catppuccin, per DESIGN.md), the maximum label name length,
+whether label filters are remembered between runs, and the volume cap for agents.
 
 ## Out of scope
 
