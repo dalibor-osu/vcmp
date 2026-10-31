@@ -197,6 +197,11 @@ reading the code or with a simulated system, so they are the most likely to fail
 - [ ] Right-click an album card on the Albums page and on an artist's page, and
       open an album page's three-dot menu → Labels: the label goes on every track
       of the album. New label… from there makes one and puts it on them.
+- [ ] With a track in Up next, right-click an album card → Play next: the queue
+      panel lists the album's tracks before that track, in the album page's order;
+      Add to queue on another card lists them after it. Do the same on an artist's
+      albums and Search's albums, and from the keyboard (the Menu key, Shift+F10)
+      on the current card. While stopped, the album waits in Up next.
 - [ ] Songs → Labels: pick one label, then two: only songs with both stay; the
       chips beside the button take a label out. Albums → Labels: albums with at
       least one labelled track stay.

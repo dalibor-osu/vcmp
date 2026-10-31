@@ -202,7 +202,8 @@ These are the agreed semantics. The pure logic is `Queue`, and the engine drives
   - `origin` is the app's own key for it ("album:42"), handed back in `QueueView`.
   - A new context clears the history.
 - **Up next.** "Play next" puts tracks at the front of Up next, and "Add to queue"
-  appends them. Up next always plays before the context continues, and survives a new
+  appends them. Both come from track menus, the queue panel, and album cards' menus
+  (every track of the album, in its order). Up next always plays before the context continues, and survives a new
   context.
 - **Previous.**
   - It restarts the current track when more than 3 s (`RESTART_THRESHOLD`) of it has
