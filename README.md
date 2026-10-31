@@ -1,10 +1,9 @@
 # VCMP
 
-A player for the music files on your own drives, for Windows 10 and newer, Linux and
-macOS.
+A player for the music files on your own drives, for Windows 10 and newer and Linux.
 
-> VCMP is developed and tested mainly on Linux. The Windows and macOS versions get
-> little testing so far and may not work fully correctly yet.
+> VCMP is developed and tested mainly on Linux. The Windows version gets little
+> testing so far and may not work fully correctly yet.
 
 <img width="2536" height="1382" alt="image" src="https://github.com/user-attachments/assets/0a96e97c-50be-4f88-965e-dbd504e0e5f3" />
 
@@ -47,26 +46,21 @@ There is no installer yet: unpack the archive and run VCMP from where it is.
 | System | File | Then |
 |---|---|---|
 | Windows 10 or newer | `vcmp-<version>-windows-x64.zip` | Run `vcmp.exe`. |
-| macOS on Apple silicon | `vcmp-<version>-macos-arm64.zip` | Move `VCMP.app` to Applications and open it. |
-| macOS on Intel | `vcmp-<version>-macos-x64.zip` | The same. |
 | Linux | `vcmp-<version>-linux-x64.tar.gz` | Run `vcmp`. |
 
-Some releases have only the Windows and Linux files. On Linux, VCMP needs Ubuntu
-22.04, Debian 12 or another system at least as new (glibc 2.35). Desktop systems
-have the libraries it uses; on a minimal Debian or Ubuntu, install `libasound2`,
-`libfontconfig1`, `libxkbcommon0`, `libxkbcommon-x11-0` and `libegl1`.
+On Linux, VCMP needs Ubuntu 22.04, Debian 12 or another system at least as new
+(glibc 2.35). Desktop systems have the libraries it uses; on a minimal Debian or
+Ubuntu, install `libasound2`, `libfontconfig1`, `libxkbcommon0`, `libxkbcommon-x11-0` and `libegl1`.
 
-### The first start on Windows and macOS
+There are no downloads for other systems, such as macOS. VCMP can probably be built
+and run on them, but you have to do that yourself (see
+[Build it yourself](#build-it-yourself)), and nobody tests it there.
 
-VCMP isn't code-signed yet, so Windows and macOS can't tell who made it and warn
-the first time you open each new version.
+### The first start on Windows
 
-- Windows says "Windows protected your PC". Choose More info, then Run anyway.
-- macOS refuses to open it. Choose Done, then go to System Settings → Privacy &
-  Security and choose Open Anyway next to the message about VCMP. Right-clicking
-  the app and choosing Open no longer gets around this on macOS 15 and later. You
-  can also run `xattr -dr com.apple.quarantine /Applications/VCMP.app` once before
-  the first start.
+VCMP isn't code-signed yet, so Windows can't tell who made it and says "Windows
+protected your PC" the first time you open each new version. Choose More info, then
+Run anyway.
 
 ### Versions
 
@@ -118,9 +112,8 @@ then Developer, Edit Config, and put the entry inside `"mcpServers"`:
 }
 ```
 
-On macOS the path ends in `VCMP.app/Contents/MacOS/vcmp`. Restart Claude Desktop
-afterwards. VCMP has to be open with AI agents on while you use it; otherwise Claude
-says that VCMP isn't open.
+Restart Claude Desktop afterwards. VCMP has to be open with AI agents on while you
+use it; otherwise Claude says that VCMP isn't open.
 
 ## Build it yourself
 
