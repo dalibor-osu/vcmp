@@ -48,7 +48,7 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 | `get_album` | An album and its tracks |
 | `get_tracks` | Tracks by id with the nine fields, path, availability and every tag by key |
 | `list_tag_keys` | Every key with how many tracks hold it |
-| `find_tracks_by_tag` | Tracks holding a key (and value), or lacking it |
+| `find_tracks_by_tag` | Tracks holding a key (and value), or lacking it, with `total` counting them all, as `list_albums` does. `brief` lists each track by id, title, artist, album and album id only: a page of 500 full tracks came to 170–290 KB, more than Claude Code shows inline |
 | `list_labels` | The owner's labels with their colour (a palette name or `#rrggbb`) and how many available tracks hold each |
 | `find_tracks_by_labels` | Available tracks holding every label named (ignoring case) |
 | `list_playlists`, `get_playlist` | Playlists and their entries with positions |
@@ -66,7 +66,7 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 | `set_playback_options` | Shuffle on or off, its kind (`fewer_repeats`, `true_random`), repeat (`off`, `all`, `one`), volume 0 to 100 |
 | `list_output_devices`, `set_output_device` | The devices as Settings lists them (listed afresh, so Settings' list follows), the chosen one and the one playing instead when it is missing; choosing one by name (exactly, else ignoring case), or the system default |
 | `set_sleep_timer` | Off, end of this track, or 1 to 90 minutes |
-| `get_now_playing` | The track, playing, paused or stopped, position, duration, volume, mute, shuffle, repeat, output device, sleep timer, what the queue plays from, Up next and the next tracks (10 by default, at most 100) |
+| `get_now_playing` | The track, playing, paused or stopped, position, duration, volume, mute, shuffle, repeat, output device, sleep timer, what the queue plays from, Up next and the next tracks (10 by default, at most 100). A context that never ends (repeat all, or `true_random` shuffle) is listed for one pass, as many entries as it holds, with `repeats: true`; the queue itself goes on to its 100, so a one-track context on repeat would otherwise list that track 100 times |
 
 The play and queue tools read what to play on the server's own connection, so a
 track that can't be played is left out there: one whose file is gone (the library
@@ -100,7 +100,13 @@ and waiting up to 30 seconds. There it checks the playback switch, then does wha
 the window does: the play buttons' queue contexts, `media_control` for the
 buttons (with `Control::Quit` never reachable), the bar's shuffle, repeat, volume
 and sleep timer functions, and Settings' device choice, all saved in the settings as
-the window saves them. So the bar, the queue panel, the OS media controls, Discord and
+the window saves them. Playing, queueing, the buttons and the options then wait for
+the engine: the service sends `Command::Sync` with a token after the request, and
+the server's thread waits (up to 5 seconds) until the engine's `Event::Synced` with
+that token has reached the service. The events come in order, so by then the
+service shows what the engine made of the request: after `next` the new track and
+queue, which arrive only once the engine has opened the next file. An agent that
+reads `get_now_playing` right after sees the result. So the bar, the queue panel, the OS media controls, Discord and
 Last.fm follow an agent exactly as they follow the owner. `get_now_playing` reads the
 service's state on the UI thread (what the bar and the queue panel show) and gets the
 files back as paths; the server turns them into tracks on its own connection. Device
@@ -165,9 +171,10 @@ client is in [manual-testing.md](manual-testing.md).
   through the relay, the error says that VCMP was restarted.
 - A cover by web address is downloaded on the server's thread pool while the agent
   waits; a slow site holds that request up to 30 seconds.
-- A playback tool answers once the player has taken the request, before the engine
-  has acted on it: `get_now_playing` right after `play_tracks` can still show the
-  track before.
+- A playback request answers once the window shows the result, but waits for that
+  at most 5 seconds (a disk spinning up to open the next file); past that it
+  answers anyway, and `get_now_playing` may still show the track before for a
+  moment. Choosing the output device and the sleep timer don't wait.
 - Positions in `edit_queue` are those the queue panel shows: Up next and at most
   100 tracks after it. Earlier tracks (the history) aren't listed.
 - A change waits for the window's event loop to take it; when that takes more than

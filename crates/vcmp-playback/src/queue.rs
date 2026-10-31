@@ -97,6 +97,9 @@ pub struct QueueView {
     /// Context tracks after the current one, in play order, at most
     /// [`QueueView::LIMIT`] of them.
     pub upcoming: Vec<QueueEntry>,
+    /// How many tracks the context holds. With repeat on, or shuffle drawing at
+    /// random, `upcoming` goes on past them.
+    pub context_len: usize,
     /// The app's own key for the context ("album:42", ...), as given when it was set.
     pub origin: Option<String>,
     pub shuffle: ShuffleMode,
@@ -425,6 +428,7 @@ impl Queue {
             current: self.current().cloned(),
             up_next: self.up_next.iter().cloned().collect(),
             upcoming,
+            context_len: self.context.len(),
             origin: self.origin.clone(),
             shuffle: self.shuffle,
             repeat: self.repeat,

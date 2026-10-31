@@ -380,7 +380,13 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       shuffle and repeat on, set the volume to 30 and to bring VCMP to the front:
       the bar's buttons, slider and the OS media widget follow each time, and the
       settings come back after a restart. Ask what plays: it names the track, the
-      position and what comes next as the queue panel shows it.
+      position and what comes next as the queue panel shows it. Ask it to skip
+      and say what plays in the same breath (it reads `get_now_playing` right
+      after `next`): it names the new track, not the one before.
+- [ ] Ask it to play one track with repeat on all, then what comes next: it lists
+      that track once and says the queue repeats, not the same track a hundred
+      times. Ask how many tracks have no MusicBrainzReleaseId: it answers from one
+      `find_tracks_by_tag` call (its `total`).
 - [ ] Ask it to play next a track, add two to the end of Up next, then move and
       remove one: the queue panel follows.
 - [ ] Unplug (or rename) the folder of one track of a playlist, then ask it to play

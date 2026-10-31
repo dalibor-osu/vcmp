@@ -855,6 +855,7 @@ fn agents_read_what_the_player_shows() {
         current: Some(queued(&one)),
         up_next: vec![queued(&single)],
         upcoming: vec![queued(&two)],
+        context_len: 2,
         origin: Some(format!("album:{}", album.0)),
         shuffle: ShuffleMode::Off,
         repeat: RepeatMode::All,
@@ -878,6 +879,7 @@ fn agents_read_what_the_player_shows() {
     assert_eq!(status.context, Some(Context::Album(album)));
     assert_eq!(status.up_next, std::slice::from_ref(&single.path));
     assert_eq!(status.upcoming, std::slice::from_ref(&two.path));
+    assert_eq!(status.context_len, 2);
     assert_eq!(status.sleep_timer, vcmp_mcp::SleepTimer::Minutes(30));
     assert_eq!(
         app.window.global::<PlayerState>().get_sleep_timer(),
@@ -891,6 +893,22 @@ fn agents_read_what_the_player_shows() {
         player.agent_status().unwrap().sleep_timer,
         vcmp_mcp::SleepTimer::EndOfTrack
     );
+}
+
+#[test]
+fn agents_hear_once_the_window_shows_what_the_engine_did() {
+    let app = start();
+    let (player, sent) = player(&app);
+    let first = player.agent_sync();
+    let second = player.agent_sync();
+    assert_eq!(sent.take(), [Command::Sync(1), Command::Sync(2)]);
+    assert!(first.try_recv().is_err(), "the engine hasn't answered yet");
+
+    player.handle_event(Event::Synced(1));
+    assert!(first.try_recv().is_ok());
+    assert!(second.try_recv().is_err());
+    player.handle_event(Event::Synced(2));
+    assert!(second.try_recv().is_ok());
 }
 
 #[test]
@@ -910,6 +928,7 @@ fn agents_press_buttons_within_the_queue_and_set_options() {
         current: Some(queued(&one)),
         up_next: vec![queued(&two)],
         upcoming: Vec::new(),
+        context_len: 1,
         origin: None,
         shuffle: ShuffleMode::Off,
         repeat: RepeatMode::Off,

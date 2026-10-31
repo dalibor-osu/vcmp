@@ -420,8 +420,30 @@ fn agents_read_every_tag_and_find_tracks_by_tag() {
             json!({ "key": "Composer", "missing": true }),
         )
         .unwrap();
-    assert_eq!(missing.as_array().unwrap().len(), 1);
-    assert_eq!(missing[0]["title"], "B");
+    assert_eq!(missing["total"], 1);
+    assert_eq!(missing["tracks"].as_array().unwrap().len(), 1);
+    assert_eq!(missing["tracks"][0]["title"], "B");
+    assert!(missing["tracks"][0]["path"].is_string());
+
+    let page = session
+        .call(
+            "find_tracks_by_tag",
+            json!({ "key": "Composer", "missing": true, "brief": true, "offset": 1 }),
+        )
+        .unwrap();
+    assert_eq!(page["total"], 1, "the total counts past the page");
+    assert_eq!(page["tracks"], json!([]));
+    let brief = session
+        .call(
+            "find_tracks_by_tag",
+            json!({ "key": "Composer", "missing": true, "brief": true }),
+        )
+        .unwrap();
+    let b = id_of(&setup.library, "b.flac");
+    let track = &brief["tracks"][0];
+    assert_eq!(track["id"], b.0);
+    assert_eq!(track["title"], "B");
+    assert!(track.get("path").is_none(), "{track}");
     assert_eq!(
         session
             .call("get_tracks", json!({ "track_ids": [999] }))
@@ -1175,6 +1197,7 @@ fn now_playing_names_the_tracks_and_what_they_play_from() {
         context: Some(Context::Album(album)),
         up_next: vec![b.path.clone()],
         upcoming: vec![elsewhere.clone(), b.path.clone()],
+        context_len: 5,
     });
 
     let now = session
@@ -1207,4 +1230,54 @@ fn now_playing_names_the_tracks_and_what_they_play_from() {
         json!({ "path": elsewhere.to_string_lossy() })
     );
     assert_eq!(now["more_upcoming"], 1);
+    assert_eq!(now["repeats"], true);
+}
+
+#[test]
+fn a_repeating_context_is_listed_once() {
+    let setup = start();
+    let mut session = setup.session();
+    let a = setup
+        .library
+        .track(id_of(&setup.library, "a.flac"))
+        .unwrap()
+        .unwrap();
+    let status = |repeat, shuffle_kind, upcoming| Status {
+        state: PlayState::Playing,
+        current: Some(a.path.clone()),
+        position: Duration::ZERO,
+        duration: None,
+        volume: 1.0,
+        muted: false,
+        shuffle: shuffle_kind == ShuffleKind::TrueRandom,
+        shuffle_kind,
+        repeat,
+        output: OutputDevices::default(),
+        sleep_timer: SleepTimer::Off,
+        context: None,
+        up_next: Vec::new(),
+        upcoming: vec![a.path.clone(); upcoming],
+        context_len: 1,
+    };
+    let mut now = |status| {
+        *setup.player.status.lock().unwrap() = Some(status);
+        session
+            .call("get_now_playing", json!({ "upcoming_limit": 100 }))
+            .unwrap()
+    };
+
+    for (repeat, kind) in [
+        (Repeat::All, ShuffleKind::FewerRepeats),
+        (Repeat::Off, ShuffleKind::TrueRandom),
+    ] {
+        let one = now(status(repeat, kind, 100));
+        assert_eq!(one["upcoming"].as_array().unwrap().len(), 1, "{one}");
+        assert_eq!(one["upcoming"][0]["track"]["title"], "A");
+        assert_eq!(one["more_upcoming"], 0);
+        assert_eq!(one["repeats"], true);
+    }
+
+    let off = now(status(Repeat::Off, ShuffleKind::FewerRepeats, 0));
+    assert_eq!(off["upcoming"], json!([]));
+    assert_eq!(off["repeats"], false);
 }

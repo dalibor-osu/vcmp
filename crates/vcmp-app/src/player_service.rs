@@ -213,6 +213,10 @@ pub struct PlayerService {
     // The sleep timer's minute ticks, and the minutes left (0 while none counts down).
     sleep_timer: Timer,
     sleep_minutes: Cell<i32>,
+    // Agents waiting for the engine to answer `Command::Sync` with their token, and
+    // the last token handed out.
+    syncs: RefCell<Vec<(u64, mpsc::Sender<()>)>>,
+    last_sync: Cell<u64>,
 }
 
 /// Told the file the engine has open, or `None`.
@@ -275,6 +279,8 @@ impl PlayerService {
             tags_notice_file: RefCell::default(),
             sleep_timer: Timer::default(),
             sleep_minutes: Cell::new(0),
+            syncs: RefCell::default(),
+            last_sync: Cell::new(0),
         });
         SERVICE.with(|current| *current.borrow_mut() = Rc::downgrade(&service));
 
@@ -1436,6 +1442,10 @@ impl PlayerService {
                 if let Some(listener) = &*self.on_open_file.borrow() {
                     listener(path.as_deref());
                 }
+                return;
+            }
+            Event::Synced(token) => {
+                self.synced(token);
                 return;
             }
         }
