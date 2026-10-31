@@ -1,6 +1,6 @@
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, FocusRing, IconButton } from "components.slint";
+import { Button, FocusRing, IconButton, MenuHost } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { CoverSearch } from "cover-picker.slint";
 import { Playlists } from "playlist-state.slint";
@@ -525,202 +525,217 @@ export component TrackList {
             }
         }
 
-        menu := ContextMenuArea {
-            Menu {
-                // With several tracks, the menu says how many it acts on.
-                if root.selected-count > 1: MenuItem {
-                    title: @tr("{n} track selected" | "{n} tracks selected" % root.selected-count);
-                    enabled: false;
-                }
-                if root.selected-count > 1: MenuSeparator { }
-                if root.selected-count < 2: MenuItem {
-                    title: @tr("Play now");
-                    activated => {
-                        root.play(root.current);
-                    }
-                }
-                MenuItem {
-                    title: @tr("Play next");
-                    activated => {
-                        root.queue(root.current, true);
-                    }
-                }
-                MenuItem {
-                    title: @tr("Add to queue");
-                    activated => {
-                        root.queue(root.current, false);
-                    }
-                }
+        // In a MenuHost, so the pointer is read right while the menu is open.
+        host := MenuHost {
+            min-width: menu.min-width;
+            min-height: menu.min-height;
+            preferred-width: menu.preferred-width;
+            preferred-height: menu.preferred-height;
+            max-width: menu.max-width;
+            max-height: menu.max-height;
+
+            menu := ContextMenuArea {
+                x: host.shift-x;
+                y: host.shift-y;
+                width: host.width;
+                height: host.height;
+
                 Menu {
-                    title: @tr("Add to playlist");
-
+                    // With several tracks, the menu says how many it acts on.
+                    if root.selected-count > 1: MenuItem {
+                        title: @tr("{n} track selected" | "{n} tracks selected" % root.selected-count);
+                        enabled: false;
+                    }
+                    if root.selected-count > 1: MenuSeparator { }
+                    if root.selected-count < 2: MenuItem {
+                        title: @tr("Play now");
+                        activated => {
+                            root.play(root.current);
+                        }
+                    }
                     MenuItem {
-                        title: @tr("New playlist");
+                        title: @tr("Play next");
                         activated => {
-                            TrackSelection.add-to-playlist(root.tracks, root.current, -1);
+                            root.queue(root.current, true);
                         }
                     }
-                    if Playlists.names.length > 0: MenuSeparator { }
-                    for name[index] in Playlists.names: MenuItem {
-                        title: name;
-                        activated => {
-                            TrackSelection.add-to-playlist(root.tracks, root.current, index);
-                        }
-                    }
-                }
-                Menu {
-                    title: @tr("Labels");
-
-                    for choice in Labels.choices: MenuItem {
-                        title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
-                        checkable: true;
-                        checked: choice.checked;
-                        activated => {
-                            TrackSelection.toggle-label(root.tracks, root.current, choice.id);
-                        }
-                    }
-                    if Labels.choices.length > 0: MenuSeparator { }
                     MenuItem {
-                        title: @tr("New label…");
+                        title: @tr("Add to queue");
                         activated => {
-                            TrackSelection.new-label(root.tracks, root.current);
+                            root.queue(root.current, false);
+                        }
+                    }
+                    Menu {
+                        title: @tr("Add to playlist");
+
+                        MenuItem {
+                            title: @tr("New playlist");
+                            activated => {
+                                TrackSelection.add-to-playlist(root.tracks, root.current, -1);
+                            }
+                        }
+                        if Playlists.names.length > 0: MenuSeparator { }
+                        for name[index] in Playlists.names: MenuItem {
+                            title: name;
+                            activated => {
+                                TrackSelection.add-to-playlist(root.tracks, root.current, index);
+                            }
+                        }
+                    }
+                    Menu {
+                        title: @tr("Labels");
+
+                        for choice in Labels.choices: MenuItem {
+                            title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                            checkable: true;
+                            checked: choice.checked;
+                            activated => {
+                                TrackSelection.toggle-label(root.tracks, root.current, choice.id);
+                            }
+                        }
+                        if Labels.choices.length > 0: MenuSeparator { }
+                        MenuItem {
+                            title: @tr("New label…");
+                            activated => {
+                                TrackSelection.new-label(root.tracks, root.current);
+                            }
+                        }
+                    }
+                    MenuItem {
+                        title: @tr("Edit tags…");
+                        activated => {
+                            TrackSelection.edit-tags(root.tracks, root.current);
+                        }
+                    }
+                    if root.editable: MenuSeparator { }
+                    if root.editable && root.selected-count < 2 && root.current > 0: MenuItem {
+                        title: @tr("Move up");
+                        activated => {
+                            root.move-current(-1);
+                        }
+                    }
+                    if root.editable && root.selected-count < 2 && root.current < root.tracks.length - 1: MenuItem {
+                        title: @tr("Move down");
+                        activated => {
+                            root.move-current(1);
+                        }
+                    }
+                    if root.editable: MenuItem {
+                        title: @tr("Remove from playlist");
+                        activated => {
+                            root.remove(root.current);
                         }
                     }
                 }
-                MenuItem {
-                    title: @tr("Edit tags…");
-                    activated => {
-                        TrackSelection.edit-tags(root.tracks, root.current);
-                    }
-                }
-                if root.editable: MenuSeparator { }
-                if root.editable && root.selected-count < 2 && root.current > 0: MenuItem {
-                    title: @tr("Move up");
-                    activated => {
-                        root.move-current(-1);
-                    }
-                }
-                if root.editable && root.selected-count < 2 && root.current < root.tracks.length - 1: MenuItem {
-                    title: @tr("Move down");
-                    activated => {
-                        root.move-current(1);
-                    }
-                }
-                if root.editable: MenuItem {
-                    title: @tr("Remove from playlist");
-                    activated => {
-                        root.remove(root.current);
-                    }
-                }
-            }
 
-            list := FocusScope {
-                focus-on-click: false;
-                focus-on-tab-navigation: root.tracks.length > 0;
-                focus-gained(reason) => {
-                    if reason == FocusReason.tab-navigation {
-                        Theme.keyboard-navigation = true;
+                list := FocusScope {
+                    focus-on-click: false;
+                    focus-on-tab-navigation: root.tracks.length > 0;
+                    focus-gained(reason) => {
+                        if reason == FocusReason.tab-navigation {
+                            Theme.keyboard-navigation = true;
+                        }
                     }
-                }
-                key-pressed(event) => {
-                    if root.editable && event.modifiers.alt && event.text == Key.UpArrow {
-                        root.move-current(-1);
-                    } else if root.editable && event.modifiers.alt && event.text == Key.DownArrow {
-                        root.move-current(1);
-                    } else if root.editable && event.text == Key.Delete {
-                        root.remove(root.current);
-                    } else if event.text == Key.DownArrow {
-                        root.go-to(root.current + 1, event.modifiers.shift);
-                    } else if event.text == Key.UpArrow {
-                        root.go-to(root.current - 1, event.modifiers.shift);
-                    } else if event.text == Key.Home {
-                        root.go-to(0, event.modifiers.shift);
-                    } else if event.text == Key.End {
-                        root.go-to(root.tracks.length - 1, event.modifiers.shift);
-                    } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A") {
-                        root.select(0, SelectionChange.all);
-                    } else if event.modifiers.control && event.text == Key.Space {
-                        root.anchor = root.current;
-                        root.select(root.current, SelectionChange.toggle);
-                    } else if event.text == Key.Escape && root.selected-count > 0 {
-                        root.select(0, SelectionChange.none);
-                    } else if event.text == Key.Return || event.text == Key.Space {
-                        root.play(root.current);
-                    } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
-                        // The menu opens on its own; it needs the current labels first.
-                        TrackSelection.prepare-labels(root.tracks, root.current);
-                        return reject;
-                    } else {
-                        return reject;
+                    key-pressed(event) => {
+                        if root.editable && event.modifiers.alt && event.text == Key.UpArrow {
+                            root.move-current(-1);
+                        } else if root.editable && event.modifiers.alt && event.text == Key.DownArrow {
+                            root.move-current(1);
+                        } else if root.editable && event.text == Key.Delete {
+                            root.remove(root.current);
+                        } else if event.text == Key.DownArrow {
+                            root.go-to(root.current + 1, event.modifiers.shift);
+                        } else if event.text == Key.UpArrow {
+                            root.go-to(root.current - 1, event.modifiers.shift);
+                        } else if event.text == Key.Home {
+                            root.go-to(0, event.modifiers.shift);
+                        } else if event.text == Key.End {
+                            root.go-to(root.tracks.length - 1, event.modifiers.shift);
+                        } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A") {
+                            root.select(0, SelectionChange.all);
+                        } else if event.modifiers.control && event.text == Key.Space {
+                            root.anchor = root.current;
+                            root.select(root.current, SelectionChange.toggle);
+                        } else if event.text == Key.Escape && root.selected-count > 0 {
+                            root.select(0, SelectionChange.none);
+                        } else if event.text == Key.Return || event.text == Key.Space {
+                            root.play(root.current);
+                        } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
+                            // The menu opens on its own; it needs the current labels first.
+                            TrackSelection.prepare-labels(root.tracks, root.current);
+                            return reject;
+                        } else {
+                            return reject;
+                        }
+                        accept
                     }
-                    accept
-                }
 
-                VerticalLayout {
-                    accessible-role: AccessibleRole.list;
-                    accessible-label: root.label;
+                    VerticalLayout {
+                        accessible-role: AccessibleRole.list;
+                        accessible-label: root.label;
 
-                    for track[index] in root.tracks: TrackLine {
-                        track: track;
-                        show-disc: root.show-disc;
-                        detail-column: root.detail-heading != "";
-                        // A disc heading between two rows parts them.
-                        selected-above: index > 0 && root.tracks[index - 1].selected && !(root.show-disc && track.disc-start);
-                        selected-below: index + 1 < root.tracks.length && root.tracks[index + 1].selected && !(root.show-disc && root.tracks[index + 1].disc-start);
-                        playing: track.path == root.playing-path;
-                        focused: list.has-focus && index == root.current;
-                        draggable: root.editable;
-                        drag-moved(y, height) => {
-                            root.drag-row-height = height;
-                            root.drag-y = y;
-                            if root.drag-from < 0 {
-                                root.drag-from = index;
+                        for track[index] in root.tracks: TrackLine {
+                            track: track;
+                            show-disc: root.show-disc;
+                            detail-column: root.detail-heading != "";
+                            // A disc heading between two rows parts them.
+                            selected-above: index > 0 && root.tracks[index - 1].selected && !(root.show-disc && track.disc-start);
+                            selected-below: index + 1 < root.tracks.length && root.tracks[index + 1].selected && !(root.show-disc && root.tracks[index + 1].disc-start);
+                            playing: track.path == root.playing-path;
+                            focused: list.has-focus && index == root.current;
+                            draggable: root.editable;
+                            drag-moved(y, height) => {
+                                root.drag-row-height = height;
+                                root.drag-y = y;
+                                if root.drag-from < 0 {
+                                    root.drag-from = index;
+                                    root.current = index;
+                                }
+                            }
+                            drag-ended => {
+                                let to = root.drag-to;
+                                if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
+                                    root.reorder(root.drag-from, to);
+                                    root.current = to;
+                                }
+                                root.drag-from = -1;
+                            }
+                            clicked(toggle, range) => {
                                 root.current = index;
+                                if range {
+                                    root.select(index, SelectionChange.range);
+                                } else if toggle {
+                                    root.anchor = index;
+                                    root.select(index, SelectionChange.toggle);
+                                } else {
+                                    // This track alone: a range from it to itself.
+                                    root.anchor = index;
+                                    root.select(index, SelectionChange.range);
+                                }
                             }
-                        }
-                        drag-ended => {
-                            let to = root.drag-to;
-                            if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
-                                root.reorder(root.drag-from, to);
-                                root.current = to;
+                            play-requested => {
+                                root.current = index;
+                                root.play(index);
                             }
-                            root.drag-from = -1;
-                        }
-                        clicked(toggle, range) => {
-                            root.current = index;
-                            if range {
-                                root.select(index, SelectionChange.range);
-                            } else if toggle {
-                                root.anchor = index;
-                                root.select(index, SelectionChange.toggle);
-                            } else {
-                                // This track alone: a range from it to itself.
-                                root.anchor = index;
-                                root.select(index, SelectionChange.range);
+                            menu-requested(x, y) => {
+                                root.show-menu(index, x, y);
                             }
-                        }
-                        play-requested => {
-                            root.current = index;
-                            root.play(index);
-                        }
-                        menu-requested(x, y) => {
-                            root.show-menu(index, x, y);
-                        }
-                        shown-focused(top, height) => {
-                            root.shown-focused(top, height);
+                            shown-focused(top, height) => {
+                                root.shown-focused(top, height);
+                            }
                         }
                     }
-                }
 
-                // Where a dragged row would land: a line above the row it would take the
-                // place of, or below it when moving down.
-                if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
-                    x: 0;
-                    y: (root.drag-to > root.drag-from ? root.drag-to + 1 : root.drag-to) * root.drag-row-height - 1px;
-                    width: parent.width;
-                    height: 2px;
-                    border-radius: self.height / 2;
-                    background: Theme.colors.accent;
+                    // Where a dragged row would land: a line above the row it would take the
+                    // place of, or below it when moving down.
+                    if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
+                        x: 0;
+                        y: (root.drag-to > root.drag-from ? root.drag-to + 1 : root.drag-to) * root.drag-row-height - 1px;
+                        width: parent.width;
+                        height: 2px;
+                        border-radius: self.height / 2;
+                        background: Theme.colors.accent;
+                    }
                 }
             }
         }

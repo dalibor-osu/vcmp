@@ -13,7 +13,7 @@ pastel language with one pink accent and no glow (the owner dropped the neon on
 | File | Holds |
 |---|---|
 | `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, the detail pages' cover size, the zoom, durations, drag scrolling |
-| `ui/components.slint` | `FocusRing`, `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
+| `ui/components.slint` | `FocusRing`, `MenuHost` (see "Menus over lists"), `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor and the pickers) |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
@@ -1035,6 +1035,44 @@ by `LibraryView`) keeps the `Labels` global current.
   Delete…, which asks first, on the page, with the focus on Cancel and how many
   tracks lose it.
 
+## Menus over lists
+
+The track lists (`TrackList`, `SongTable`), the queue panel and the card grids
+(`AlbumGrid`, `CardGrid`) open their menu from one `ContextMenuArea` that holds the
+rows: a row's right click calls the menu area's `show` at the pointer. Each menu
+area sits in a `MenuHost` (`ui/components.slint`), which works around a Slint 1.18
+bug (#69).
+
+The bug: while a menu is open, Slint sends a pointer event outside the menu to the
+parent of the item that opened it (so that a menu bar's other entries still
+respond), in `WindowInner::process_mouse_input` (i-slint-core, `window.rs`). It
+moves the event by that parent's place in the window, where it should move it
+back by the place of the parent's own parent. The rows see the pointer shifted by
+twice the parent's place, plus the parent's offset in its own parent. On the album
+page that was about 400 px down, so hovering row 3 lit row 13, and a right click
+there opened row 12's menu; on the Albums page the card two columns right and one
+row down lit up. The shift depends only on where the list sits in the window: not
+on X11 or Wayland, nor on the monitors, and the headless testing backend shows it
+too. On Windows and macOS Slint shows these menus natively (muda), which takes
+another path.
+
+`MenuHost` cancels it: the element inside it, the menu area's parent, sits at minus
+twice the host's place in the window, and the menu area moves back by the same
+amount, so it covers the host as before. The geometry stays consistent, so the
+host keeps working when Slint fixes the bug, and natively shown menus open where
+they did. As the menu area is placed by hand, it no longer gives its size to the
+layout: a host in a layout takes `min-`, `preferred-` and `max-` `width` and
+`height` from the menu area, and a host outside one is given `width: 100%;
+height: 100%;`. `tests/selection.rs`
+(`a_right_click_beside_an_open_menu_reaches_the_row_under_the_pointer`) right-clicks
+a track while another track's menu is open and checks which one it reached.
+
+The other menus need no host. On the album, artist and playlist pages' More
+buttons ("…"), the sleep timer and the label filter, the menu area's parent is a
+small row of buttons, and a pointer shifted that far never lands on it. The now
+playing view's More menu has a parent that fills the view, which starts at the
+window's top left on Linux, so there is no shift to speak of.
+
 ## Known limits
 
 - An animated picture can be stopped only by reduced motion (Settings or the OS),
@@ -1062,6 +1100,9 @@ by `LibraryView`) keeps the `Labels` global current.
   until playback moves on. The tag editor instead writes the rest and holds that
   one file back; a change set is accepted once, with a result per file, so it waits
   rather than leave one file for later. Tested on Linux with the lock simulated.
+- A new kind of menu over a list needs its `ContextMenuArea` in a `MenuHost` (see
+  "Menus over lists") until Slint fixes where it sends the pointer while a menu is
+  open; without it, hover and right clicks land far from the pointer.
 - The More menus are Slint's own, like the track menus, and Slint's testing backend
   can't reach their items: tests find the More button and run the item's action
   directly.

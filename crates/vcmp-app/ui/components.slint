@@ -17,6 +17,30 @@ export component FocusRing inherits Rectangle {
     border-radius: self.radius + 3px;
 }
 
+// The parent of a ContextMenuArea that holds a list or grid and opens its menu over
+// it. While a menu is open, Slint 1.18 sends the pointer outside the menu to the menu
+// area's parent off by twice that parent's place in the window, so hover and right
+// clicks land on rows far below and to the right of the pointer (docs/ui.md, "Menus
+// over lists"). The element inside sits at minus twice the host's place, which
+// cancels that, and the menu area moves back to cover the host: give it
+// `x: host.shift-x; y: host.shift-y; width: host.width; height: host.height;`.
+// Placed by hand, it no longer gives the host its size: a host in a layout takes its
+// size constraints from the menu area, and one outside a layout is given
+// `width: 100%; height: 100%;`.
+export component MenuHost {
+    out property <length> shift-x: 2 * self.absolute-position.x;
+    out property <length> shift-y: 2 * self.absolute-position.y;
+
+    Rectangle {
+        x: -root.shift-x;
+        y: -root.shift-y;
+        width: root.width + root.shift-x;
+        height: root.height + root.shift-y;
+
+        @children
+    }
+}
+
 // Scrolls a view while a drag holds the pointer near its top or bottom edge: faster
 // the closer the pointer is to the edge, fastest at it or past it. The owner says
 // where the view is and binds `content-y` to its ScrollView's.
