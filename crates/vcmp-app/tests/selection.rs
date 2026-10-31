@@ -145,21 +145,24 @@ impl App {
     }
 
     fn click(&self, title: &str) {
-        self.click_at(title, |x, width| x + width / 3.0);
+        self.click_at(title, |x, width| x + width / 3.0, PointerEventButton::Left);
     }
 
     /// Clicks the row's number, where the play button shows under the pointer.
     fn click_number(&self, title: &str) {
-        self.click_at(title, |x, _| x + 16.0);
+        self.click_at(title, |x, _| x + 16.0, PointerEventButton::Left);
     }
 
-    fn click_at(&self, title: &str, x: impl Fn(f32, f32) -> f32) {
+    fn right_click(&self, title: &str) {
+        self.click_at(title, |x, width| x + width / 3.0, PointerEventButton::Right);
+    }
+
+    fn click_at(&self, title: &str, x: impl Fn(f32, f32) -> f32, button: PointerEventButton) {
         let row = self.row(title);
         let (position, size) = (row.absolute_position(), row.size());
         let position =
             LogicalPosition::new(x(position.x, size.width), position.y + size.height / 2.0);
         let window = self.window.window();
-        let button = PointerEventButton::Left;
         window.dispatch_event(WindowEvent::PointerMoved { position });
         window.dispatch_event(WindowEvent::PointerPressed { position, button });
         window.dispatch_event(WindowEvent::PointerReleased { position, button });
@@ -225,6 +228,26 @@ fn clicks_select_and_the_play_button_or_a_double_click_plays() {
         [Command::PlayContext { start: Some(1), .. }]
     ));
     assert_eq!(app.selected(), ["Two"]);
+}
+
+// While a menu is open, Slint 1.18 reads the pointer outside it hundreds of pixels
+// off; MenuHost (ui/components.slint) cancels that.
+#[test]
+fn a_right_click_beside_an_open_menu_reaches_the_row_under_the_pointer() {
+    let app = start();
+    // A track's menu asks for that track's labels before it opens.
+    let opened = Rc::new(RefCell::new(Vec::new()));
+    let record = opened.clone();
+    app.window
+        .global::<TrackSelection>()
+        .on_prepare_labels(move |_, row| record.borrow_mut().push(row));
+    app.right_click("Four");
+    app.right_click("One");
+    assert_eq!(
+        *opened.borrow(),
+        [app.index("Four"), app.index("One")],
+        "the second menu is for the row under the pointer, not one far below"
+    );
 }
 
 #[test]

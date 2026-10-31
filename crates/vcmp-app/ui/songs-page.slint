@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { FocusRing } from "components.slint";
+import { FocusRing, MenuHost } from "components.slint";
 import { Glyph, Icon } from "icons.slint";
 import { PlayerState } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
@@ -484,155 +484,169 @@ export component SongTable {
             background: Theme.colors.surface;
         }
 
-        menu := ContextMenuArea {
+        // In a MenuHost, so the pointer is read right while the menu is open.
+        host := MenuHost {
             vertical-stretch: 1;
+            min-width: menu.min-width;
+            min-height: menu.min-height;
+            preferred-width: menu.preferred-width;
+            preferred-height: menu.preferred-height;
+            max-width: menu.max-width;
+            max-height: menu.max-height;
 
-            Menu {
-                // With several songs, the menu says how many it acts on.
-                if root.selected-count > 1: MenuItem {
-                    title: @tr("{n} track selected" | "{n} tracks selected" % root.selected-count);
-                    enabled: false;
-                }
-                if root.selected-count > 1: MenuSeparator { }
-                if root.selected-count < 2: MenuItem {
-                    title: @tr("Play now");
-                    activated => {
-                        root.play(root.current);
-                    }
-                }
-                MenuItem {
-                    title: @tr("Play next");
-                    activated => {
-                        root.queue(root.current, true);
-                    }
-                }
-                MenuItem {
-                    title: @tr("Add to queue");
-                    activated => {
-                        root.queue(root.current, false);
-                    }
-                }
+            menu := ContextMenuArea {
+                x: host.shift-x;
+                y: host.shift-y;
+                width: host.width;
+                height: host.height;
+
                 Menu {
-                    title: @tr("Add to playlist");
-
+                    // With several songs, the menu says how many it acts on.
+                    if root.selected-count > 1: MenuItem {
+                        title: @tr("{n} track selected" | "{n} tracks selected" % root.selected-count);
+                        enabled: false;
+                    }
+                    if root.selected-count > 1: MenuSeparator { }
+                    if root.selected-count < 2: MenuItem {
+                        title: @tr("Play now");
+                        activated => {
+                            root.play(root.current);
+                        }
+                    }
                     MenuItem {
-                        title: @tr("New playlist");
+                        title: @tr("Play next");
                         activated => {
-                            SongSelection.add-to-playlist(root.songs, root.current, -1);
+                            root.queue(root.current, true);
                         }
                     }
-                    if Playlists.names.length > 0: MenuSeparator { }
-                    for name[index] in Playlists.names: MenuItem {
-                        title: name;
-                        activated => {
-                            SongSelection.add-to-playlist(root.songs, root.current, index);
-                        }
-                    }
-                }
-                Menu {
-                    title: @tr("Labels");
-
-                    for choice in Labels.choices: MenuItem {
-                        title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
-                        checkable: true;
-                        checked: choice.checked;
-                        activated => {
-                            SongSelection.toggle-label(root.songs, root.current, choice.id);
-                        }
-                    }
-                    if Labels.choices.length > 0: MenuSeparator { }
                     MenuItem {
-                        title: @tr("New label…");
+                        title: @tr("Add to queue");
                         activated => {
-                            SongSelection.new-label(root.songs, root.current);
+                            root.queue(root.current, false);
                         }
                     }
-                }
-                MenuItem {
-                    title: @tr("Edit tags…");
-                    activated => {
-                        SongSelection.edit-tags(root.songs, root.current);
-                    }
-                }
-            }
+                    Menu {
+                        title: @tr("Add to playlist");
 
-            list := FocusScope {
-                focus-on-click: false;
-                focus-on-tab-navigation: root.songs.length > 0;
-                accessible-role: AccessibleRole.list;
-                accessible-label: @tr("Songs");
-                focus-gained(reason) => {
-                    if reason == FocusReason.tab-navigation {
-                        Theme.keyboard-navigation = true;
-                    }
-                }
-                key-pressed(event) => {
-                    let page = max(1, root.slot-count - 2);
-                    let extend = event.modifiers.shift;
-                    if event.text == Key.DownArrow {
-                        root.go-to(root.current + 1, extend);
-                    } else if event.text == Key.UpArrow {
-                        root.go-to(root.current - 1, extend);
-                    } else if event.text == Key.PageDown {
-                        root.go-to(root.current + page, extend);
-                    } else if event.text == Key.PageUp {
-                        root.go-to(root.current - page, extend);
-                    } else if event.text == Key.Home {
-                        root.go-to(0, extend);
-                    } else if event.text == Key.End {
-                        root.go-to(root.songs.length - 1, extend);
-                    } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A") {
-                        root.select(0, SelectionChange.all);
-                    } else if event.modifiers.control && event.text == Key.Space {
-                        root.anchor = root.current;
-                        root.select(root.current, SelectionChange.toggle);
-                    } else if event.text == Key.Escape && root.selected-count > 0 {
-                        root.select(0, SelectionChange.none);
-                    } else if event.text == Key.Return || event.text == Key.Space {
-                        root.play(root.current);
-                    } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
-                        // The menu opens on its own; it needs the current labels first.
-                        SongSelection.prepare-labels(root.songs, root.current);
-                        return reject;
-                    } else {
-                        return reject;
-                    }
-                    accept
-                }
-
-                flick := Flickable {
-                    content-height: root.songs.length * root.row-height;
-
-                    for slot in root.slot-count: SongLine {
-                        property <int> index: root.first-row + slot;
-                        visible: self.index < root.songs.length;
-                        y: self.index * root.row-height;
-                        width: parent.width;
-                        song: root.songs[self.index];
-                        selected-above: self.index > 0 && root.songs[self.index - 1].selected;
-                        selected-below: self.index + 1 < root.songs.length && root.songs[self.index + 1].selected;
-                        playing: self.song.path == PlayerState.track-path;
-                        focused: list.has-focus && self.index == root.current;
-                        labels-column: root.labels-column;
-                        clicked(toggle, range) => {
-                            root.current = self.index;
-                            if range {
-                                root.select(self.index, SelectionChange.range);
-                            } else if toggle {
-                                root.anchor = self.index;
-                                root.select(self.index, SelectionChange.toggle);
-                            } else {
-                                // This song alone: a range from it to itself.
-                                root.anchor = self.index;
-                                root.select(self.index, SelectionChange.range);
+                        MenuItem {
+                            title: @tr("New playlist");
+                            activated => {
+                                SongSelection.add-to-playlist(root.songs, root.current, -1);
                             }
                         }
-                        play-requested => {
-                            root.current = self.index;
-                            root.play(self.index);
+                        if Playlists.names.length > 0: MenuSeparator { }
+                        for name[index] in Playlists.names: MenuItem {
+                            title: name;
+                            activated => {
+                                SongSelection.add-to-playlist(root.songs, root.current, index);
+                            }
                         }
-                        menu-requested(x, y) => {
-                            root.show-menu(self.index, x, y);
+                    }
+                    Menu {
+                        title: @tr("Labels");
+
+                        for choice in Labels.choices: MenuItem {
+                            title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                            checkable: true;
+                            checked: choice.checked;
+                            activated => {
+                                SongSelection.toggle-label(root.songs, root.current, choice.id);
+                            }
+                        }
+                        if Labels.choices.length > 0: MenuSeparator { }
+                        MenuItem {
+                            title: @tr("New label…");
+                            activated => {
+                                SongSelection.new-label(root.songs, root.current);
+                            }
+                        }
+                    }
+                    MenuItem {
+                        title: @tr("Edit tags…");
+                        activated => {
+                            SongSelection.edit-tags(root.songs, root.current);
+                        }
+                    }
+                }
+
+                list := FocusScope {
+                    focus-on-click: false;
+                    focus-on-tab-navigation: root.songs.length > 0;
+                    accessible-role: AccessibleRole.list;
+                    accessible-label: @tr("Songs");
+                    focus-gained(reason) => {
+                        if reason == FocusReason.tab-navigation {
+                            Theme.keyboard-navigation = true;
+                        }
+                    }
+                    key-pressed(event) => {
+                        let page = max(1, root.slot-count - 2);
+                        let extend = event.modifiers.shift;
+                        if event.text == Key.DownArrow {
+                            root.go-to(root.current + 1, extend);
+                        } else if event.text == Key.UpArrow {
+                            root.go-to(root.current - 1, extend);
+                        } else if event.text == Key.PageDown {
+                            root.go-to(root.current + page, extend);
+                        } else if event.text == Key.PageUp {
+                            root.go-to(root.current - page, extend);
+                        } else if event.text == Key.Home {
+                            root.go-to(0, extend);
+                        } else if event.text == Key.End {
+                            root.go-to(root.songs.length - 1, extend);
+                        } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "a" || event.text == "A") {
+                            root.select(0, SelectionChange.all);
+                        } else if event.modifiers.control && event.text == Key.Space {
+                            root.anchor = root.current;
+                            root.select(root.current, SelectionChange.toggle);
+                        } else if event.text == Key.Escape && root.selected-count > 0 {
+                            root.select(0, SelectionChange.none);
+                        } else if event.text == Key.Return || event.text == Key.Space {
+                            root.play(root.current);
+                        } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
+                            // The menu opens on its own; it needs the current labels first.
+                            SongSelection.prepare-labels(root.songs, root.current);
+                            return reject;
+                        } else {
+                            return reject;
+                        }
+                        accept
+                    }
+
+                    flick := Flickable {
+                        content-height: root.songs.length * root.row-height;
+
+                        for slot in root.slot-count: SongLine {
+                            property <int> index: root.first-row + slot;
+                            visible: self.index < root.songs.length;
+                            y: self.index * root.row-height;
+                            width: parent.width;
+                            song: root.songs[self.index];
+                            selected-above: self.index > 0 && root.songs[self.index - 1].selected;
+                            selected-below: self.index + 1 < root.songs.length && root.songs[self.index + 1].selected;
+                            playing: self.song.path == PlayerState.track-path;
+                            focused: list.has-focus && self.index == root.current;
+                            labels-column: root.labels-column;
+                            clicked(toggle, range) => {
+                                root.current = self.index;
+                                if range {
+                                    root.select(self.index, SelectionChange.range);
+                                } else if toggle {
+                                    root.anchor = self.index;
+                                    root.select(self.index, SelectionChange.toggle);
+                                } else {
+                                    // This song alone: a range from it to itself.
+                                    root.anchor = self.index;
+                                    root.select(self.index, SelectionChange.range);
+                                }
+                            }
+                            play-requested => {
+                                root.current = self.index;
+                                root.play(self.index);
+                            }
+                            menu-requested(x, y) => {
+                                root.show-menu(self.index, x, y);
+                            }
                         }
                     }
                 }

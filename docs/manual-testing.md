@@ -425,6 +425,18 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 
 ## Linux
 
+- [ ] The pointer while a menu is open (docs/ui.md, "Menus over lists"). Do this
+      on X11 and on Wayland, each with one monitor and with two (on two, once with
+      VCMP on each monitor; a second monitor left of the primary is the setup the
+      bug was found on). On an album page with a dozen tracks, scroll the page a
+      little, right-click a track in the lower half, then without clicking move
+      the pointer up over a track nearer the top: that track shows the hover
+      highlight, no other. Right-click it: the menu closes and a new one opens at
+      the pointer, for that track. Do the same on the Songs page, in the queue
+      panel (right-click an Up next track, then another), on the Albums page
+      (right-click a card, then hover and right-click the card above it) and on an
+      artist page's albums. A left click beside an open menu only closes it.
+      **(seen only in the headless tests)**
 - [ ] With the VCMP window focused, the keyboard's play/pause, next and previous
       keys control it on any desktop, a bare window manager too.
 - [ ] Media keys and the desktop's media widget (GNOME's, KDE's) show the track

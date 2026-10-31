@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Button, EdgeScroll, FocusRing, IconButton, ScrollArea } from "components.slint";
+import { Button, EdgeScroll, FocusRing, IconButton, MenuHost, ScrollArea } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState, QueueRow, QueueSource } from "player-state.slint";
 import { Playlists } from "playlist-state.slint";
@@ -282,215 +282,230 @@ export component QueuePanel inherits Rectangle {
 
             // A layout, so the view knows how tall the rows are and scrolls them.
             VerticalLayout {
-                menu := ContextMenuArea {
-                    Menu {
-                        MenuItem {
-                            title: @tr("Play");
-                            activated => {
-                                PlayerState.play-queue-entry(root.current);
-                            }
-                        }
-                        // Tracks added to Up next can be taken out and reordered.
-                        if root.current < root.up-next-count: MenuItem {
-                            title: @tr("Remove from queue");
-                            activated => {
-                                PlayerState.remove-from-up-next(root.current);
-                            }
-                        }
-                        if root.current > 0 && root.current < root.up-next-count: MenuItem {
-                            title: @tr("Move up");
-                            activated => {
-                                root.move-current(-1);
-                            }
-                        }
-                        if root.current < root.up-next-count - 1: MenuItem {
-                            title: @tr("Move down");
-                            activated => {
-                                root.move-current(1);
-                            }
-                        }
-                        // Those from the album or list being played can be put into Up
-                        // next; they stay in their place too.
-                        if root.current >= root.up-next-count: MenuItem {
-                            title: @tr("Play next");
-                            activated => {
-                                PlayerState.queue-upcoming(root.current - root.up-next-count, true);
-                            }
-                        }
-                        if root.current >= root.up-next-count: MenuItem {
-                            title: @tr("Add to queue");
-                            activated => {
-                                PlayerState.queue-upcoming(root.current - root.up-next-count, false);
-                            }
-                        }
+                // In a MenuHost, so the pointer is read right while the menu is open.
+                host := MenuHost {
+                    min-width: menu.min-width;
+                    min-height: menu.min-height;
+                    preferred-width: menu.preferred-width;
+                    preferred-height: menu.preferred-height;
+                    max-width: menu.max-width;
+                    max-height: menu.max-height;
+
+                    menu := ContextMenuArea {
+                        x: host.shift-x;
+                        y: host.shift-y;
+                        width: host.width;
+                        height: host.height;
+
                         Menu {
-                            title: @tr("Add to playlist");
-
                             MenuItem {
-                                title: @tr("New playlist");
+                                title: @tr("Play");
                                 activated => {
-                                    Playlists.add-track(-1, root.current-path());
+                                    PlayerState.play-queue-entry(root.current);
                                 }
                             }
-                            if Playlists.names.length > 0: MenuSeparator { }
-                            for name[index] in Playlists.names: MenuItem {
-                                title: name;
+                            // Tracks added to Up next can be taken out and reordered.
+                            if root.current < root.up-next-count: MenuItem {
+                                title: @tr("Remove from queue");
                                 activated => {
-                                    Playlists.add-track(index, root.current-path());
+                                    PlayerState.remove-from-up-next(root.current);
+                                }
+                            }
+                            if root.current > 0 && root.current < root.up-next-count: MenuItem {
+                                title: @tr("Move up");
+                                activated => {
+                                    root.move-current(-1);
+                                }
+                            }
+                            if root.current < root.up-next-count - 1: MenuItem {
+                                title: @tr("Move down");
+                                activated => {
+                                    root.move-current(1);
+                                }
+                            }
+                            // Those from the album or list being played can be put into Up
+                            // next; they stay in their place too.
+                            if root.current >= root.up-next-count: MenuItem {
+                                title: @tr("Play next");
+                                activated => {
+                                    PlayerState.queue-upcoming(root.current - root.up-next-count, true);
+                                }
+                            }
+                            if root.current >= root.up-next-count: MenuItem {
+                                title: @tr("Add to queue");
+                                activated => {
+                                    PlayerState.queue-upcoming(root.current - root.up-next-count, false);
+                                }
+                            }
+                            Menu {
+                                title: @tr("Add to playlist");
+
+                                MenuItem {
+                                    title: @tr("New playlist");
+                                    activated => {
+                                        Playlists.add-track(-1, root.current-path());
+                                    }
+                                }
+                                if Playlists.names.length > 0: MenuSeparator { }
+                                for name[index] in Playlists.names: MenuItem {
+                                    title: name;
+                                    activated => {
+                                        Playlists.add-track(index, root.current-path());
+                                    }
+                                }
+                            }
+                            Menu {
+                                title: @tr("Labels");
+
+                                for choice in Labels.choices: MenuItem {
+                                    title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
+                                    checkable: true;
+                                    checked: choice.checked;
+                                    activated => {
+                                        Labels.toggle-path(root.current-path(), choice.id);
+                                    }
+                                }
+                                if Labels.choices.length > 0: MenuSeparator { }
+                                MenuItem {
+                                    title: @tr("New label…");
+                                    activated => {
+                                        Labels.new-for-path(root.current-path());
+                                    }
                                 }
                             }
                         }
-                        Menu {
-                            title: @tr("Labels");
 
-                            for choice in Labels.choices: MenuItem {
-                                title: choice.partial ? @tr("{} (on some)", choice.name) : choice.name;
-                                checkable: true;
-                                checked: choice.checked;
-                                activated => {
-                                    Labels.toggle-path(root.current-path(), choice.id);
+                        list := FocusScope {
+                            focus-on-click: false;
+                            focus-gained(reason) => {
+                                if reason == FocusReason.tab-navigation {
+                                    Theme.keyboard-navigation = true;
                                 }
                             }
-                            if Labels.choices.length > 0: MenuSeparator { }
-                            MenuItem {
-                                title: @tr("New label…");
-                                activated => {
-                                    Labels.new-for-path(root.current-path());
+                            key-pressed(event) => {
+                                if root.count == 0 {
+                                    return reject;
                                 }
-                            }
-                        }
-                    }
-
-                    list := FocusScope {
-                        focus-on-click: false;
-                        focus-gained(reason) => {
-                            if reason == FocusReason.tab-navigation {
-                                Theme.keyboard-navigation = true;
-                            }
-                        }
-                        key-pressed(event) => {
-                            if root.count == 0 {
-                                return reject;
-                            }
-                            if event.modifiers.alt && event.text == Key.UpArrow {
-                                root.move-current(-1);
-                            } else if event.modifiers.alt && event.text == Key.DownArrow {
-                                root.move-current(1);
-                            } else if event.text == Key.DownArrow {
-                                root.current = min(root.count - 1, root.current + 1);
-                            } else if event.text == Key.UpArrow {
-                                root.current = max(0, root.current - 1);
-                            } else if event.text == Key.Home {
-                                root.current = 0;
-                            } else if event.text == Key.End {
-                                root.current = root.count - 1;
-                            } else if event.text == Key.Return || event.text == Key.Space {
-                                PlayerState.play-queue-entry(root.current);
-                            } else if event.text == Key.Delete && root.current < root.up-next-count {
-                                PlayerState.remove-from-up-next(root.current);
-                            } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
-                                // The menu opens on its own; it needs the current labels first.
-                                Labels.prepare-path(root.current-path());
-                                return reject;
-                            } else {
-                                return reject;
-                            }
-                            accept
-                        }
-
-                        VerticalLayout {
-                            spacing: Theme.space-xs;
-                            alignment: start;
-                            accessible-role: AccessibleRole.list;
-                            accessible-label: @tr("Coming up");
-
-                            if root.up-next-count > 0: HorizontalLayout {
-                                padding-top: Theme.space-s;
-                                spacing: Theme.space-m;
-
-                                SectionLabel {
-                                    text: @tr("Next in queue");
-                                    vertical-alignment: center;
-                                    horizontal-stretch: 1;
+                                if event.modifiers.alt && event.text == Key.UpArrow {
+                                    root.move-current(-1);
+                                } else if event.modifiers.alt && event.text == Key.DownArrow {
+                                    root.move-current(1);
+                                } else if event.text == Key.DownArrow {
+                                    root.current = min(root.count - 1, root.current + 1);
+                                } else if event.text == Key.UpArrow {
+                                    root.current = max(0, root.current - 1);
+                                } else if event.text == Key.Home {
+                                    root.current = 0;
+                                } else if event.text == Key.End {
+                                    root.current = root.count - 1;
+                                } else if event.text == Key.Return || event.text == Key.Space {
+                                    PlayerState.play-queue-entry(root.current);
+                                } else if event.text == Key.Delete && root.current < root.up-next-count {
+                                    PlayerState.remove-from-up-next(root.current);
+                                } else if event.text == Key.Menu || (event.modifiers.shift && event.text == Key.F10) {
+                                    // The menu opens on its own; it needs the current labels first.
+                                    Labels.prepare-path(root.current-path());
+                                    return reject;
+                                } else {
+                                    return reject;
                                 }
-                                Button {
-                                    text: @tr("Clear");
-                                    label: @tr("Clear the queue");
+                                accept
+                            }
+
+                            VerticalLayout {
+                                spacing: Theme.space-xs;
+                                alignment: start;
+                                accessible-role: AccessibleRole.list;
+                                accessible-label: @tr("Coming up");
+
+                                if root.up-next-count > 0: HorizontalLayout {
+                                    padding-top: Theme.space-s;
+                                    spacing: Theme.space-m;
+
+                                    SectionLabel {
+                                        text: @tr("Next in queue");
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Button {
+                                        text: @tr("Clear");
+                                        label: @tr("Clear the queue");
+                                        clicked => {
+                                            PlayerState.clear-up-next();
+                                        }
+                                    }
+                                }
+
+                                for row[index] in PlayerState.up-next: QueueLine {
+                                    entry: row;
+                                    removable: true;
+                                    draggable: true;
+                                    drag-moved(y, top, height) => {
+                                        root.drag-row-y = top - list.absolute-position.y;
+                                        root.drag-row-height = height;
+                                        root.drag-y = y;
+                                        if root.drag-from < 0 {
+                                            root.drag-from = index;
+                                            root.current = index;
+                                        }
+                                    }
+                                    drag-ended => {
+                                        let to = root.drag-to;
+                                        if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
+                                            PlayerState.move-in-up-next(root.drag-from, to);
+                                            root.current = to;
+                                        }
+                                        root.drag-from = -1;
+                                    }
+                                    focused: list.has-focus && index == root.current;
                                     clicked => {
-                                        PlayerState.clear-up-next();
-                                    }
-                                }
-                            }
-
-                            for row[index] in PlayerState.up-next: QueueLine {
-                                entry: row;
-                                removable: true;
-                                draggable: true;
-                                drag-moved(y, top, height) => {
-                                    root.drag-row-y = top - list.absolute-position.y;
-                                    root.drag-row-height = height;
-                                    root.drag-y = y;
-                                    if root.drag-from < 0 {
-                                        root.drag-from = index;
                                         root.current = index;
+                                        PlayerState.play-queue-entry(index);
+                                    }
+                                    remove => {
+                                        PlayerState.remove-from-up-next(index);
+                                    }
+                                    menu-requested(x, y) => {
+                                        root.show-menu(index, x, y);
+                                    }
+                                    shown-focused(top, height) => {
+                                        root.ensure-visible(top, height);
                                     }
                                 }
-                                drag-ended => {
-                                    let to = root.drag-to;
-                                    if root.drag-from >= 0 && to >= 0 && to != root.drag-from {
-                                        PlayerState.move-in-up-next(root.drag-from, to);
-                                        root.current = to;
+
+                                if PlayerState.upcoming.length > 0: SectionLabel {
+                                    text: PlayerState.queue-source == QueueSource.search ? @tr("Next from your search")
+                                        : PlayerState.queue-source == QueueSource.songs ? @tr("Next from all songs")
+                                        : PlayerState.queue-origin != "" ? @tr("Next from {}", PlayerState.queue-origin) : @tr("Next up");
+                                    height: Theme.target-height;
+                                    vertical-alignment: bottom;
+                                }
+
+                                for row[index] in PlayerState.upcoming: QueueLine {
+                                    entry: row;
+                                    focused: list.has-focus && root.up-next-count + index == root.current;
+                                    clicked => {
+                                        root.current = root.up-next-count + index;
+                                        PlayerState.play-queue-entry(root.up-next-count + index);
                                     }
-                                    root.drag-from = -1;
-                                }
-                                focused: list.has-focus && index == root.current;
-                                clicked => {
-                                    root.current = index;
-                                    PlayerState.play-queue-entry(index);
-                                }
-                                remove => {
-                                    PlayerState.remove-from-up-next(index);
-                                }
-                                menu-requested(x, y) => {
-                                    root.show-menu(index, x, y);
-                                }
-                                shown-focused(top, height) => {
-                                    root.ensure-visible(top, height);
+                                    menu-requested(x, y) => {
+                                        root.show-menu(root.up-next-count + index, x, y);
+                                    }
+                                    shown-focused(top, height) => {
+                                        root.ensure-visible(top, height);
+                                    }
                                 }
                             }
 
-                            if PlayerState.upcoming.length > 0: SectionLabel {
-                                text: PlayerState.queue-source == QueueSource.search ? @tr("Next from your search")
-                                    : PlayerState.queue-source == QueueSource.songs ? @tr("Next from all songs")
-                                    : PlayerState.queue-origin != "" ? @tr("Next from {}", PlayerState.queue-origin) : @tr("Next up");
-                                height: Theme.target-height;
-                                vertical-alignment: bottom;
+                            // Where a dragged row would land.
+                            if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
+                                x: 0;
+                                y: root.drag-line-y;
+                                width: parent.width;
+                                height: 2px;
+                                border-radius: self.height / 2;
+                                background: Theme.colors.accent;
                             }
-
-                            for row[index] in PlayerState.upcoming: QueueLine {
-                                entry: row;
-                                focused: list.has-focus && root.up-next-count + index == root.current;
-                                clicked => {
-                                    root.current = root.up-next-count + index;
-                                    PlayerState.play-queue-entry(root.up-next-count + index);
-                                }
-                                menu-requested(x, y) => {
-                                    root.show-menu(root.up-next-count + index, x, y);
-                                }
-                                shown-focused(top, height) => {
-                                    root.ensure-visible(top, height);
-                                }
-                            }
-                        }
-
-                        // Where a dragged row would land.
-                        if root.drag-from >= 0 && root.drag-to != root.drag-from: Rectangle {
-                            x: 0;
-                            y: root.drag-line-y;
-                            width: parent.width;
-                            height: 2px;
-                            border-radius: self.height / 2;
-                            background: Theme.colors.accent;
                         }
                     }
                 }
