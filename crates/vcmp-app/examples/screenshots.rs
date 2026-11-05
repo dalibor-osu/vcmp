@@ -27,13 +27,16 @@ use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{CoverSearch, PlayerControl, PlayerService, Presence, PresenceSink};
 use vcmp_app::tag_editor::TagEditor;
+use vcmp_app::theme::{BuiltIn, file};
+use vcmp_app::themes::Themes;
 use vcmp_app::updates;
 use vcmp_app::{
     AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeGroup,
     ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, Confirmation, CoverSearch as CoverPicker,
     CoverSearchStatus, LastfmState, LastfmStatus, PhotoSearch, PhotoSearchStatus, PlayerState,
     ReduceMotion, ReviewStatus, SelectionChange, ServerStatus, Setup, SleepTimer, TagChange,
-    TagEditorState, TagEditorStatus, TagField, Theme, ThemeMode, TrackSelection, UpdateState,
+    TagEditorState, TagEditorStatus, TagField, Theme, ThemeKind, Themes as ThemesState,
+    TrackSelection, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -43,7 +46,8 @@ use vcmp_playback::{Command, Event, NowPlaying, PlaybackState, QueueEntry, Queue
 
 struct Shot {
     name: &'static str,
-    mode: ThemeMode,
+    // The built-in theme by its id, with the pink accent.
+    theme: &'static str,
     // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Playlists, 4 Songs, 5 Folders,
     // 6 Settings, 7 About.
     page: i32,
@@ -81,6 +85,8 @@ struct Shot {
     queue_edge: bool,
     // The setup wizard is open on this step (0 Welcome to 4 Done).
     setup: Option<i32>,
+    // The window is tall enough for the whole Settings page.
+    tall: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -95,14 +101,14 @@ enum Agents {
 
 const fn shot(
     name: &'static str,
-    mode: ThemeMode,
+    theme: &'static str,
     page: i32,
     album: Option<i32>,
     tabs: usize,
 ) -> Shot {
     Shot {
         name,
-        mode,
+        theme,
         page,
         album,
         tabs,
@@ -120,17 +126,27 @@ const fn shot(
         confirm: false,
         queue_edge: false,
         setup: None,
+        tall: false,
+    }
+}
+
+/// Settings in a window tall enough for its Appearance section: the theme picker
+/// with an example theme file, the accents and the theme file buttons.
+const fn appearance(name: &'static str, theme: &'static str) -> Shot {
+    Shot {
+        tall: true,
+        ..shot(name, theme, 7, None, 0)
     }
 }
 
 /// Settings opens on its top; the AI agents section shows in the taller window these
 /// shots ask for.
-const fn agents(name: &'static str, mode: ThemeMode, agents: Agents) -> Shot {
+const fn agents(name: &'static str, theme: &'static str, agents: Agents) -> Shot {
     Shot {
         agents: Some(agents),
         ..shot(
             name,
-            mode,
+            theme,
             if matches!(agents, Agents::Settings | Agents::History) {
                 6
             } else {
@@ -142,191 +158,185 @@ const fn agents(name: &'static str, mode: ThemeMode, agents: Agents) -> Shot {
     }
 }
 
-const fn sleep(name: &'static str, mode: ThemeMode) -> Shot {
+const fn sleep(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         sleep: true,
-        ..shot(name, mode, 1, None, 0)
+        ..shot(name, theme, 1, None, 0)
     }
 }
 
-const fn selection(name: &'static str, mode: ThemeMode) -> Shot {
+const fn selection(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         selection: true,
-        ..shot(name, mode, 1, Some(ALBUM), 0)
+        ..shot(name, theme, 1, Some(ALBUM), 0)
     }
 }
 
-const fn photo_picker(name: &'static str, mode: ThemeMode) -> Shot {
+const fn photo_picker(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         photo_picker: true,
-        ..shot(name, mode, 2, None, 0)
+        ..shot(name, theme, 2, None, 0)
     }
 }
 
-const fn tags(name: &'static str, mode: ThemeMode) -> Shot {
+const fn tags(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         tags: true,
-        ..shot(name, mode, 1, Some(ALBUM), 0)
+        ..shot(name, theme, 1, Some(ALBUM), 0)
     }
 }
 
-const fn tags_waiting(name: &'static str, mode: ThemeMode) -> Shot {
+const fn tags_waiting(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         tags_waiting: true,
-        ..tags(name, mode)
+        ..tags(name, theme)
     }
 }
 
-const fn tags_confirm(name: &'static str, mode: ThemeMode) -> Shot {
+const fn tags_confirm(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         tags_confirm: true,
-        ..tags(name, mode)
+        ..tags(name, theme)
     }
 }
 
-const fn now_playing(name: &'static str, mode: ThemeMode) -> Shot {
+const fn now_playing(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         now_playing: true,
-        ..shot(name, mode, 1, None, 0)
+        ..shot(name, theme, 1, None, 0)
     }
 }
 
-const fn lastfm(name: &'static str, mode: ThemeMode, status: LastfmStatus) -> Shot {
+const fn lastfm(name: &'static str, theme: &'static str, status: LastfmStatus) -> Shot {
     Shot {
         lastfm: Some(status),
-        ..shot(name, mode, 7, None, 0)
+        ..shot(name, theme, 7, None, 0)
     }
 }
 
 /// The About page, with the note that a newer VCMP is out there and in the sidebar.
-const fn update(name: &'static str, mode: ThemeMode) -> Shot {
+const fn update(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         update: true,
-        ..shot(name, mode, 8, None, 0)
+        ..shot(name, theme, 8, None, 0)
     }
 }
 
-const fn confirm(name: &'static str, mode: ThemeMode) -> Shot {
+const fn confirm(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         confirm: true,
-        ..shot(name, mode, 7, None, 0)
+        ..shot(name, theme, 7, None, 0)
     }
 }
 
 /// An album with the queue panel, the pointer at the panel's right edge.
-const fn queue_edge(name: &'static str, mode: ThemeMode) -> Shot {
+const fn queue_edge(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         queue_edge: true,
-        ..shot(name, mode, 1, Some(ALBUM), 0)
+        ..shot(name, theme, 1, Some(ALBUM), 0)
     }
 }
 
 /// The setup wizard over the Albums page, as in a build with Last.fm.
-const fn setup(name: &'static str, mode: ThemeMode, step: i32) -> Shot {
+const fn setup(name: &'static str, theme: &'static str, step: i32) -> Shot {
     Shot {
         setup: Some(step),
         lastfm: Some(LastfmStatus::Disconnected),
-        ..shot(name, mode, 1, None, 0)
+        ..shot(name, theme, 1, None, 0)
     }
 }
 
-const fn cover_picker(name: &'static str, mode: ThemeMode) -> Shot {
+const fn cover_picker(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         cover_picker: true,
-        ..shot(name, mode, 1, None, 0)
+        ..shot(name, theme, 1, None, 0)
     }
 }
 
 const SHOTS: &[Shot] = &[
     // First, from the start: Search, Albums, Artists, Playlists, Songs, Folders,
     // Settings, About, then the grid.
-    shot("focus-grid-dark", ThemeMode::Dark, 1, None, 9),
-    shot("albums-light", ThemeMode::Light, 1, None, 0),
-    shot("albums-dark", ThemeMode::Dark, 1, None, 0),
-    shot("album-light", ThemeMode::Light, 1, Some(ALBUM), 0),
-    shot("album-dark", ThemeMode::Dark, 1, Some(ALBUM), 0),
-    shot("artists-light", ThemeMode::Light, 2, None, 0),
-    shot("artists-dark", ThemeMode::Dark, 2, None, 0),
-    shot("artist-light", ThemeMode::Light, 2, Some(ARTIST), 0),
-    shot("artist-dark", ThemeMode::Dark, 2, Some(ARTIST), 0),
-    shot("search-light", ThemeMode::Light, 0, None, 0),
-    shot("search-dark", ThemeMode::Dark, 0, None, 0),
-    shot("playlists-light", ThemeMode::Light, 3, None, 0),
-    shot("playlists-dark", ThemeMode::Dark, 3, None, 0),
+    shot("focus-grid-dark", "dark", 1, None, 9),
+    shot("albums-light", "light", 1, None, 0),
+    shot("albums-dark", "dark", 1, None, 0),
+    shot("albums-darker", "darker", 1, None, 0),
+    shot("albums-midnight", "midnight", 1, None, 0),
+    shot("album-light", "light", 1, Some(ALBUM), 0),
+    shot("album-dark", "dark", 1, Some(ALBUM), 0),
+    shot("artists-light", "light", 2, None, 0),
+    shot("artists-dark", "dark", 2, None, 0),
+    shot("artist-light", "light", 2, Some(ARTIST), 0),
+    shot("artist-dark", "dark", 2, Some(ARTIST), 0),
+    shot("search-light", "light", 0, None, 0),
+    shot("search-dark", "dark", 0, None, 0),
+    shot("playlists-light", "light", 3, None, 0),
+    shot("playlists-dark", "dark", 3, None, 0),
     // Favourites comes first in the grid, the owner's playlists after it.
-    shot("favourites-light", ThemeMode::Light, 3, Some(0), 0),
-    shot("favourites-dark", ThemeMode::Dark, 3, Some(0), 0),
-    shot("playlist-light", ThemeMode::Light, 3, Some(1), 0),
-    shot("playlist-dark", ThemeMode::Dark, 3, Some(1), 0),
-    shot("labels-light", ThemeMode::Light, 4, None, 0),
-    shot("labels-dark", ThemeMode::Dark, 4, None, 0),
-    shot("songs-light", ThemeMode::Light, 5, None, 0),
-    shot("songs-dark", ThemeMode::Dark, 5, None, 0),
-    shot("folders-light", ThemeMode::Light, 6, None, 0),
-    shot("folders-dark", ThemeMode::Dark, 6, None, 0),
-    queue_edge("queue-edge-light", ThemeMode::Light),
-    queue_edge("queue-edge-dark", ThemeMode::Dark),
-    now_playing("now-playing-light", ThemeMode::Light),
-    now_playing("now-playing-dark", ThemeMode::Dark),
-    sleep("sleep-timer-light", ThemeMode::Light),
-    sleep("sleep-timer-dark", ThemeMode::Dark),
-    cover_picker("cover-picker-light", ThemeMode::Light),
-    cover_picker("cover-picker-dark", ThemeMode::Dark),
-    photo_picker("photo-picker-light", ThemeMode::Light),
-    photo_picker("photo-picker-dark", ThemeMode::Dark),
-    selection("selection-light", ThemeMode::Light),
-    selection("selection-dark", ThemeMode::Dark),
-    tags("tags-light", ThemeMode::Light),
-    tags("tags-dark", ThemeMode::Dark),
-    tags_waiting("tags-waiting-light", ThemeMode::Light),
-    tags_waiting("tags-waiting-dark", ThemeMode::Dark),
-    tags_confirm("tags-confirm-light", ThemeMode::Light),
-    tags_confirm("tags-confirm-dark", ThemeMode::Dark),
-    shot("settings-light", ThemeMode::Light, 7, None, 0),
-    shot("settings-dark", ThemeMode::Dark, 7, None, 0),
-    lastfm("lastfm-light", ThemeMode::Light, LastfmStatus::Connected),
-    lastfm("lastfm-dark", ThemeMode::Dark, LastfmStatus::Connected),
-    lastfm(
-        "lastfm-waiting-light",
-        ThemeMode::Light,
-        LastfmStatus::Waiting,
-    ),
-    lastfm(
-        "lastfm-waiting-dark",
-        ThemeMode::Dark,
-        LastfmStatus::Waiting,
-    ),
-    shot("about-light", ThemeMode::Light, 8, None, 0),
-    shot("about-dark", ThemeMode::Dark, 8, None, 0),
-    update("update-light", ThemeMode::Light),
-    update("update-dark", ThemeMode::Dark),
-    shot("focus-nav-light", ThemeMode::Light, 7, None, 1),
-    shot("focus-theme-dark", ThemeMode::Dark, 7, None, 3),
-    shot("focus-switch-light", ThemeMode::Light, 7, None, 1),
-    agents("agents-light", ThemeMode::Light, Agents::Settings),
-    agents("agents-dark", ThemeMode::Dark, Agents::Settings),
-    agents("agents-history-light", ThemeMode::Light, Agents::History),
-    agents("agents-history-dark", ThemeMode::Dark, Agents::History),
-    agents("review-light", ThemeMode::Light, Agents::Review),
-    agents("review-dark", ThemeMode::Dark, Agents::Review),
-    agents("review-done-light", ThemeMode::Light, Agents::ReviewDone),
-    agents(
-        "review-playlist-dark",
-        ThemeMode::Dark,
-        Agents::PlaylistDeletion,
-    ),
-    confirm("confirm-dialog-light", ThemeMode::Light),
-    confirm("confirm-dialog-dark", ThemeMode::Dark),
-    setup("setup-welcome-light", ThemeMode::Light, 0),
-    setup("setup-welcome-dark", ThemeMode::Dark, 0),
-    setup("setup-folders-light", ThemeMode::Light, 1),
-    setup("setup-folders-dark", ThemeMode::Dark, 1),
-    setup("setup-look-light", ThemeMode::Light, 2),
-    setup("setup-look-dark", ThemeMode::Dark, 2),
-    setup("setup-online-light", ThemeMode::Light, 3),
-    setup("setup-online-dark", ThemeMode::Dark, 3),
-    setup("setup-done-light", ThemeMode::Light, 4),
-    setup("setup-done-dark", ThemeMode::Dark, 4),
+    shot("favourites-light", "light", 3, Some(0), 0),
+    shot("favourites-dark", "dark", 3, Some(0), 0),
+    shot("playlist-light", "light", 3, Some(1), 0),
+    shot("playlist-dark", "dark", 3, Some(1), 0),
+    shot("labels-light", "light", 4, None, 0),
+    shot("labels-dark", "dark", 4, None, 0),
+    shot("songs-light", "light", 5, None, 0),
+    shot("songs-dark", "dark", 5, None, 0),
+    shot("folders-light", "light", 6, None, 0),
+    shot("folders-dark", "dark", 6, None, 0),
+    queue_edge("queue-edge-light", "light"),
+    queue_edge("queue-edge-dark", "dark"),
+    now_playing("now-playing-light", "light"),
+    now_playing("now-playing-dark", "dark"),
+    sleep("sleep-timer-light", "light"),
+    sleep("sleep-timer-dark", "dark"),
+    cover_picker("cover-picker-light", "light"),
+    cover_picker("cover-picker-dark", "dark"),
+    photo_picker("photo-picker-light", "light"),
+    photo_picker("photo-picker-dark", "dark"),
+    selection("selection-light", "light"),
+    selection("selection-dark", "dark"),
+    tags("tags-light", "light"),
+    tags("tags-dark", "dark"),
+    tags_waiting("tags-waiting-light", "light"),
+    tags_waiting("tags-waiting-dark", "dark"),
+    tags_confirm("tags-confirm-light", "light"),
+    tags_confirm("tags-confirm-dark", "dark"),
+    shot("settings-light", "light", 7, None, 0),
+    shot("settings-dark", "dark", 7, None, 0),
+    shot("settings-darker", "darker", 7, None, 0),
+    shot("settings-midnight", "midnight", 7, None, 0),
+    appearance("appearance-light", "light"),
+    appearance("appearance-dark", "dark"),
+    lastfm("lastfm-light", "light", LastfmStatus::Connected),
+    lastfm("lastfm-dark", "dark", LastfmStatus::Connected),
+    lastfm("lastfm-waiting-light", "light", LastfmStatus::Waiting),
+    lastfm("lastfm-waiting-dark", "dark", LastfmStatus::Waiting),
+    shot("about-light", "light", 8, None, 0),
+    shot("about-dark", "dark", 8, None, 0),
+    update("update-light", "light"),
+    update("update-dark", "dark"),
+    shot("focus-nav-light", "light", 7, None, 1),
+    shot("focus-theme-dark", "dark", 7, None, 3),
+    shot("focus-switch-light", "light", 7, None, 1),
+    agents("agents-light", "light", Agents::Settings),
+    agents("agents-dark", "dark", Agents::Settings),
+    agents("agents-history-light", "light", Agents::History),
+    agents("agents-history-dark", "dark", Agents::History),
+    agents("review-light", "light", Agents::Review),
+    agents("review-dark", "dark", Agents::Review),
+    agents("review-done-light", "light", Agents::ReviewDone),
+    agents("review-playlist-dark", "dark", Agents::PlaylistDeletion),
+    confirm("confirm-dialog-light", "light"),
+    confirm("confirm-dialog-dark", "dark"),
+    setup("setup-welcome-light", "light", 0),
+    setup("setup-welcome-dark", "dark", 0),
+    setup("setup-folders-light", "light", 1),
+    setup("setup-folders-dark", "dark", 1),
+    setup("setup-look-light", "light", 2),
+    setup("setup-look-dark", "dark", 2),
+    setup("setup-online-light", "light", 3),
+    setup("setup-online-dark", "dark", 3),
+    setup("setup-done-light", "light", 4),
+    setup("setup-done-dark", "dark", 4),
 ];
 
 /// Grid position of the artist the artist shots open (set `VCMP_SHOT_ARTIST` to pick
@@ -367,8 +377,9 @@ fn press(window: &AppWindow, key: Key) {
 
 fn prepare(window: &AppWindow, shot: &Shot) {
     window.global::<Confirmation>().invoke_answer(false);
-    let theme = window.global::<Theme>();
-    theme.set_mode(shot.mode);
+    window
+        .global::<ThemesState>()
+        .invoke_choose(shot.theme.into());
     window.set_selected_index(shot.page);
     let player = window.global::<PlayerState>();
     player.set_now_playing_open(shot.now_playing);
@@ -490,6 +501,9 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     // The album shots show the queue panel too.
     window.set_queue_open(shot.album.is_some() && !shot.tags);
     show_agents(window, shot.agents);
+    if shot.tall {
+        window.window().set_size(LogicalSize::new(1100.0, 2600.0));
+    }
     let wizard = window.global::<Setup>();
     match shot.setup {
         Some(step) => {
@@ -799,6 +813,13 @@ fn main() -> Result<(), slint::PlatformError> {
     std::fs::create_dir_all(&out_dir).expect("output directory");
 
     let window = vcmp_app::create_window()?;
+    // Theme files from a folder of the shots' own, with one example; the shots'
+    // themes are not saved.
+    let themes = out_dir.join("themes");
+    std::fs::create_dir_all(&themes).expect("themes folder");
+    let example = file::write("Example", ThemeKind::Dark, &BuiltIn::Midnight.palette(6));
+    std::fs::write(themes.join("example.toml"), example).expect("example theme");
+    Themes::connect(&window, None, Some(themes));
     // The same wiring as the app: the albums, plus music folders and scanning (an
     // automatic-update library rescans at startup, as the app would). Playback goes
     // to a silent stand-in, and the bar shows the shot album's first track as playing.

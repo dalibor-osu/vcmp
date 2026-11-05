@@ -7,11 +7,13 @@
 use i_slint_backend_testing::{AccessibleRole, ElementHandle, ElementRoot};
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, SharedString};
-use vcmp_app::{AppWindow, Page, ReduceMotion, Theme, ThemeMode, WindowFrame, theme};
+use vcmp_app::themes::Themes;
+use vcmp_app::{AppWindow, Page, ReduceMotion, Theme, WindowFrame, theme};
 
 fn open_window() -> AppWindow {
     i_slint_backend_testing::init_no_event_loop();
     let window = vcmp_app::create_window().expect("window");
+    Themes::connect(&window, None, None);
     window.show().expect("show");
     window
 }
@@ -32,7 +34,7 @@ fn press(window: &AppWindow, text: impl Into<SharedString>) {
         .dispatch_event(WindowEvent::KeyReleased { text });
 }
 
-/// One option of the Reduce motion choice; "System" is also a theme option.
+/// One option of the Reduce motion choice.
 fn motion_option(window: &AppWindow, label: &str) -> ElementHandle {
     let label = label.to_owned();
     find(window, AccessibleRole::RadioGroup, "Reduce motion")
@@ -84,12 +86,14 @@ fn clicking_navigation_switches_pages() {
 fn clicking_settings_controls_changes_them() {
     let window = open_window();
     // Tall enough that the Appearance section clears the player bar without scrolling.
-    window.window().set_size(LogicalSize::new(1100.0, 1000.0));
+    window.window().set_size(LogicalSize::new(1100.0, 1400.0));
     let theme = window.global::<Theme>();
     open_page(&window, "Settings");
 
     find(&window, AccessibleRole::RadioButton, "Dark").mock_single_click(PointerEventButton::Left);
-    assert_eq!(theme.get_mode(), ThemeMode::Dark);
+    assert!(theme.get_dark());
+    find(&window, AccessibleRole::RadioButton, "Teal").mock_single_click(PointerEventButton::Left);
+    assert_eq!(theme.get_colors().accent, theme::ACCENTS[6].dark);
 
     motion_option(&window, "On").mock_single_click(PointerEventButton::Left);
     assert_eq!(theme.get_motion_choice(), ReduceMotion::On);
@@ -99,11 +103,7 @@ fn clicking_settings_controls_changes_them() {
     assert!(!theme.get_reduced_motion());
     motion_option(&window, "System").mock_single_click(PointerEventButton::Left);
     assert_eq!(theme.get_motion_choice(), ReduceMotion::System);
-    assert_eq!(
-        theme.get_mode(),
-        ThemeMode::Dark,
-        "the theme's System stays off"
-    );
+    assert!(theme.get_dark(), "the theme stays");
 }
 
 #[test]
@@ -126,24 +126,32 @@ fn everything_works_from_the_keyboard() {
 
     // From the Settings entry: About, Favourites below the sections, Run setup again,
     // Add folder, Update automatically, the shuffle choice, the output device, then
-    // the theme choice. Without folders there is no Rescan button, and without a
-    // player service no Discord switch.
+    // the theme choice. Without folders there is no Rescan button, without a player
+    // service no Discord switch, and without a themes folder no theme file buttons.
     for _ in 0..8 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);
-    assert_eq!(theme.get_mode(), ThemeMode::Light);
-    press(&window, Key::RightArrow);
-    assert_eq!(theme.get_mode(), ThemeMode::Dark);
-    press(&window, Key::RightArrow);
+    assert!(theme.get_dark());
+    assert_eq!(theme.get_colors(), theme::dark());
+    for _ in 0..3 {
+        press(&window, Key::RightArrow);
+    }
     assert_eq!(
-        theme.get_mode(),
-        ThemeMode::Dark,
-        "the last option stays selected"
+        theme.get_colors(),
+        theme::BuiltIn::Midnight.palette(0),
+        "the last theme stays selected"
     );
-    press(&window, Key::LeftArrow);
-    press(&window, Key::LeftArrow);
-    assert_eq!(theme.get_mode(), ThemeMode::System);
+    for _ in 0..3 {
+        press(&window, Key::LeftArrow);
+    }
+    assert!(!theme.get_dark());
+    assert_eq!(theme.get_colors(), theme::light());
+
+    // The accent: Mauve after Pink.
+    press(&window, Key::Tab);
+    press(&window, Key::RightArrow);
+    assert_eq!(Some(theme.get_colors().accent), theme::ACCENTS[1].light);
 
     // Zoom out and Zoom in, then Reduce motion.
     press(&window, Key::Tab);
@@ -167,18 +175,37 @@ fn theme_choice_selects_the_palette() {
     let theme = window.global::<Theme>();
     open_page(&window, "Settings");
 
+    // The headless backend reports no system colour scheme: the first start's pick
+    // waits, on the light theme.
+    assert_eq!(theme.get_colors(), theme::light());
+
     find(&window, AccessibleRole::RadioButton, "Dark").invoke_accessible_default_action();
     assert!(theme.get_dark());
     assert_eq!(theme.get_colors(), theme::dark());
+
+    find(&window, AccessibleRole::RadioButton, "Midnight").invoke_accessible_default_action();
+    assert!(theme.get_dark());
+    assert_eq!(theme.get_colors(), theme::BuiltIn::Midnight.palette(0));
 
     find(&window, AccessibleRole::RadioButton, "Light").invoke_accessible_default_action();
     assert!(!theme.get_dark());
     assert_eq!(theme.get_colors(), theme::light());
 
-    // The headless backend reports no system colour scheme, which counts as light.
-    find(&window, AccessibleRole::RadioButton, "System").invoke_accessible_default_action();
-    assert_eq!(theme.get_mode(), ThemeMode::System);
-    assert_eq!(theme.get_colors(), theme::light());
+    // Yellow is offered on the dark themes only.
+    assert!(
+        ElementHandle::find_by_accessible_label(&window, "Yellow")
+            .next()
+            .is_none()
+    );
+    find(&window, AccessibleRole::RadioButton, "Darker").invoke_accessible_default_action();
+    find(&window, AccessibleRole::RadioButton, "Yellow").invoke_accessible_default_action();
+    assert_eq!(theme.get_colors(), theme::BuiltIn::Darker.palette(4));
+    find(&window, AccessibleRole::RadioButton, "Light").invoke_accessible_default_action();
+    assert_eq!(
+        theme.get_colors(),
+        theme::light(),
+        "pink stands in for yellow on the light theme"
+    );
 }
 
 #[test]

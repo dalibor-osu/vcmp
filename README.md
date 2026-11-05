@@ -34,7 +34,8 @@ A player for the music files on your own drives, for Windows 10 and newer and Li
   playlist's page.
 - Works with media keys and your system's media controls, shows what you play on
   Discord and scrobbles to Last.fm.
-- Has light and dark themes, a zoom for large monitors, and uses less motion when
+- Has four themes (one light, three dark) with an accent colour to pick, reads
+  your own theme files, has a zoom for large monitors, and uses less motion when
   your system asks for it.
 - Tells you when a new version is out, unless you turn that off in Settings.
 - Lets AI agents such as Claude Code look through your library, suggest fixes to its

@@ -13,6 +13,7 @@ use vcmp_app::library_view::LibraryView;
 use vcmp_app::navigation::History;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_app::tag_editor::TagEditor;
+use vcmp_app::themes::Themes;
 use vcmp_app::{Setup, updates};
 use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_integrations::fanart::PhotoPicker;
@@ -38,6 +39,7 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         Ok((library, paths)) => {
             let library = Rc::new(library);
+            Themes::connect(&window, Some(library.clone()), Some(themes_folder(&paths)));
             let mut first_start = false;
             match LibraryView::connect(&window, library.clone()) {
                 Ok(view) => {
@@ -209,6 +211,7 @@ fn main() -> Result<(), slint::PlatformError> {
         Err(error) => {
             log::error!("could not open the library database: {error}");
             window.set_library_failed(true);
+            Themes::connect(&window, None, None);
             updates::connect(&window, None, updates::check_online);
         }
     }
@@ -239,6 +242,14 @@ fn relay() {
         log::error!("the relay stopped: {error}");
         std::process::exit(1);
     }
+}
+
+/// `themes/` next to the library database, in the data directory or `$VCMP_HOME`.
+fn themes_folder(paths: &LibraryPaths) -> PathBuf {
+    paths
+        .database
+        .parent()
+        .map_or_else(|| PathBuf::from("themes"), |data| data.join("themes"))
 }
 
 /// The platform's data and cache directories, or `$VCMP_HOME` (holding

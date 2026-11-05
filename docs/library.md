@@ -45,7 +45,7 @@ the CHECK on its kind, doesn't delete the rows that refer to it.
 
 | Table | Holds |
 |---|---|
-| `settings` | Key/value preferences: `library.auto_update`, `ui.theme`, `ui.reduced_motion` (`system`, `on` or `off`), `ui.setup_done` (the setup wizard was shown, or the library had folders when it came; [ui.md](ui.md#setup-wizard)) |
+| `settings` | Key/value preferences: `library.auto_update`, `ui.theme` (the theme and accent as JSON; [ui.md](ui.md#themes)), `ui.reduced_motion` (`system`, `on` or `off`), `ui.setup_done` (the setup wizard was shown, or the library had folders when it came; [ui.md](ui.md#setup-wizard)) |
 | `source_dirs` | Source directories (canonical path) and their `recursive` flag |
 | `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration |
 | `albums` | Album groups, their artist, year and artwork state, and whether the album is an artist's Unknown album (`unknown`, version 9) |

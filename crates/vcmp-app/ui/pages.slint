@@ -5,7 +5,8 @@ import { Setup } from "setup.slint";
 import { LibraryState } from "library-state.slint";
 import { AddFolderButton, LibrarySection } from "library-settings.slint";
 import { LastfmRow } from "lastfm-settings.slint";
-import { DiscordRow, MotionRow, ThemeRow, ZoomRow } from "setting-rows.slint";
+import { DiscordRow, MotionRow, ZoomRow } from "setting-rows.slint";
+import { ThemeRows } from "themes.slint";
 import { LastfmState } from "lastfm-state.slint";
 import { PlayerState, ShuffleKind } from "player-state.slint";
 import { AlbumGrid, AlbumTile, CardGrid } from "album-grid.slint";
@@ -168,7 +169,7 @@ export component SettingsPage inherits Page {
             text: @tr("Appearance");
         }
 
-        ThemeRow { }
+        ThemeRows { }
 
         ZoomRow { }
 

@@ -1,7 +1,7 @@
 // The single source of colours, spacing, type sizes and motion for the whole UI.
 // Components must not contain colour literals or durations of their own (enforced by
-// tests/ui_invariants.rs). Colour values are supplied from Rust (src/theme.rs), so a
-// future custom theme only has to set different palettes.
+// tests/ui_invariants.rs). Colour values are supplied from Rust (src/theme/), which
+// hands over the one palette of the chosen theme.
 
 import { Palette } from "std-widgets.slint";
 
@@ -28,19 +28,20 @@ export struct ThemePalette {
     scrim: color,
 }
 
-export enum ThemeMode { system, light, dark }
+// Whether a theme is light or dark. It picks the label colours and the colour scheme
+// of the std widgets and the window's title bar.
+export enum ThemeKind { light, dark }
 
 // The Reduce motion choice in Settings: as the operating system asks, always or never.
 export enum ReduceMotion { system, on, off }
 
 export global Theme {
-    in-out property <ThemeMode> mode: ThemeMode.system;
     in-out property <ReduceMotion> motion-choice: ReduceMotion.system;
     // The operating system asks apps to reduce motion. Set at start and on every
     // change (src/preferences.rs); stays false where the system has no such setting.
     in property <bool> system-reduces-motion: false;
-    // Called after the user changes `mode`, `motion-choice` or opens or closes the
-    // queue panel, so they can be saved.
+    // Called after the user changes `motion-choice` or opens or closes the queue
+    // panel, so they can be saved. The theme is saved on its own (src/themes.rs).
     callback preferences-changed();
     // The UI's size as a share of the operating system's scale (Settings → Zoom).
     // Rust applies it to the window (src/zoom.rs); `zoom-by` steps it: 1 larger,
@@ -53,12 +54,23 @@ export global Theme {
     // the mouse leaves no ring behind (like :focus-visible on the web).
     in-out property <bool> keyboard-navigation: false;
 
-    in property <ThemePalette> light-colors;
-    in property <ThemePalette> dark-colors;
-
-    // An unknown system scheme counts as light.
-    out property <bool> dark: root.mode == ThemeMode.system ? Palette.color-scheme == ColorScheme.dark : root.mode == ThemeMode.dark;
-    out property <ThemePalette> colors: root.dark ? root.dark-colors : root.light-colors;
+    // The chosen theme's palette and kind, set from Rust (src/theme/mod.rs).
+    in property <ThemePalette> colors;
+    in property <ThemeKind> kind: ThemeKind.light;
+    out property <bool> dark: root.kind == ThemeKind.dark;
+    // The operating system's scheme, as long as VCMP hasn't set one: read once, to
+    // pick Light or Dark on the first start. `system-scheme-known` turns true once
+    // the system has said.
+    out property <bool> system-dark: Palette.color-scheme == ColorScheme.dark;
+    out property <bool> system-scheme-known: Palette.color-scheme != ColorScheme.unknown;
+    // Called whenever the system's scheme changes until VCMP sets its own
+    // (`AppWindow`, `changed system-scheme`).
+    callback system-scheme-changed();
+    // The std widgets and the title bar follow the theme's kind from now on, no
+    // longer the system.
+    public function apply-scheme() {
+        Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
+    }
     // Transitions are off: the user's choice, or the system's under "System".
     out property <bool> reduced-motion: root.motion-choice == ReduceMotion.system ? root.system-reduces-motion : root.motion-choice == ReduceMotion.on;
 

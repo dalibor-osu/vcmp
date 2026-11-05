@@ -1,0 +1,525 @@
+import { Theme } from "theme.slint";
+import { Button, FocusRing } from "components.slint";
+import { LabelWords } from "labels.slint";
+
+// A theme in the picker: its colours as a small preview. `id` is a built-in theme's
+// id (`light`, `dark`, `darker`, `midnight`) or `file:` and a theme file's name
+// without `.toml`. `built-in` is the built-in theme's place in that order, -1 for a
+// theme file; `name` is a theme file's own name and empty for the built-ins, whose
+// names are translated here.
+export struct ThemeTile {
+    id: string,
+    built-in: int,
+    name: string,
+    base: color,
+    mantle: color,
+    surface: color,
+    text: color,
+    accent: color,
+}
+
+// An accent the chosen theme can take: the hue's place in the label palette
+// (`LabelWords.colour-name`) and its colour on this theme.
+export struct AccentTile {
+    hue: int,
+    colour: color,
+}
+
+// What is wrong with a theme file in the themes folder.
+export enum ThemeFileProblem {
+    // The file couldn't be read.
+    unreadable,
+    // Not TOML; `detail` holds the reader's message.
+    not-toml,
+    // No `name`.
+    no-name,
+    // `kind` is missing or neither `light` nor `dark`.
+    bad-kind,
+    // A colour of the palette is missing; `detail` names it.
+    missing-colour,
+    // A colour isn't `#rrggbb` (`#rrggbbaa` for scrim); `detail` names it.
+    bad-colour,
+}
+
+export struct InvalidThemeFile {
+    file: string,
+    problem: ThemeFileProblem,
+    detail: string,
+}
+
+// A pair of colours of the chosen theme file below WCAG AA: the pair by its place in
+// `ThemeWords.pair-name`, its contrast and the contrast it needs.
+export struct ContrastFailure {
+    pair: int,
+    ratio: float,
+    needed: float,
+}
+
+export global Themes {
+    // The built-in themes first, then the valid theme files by name; and the
+    // built-in themes alone, for the setup wizard.
+    in property <[ThemeTile]> tiles;
+    in property <[ThemeTile]> built-in-tiles;
+    // The id of the theme shown now, and its place in `tiles`.
+    in property <string> current;
+    in property <int> current-index;
+    // The chosen theme is a theme file, which brings its own accent.
+    in property <bool> file-chosen;
+    // The accents the chosen built-in theme can take, and the chosen one's place
+    // among them.
+    in property <[AccentTile]> accents;
+    in property <int> accent;
+    // There is a themes folder to read theme files from.
+    in property <bool> folder-available;
+    in property <[InvalidThemeFile]> invalid;
+    // The chosen theme file is gone or can't be read: its file name, and the built-in
+    // theme shown instead. Empty while nothing is missing.
+    in property <string> missing;
+    in property <[ContrastFailure]> failures;
+    // "Save as theme file" wrote this file; empty until then.
+    in property <string> saved-as;
+    // Saving or opening the folder failed; the system's message.
+    in property <string> folder-error;
+    callback choose(string);
+    callback choose-accent(int);
+    callback reload();
+    callback open-folder();
+    callback save-copy();
+}
+
+// The words for themes, for people and assistive technology.
+export global ThemeWords {
+    public pure function name(tile: ThemeTile) -> string {
+        if tile.built-in == 0 { return @tr("Light"); }
+        if tile.built-in == 1 { return @tr("Dark"); }
+        if tile.built-in == 2 { return @tr("Darker"); }
+        if tile.built-in == 3 { return @tr("Midnight"); }
+        tile.name
+    }
+
+    // The pairs the contrast check reads (src/theme/contrast.rs, `PAIRS`), in order.
+    public pure function pair-name(pair: int) -> string {
+        if pair == 0 { return @tr("text on base"); }
+        if pair == 1 { return @tr("text on mantle"); }
+        if pair == 2 { return @tr("text on surface"); }
+        if pair == 3 { return @tr("muted text on base"); }
+        if pair == 4 { return @tr("muted text on mantle"); }
+        if pair == 5 { return @tr("accent text on base"); }
+        if pair == 6 { return @tr("accent text on mantle"); }
+        if pair == 7 { return @tr("accent text on surface"); }
+        if pair == 8 { return @tr("on-accent on accent"); }
+        if pair == 9 { return @tr("error text on base"); }
+        if pair == 10 { return @tr("outline on base"); }
+        if pair == 11 { return @tr("outline on mantle"); }
+        if pair == 12 { return @tr("accent on surface"); }
+        if pair == 13 { return @tr("a muted control on base"); }
+        @tr("Pair {}", pair + 1)
+    }
+
+    public pure function failure(failure: ContrastFailure) -> string {
+        @tr("{0}: {1}:1, needs {2}:1", ThemeWords.pair-name(failure.pair), round(failure.ratio * 100) / 100, failure.needed)
+    }
+
+    public pure function problem(file: InvalidThemeFile) -> string {
+        if file.problem == ThemeFileProblem.unreadable { return @tr("{}: can't be read.", file.file); }
+        if file.problem == ThemeFileProblem.not-toml { return @tr("{0}: not a TOML file ({1}).", file.file, file.detail); }
+        if file.problem == ThemeFileProblem.no-name { return @tr("{}: has no name.", file.file); }
+        if file.problem == ThemeFileProblem.bad-kind { return @tr("{}: kind must be \"light\" or \"dark\".", file.file); }
+        if file.problem == ThemeFileProblem.missing-colour { return @tr("{0}: the colour {1} is missing.", file.file, file.detail); }
+        @tr("{0}: the colour {1} isn't written as #rrggbb.", file.file, file.detail)
+    }
+}
+
+// A theme's colours in small: its base, a mantle strip, a surface row with a line of
+// text and an accent mark.
+component ThemeSwatch inherits Rectangle {
+    in property <ThemeTile> tile;
+    in property <length> preview-height;
+
+    border-radius: Theme.radius-m;
+    background: root.tile.base;
+    clip: true;
+    accessible-role: none;
+
+    Rectangle {
+        x: 0;
+        width: parent.width * 0.3;
+        background: root.tile.mantle;
+    }
+    Rectangle {
+        x: parent.width * 0.3 + Theme.space-s;
+        y: Theme.space-s;
+        width: parent.width * 0.7 - 2 * Theme.space-s;
+        height: parent.height * 0.3;
+        border-radius: Theme.radius-s;
+        background: root.tile.surface;
+
+        Rectangle {
+            x: Theme.space-xs;
+            y: (parent.height - self.height) / 2;
+            width: parent.width * 0.5;
+            height: 3px;
+            border-radius: self.height / 2;
+            background: root.tile.text;
+        }
+    }
+    Rectangle {
+        x: parent.width * 0.3 + Theme.space-s;
+        y: parent.height * 0.3 + 2 * Theme.space-s;
+        width: parent.width * 0.35;
+        height: 3px;
+        border-radius: self.height / 2;
+        background: root.tile.text;
+    }
+    Rectangle {
+        x: parent.width - self.width - Theme.space-s;
+        y: parent.height - self.height - Theme.space-s;
+        width: Theme.space-l;
+        height: Theme.space-l;
+        border-radius: self.width / 2;
+        background: root.tile.accent;
+    }
+    // The palette's base may be close to the page's: an outline keeps the tile's
+    // edge visible.
+    Rectangle {
+        border-radius: parent.border-radius;
+        border-width: 1px;
+        border-color: Theme.colors.outline;
+    }
+}
+
+// The themes as one tab stop, in rows that wrap: Left and Right move the choice.
+// Only the built-in themes while `files` is false (the setup wizard).
+component ThemeChoice {
+    in property <bool> files: true;
+
+    private property <[ThemeTile]> shown: root.files ? Themes.tiles : Themes.built-in-tiles;
+    private property <int> count: root.shown.length;
+    // The built-in themes come first, so the place is the same in both models.
+    private property <int> current: Themes.current-index < root.count ? Themes.current-index : -1;
+    private property <length> tile-width: 120px;
+    private property <length> tile-height: 72px;
+    private property <length> cell-width: root.tile-width + 2 * Theme.space-xs;
+    private property <length> cell-height: root.tile-height + 2 * Theme.space-xs + Theme.space-xs + Theme.font-body * 1.6;
+    private property <int> columns: max(1, floor((root.width + Theme.space-s) / (root.cell-width + Theme.space-s)));
+
+    function choose(index: int) {
+        if index >= 0 && index < root.count && index != root.current {
+            Themes.choose(root.shown[index].id);
+        }
+    }
+
+    min-width: root.cell-width;
+    preferred-width: 6 * (root.cell-width + Theme.space-s);
+    min-height: ceil(root.count / root.columns) * (root.cell-height + Theme.space-s) - Theme.space-s;
+    accessible-role: radio-group;
+    accessible-label: @tr("Theme");
+    forward-focus: focus;
+
+    for tile[index] in root.shown: Rectangle {
+        x: mod(index, root.columns) * (root.cell-width + Theme.space-s);
+        y: floor(index / root.columns) * (root.cell-height + Theme.space-s);
+        width: root.cell-width;
+        height: root.cell-height;
+        accessible-role: radio-button;
+        accessible-label: ThemeWords.name(tile);
+        accessible-checkable: true;
+        accessible-checked: index == root.current;
+        accessible-item-index: index;
+        accessible-action-default => {
+            root.choose(index);
+        }
+
+        // The chosen theme has a ring around it, and its name is strong.
+        Rectangle {
+            y: 0;
+            height: root.tile-height + 2 * Theme.space-xs;
+            border-radius: Theme.radius-l;
+            border-width: index == root.current ? 2px : 0px;
+            border-color: Theme.colors.text;
+        }
+        ThemeSwatch {
+            x: Theme.space-xs;
+            y: Theme.space-xs;
+            width: root.tile-width;
+            height: root.tile-height;
+            tile: tile;
+        }
+        Text {
+            y: root.tile-height + 3 * Theme.space-xs;
+            width: parent.width;
+            text: ThemeWords.name(tile);
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            font-weight: index == root.current ? Theme.weight-strong : Theme.weight-regular;
+            horizontal-alignment: center;
+            overflow: elide;
+            accessible-role: none;
+        }
+        TouchArea {
+            clicked => {
+                Theme.keyboard-navigation = false;
+                root.choose(index);
+            }
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                root.choose(root.current - 1);
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                root.choose(root.current + 1);
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: min(root.width, root.count * (root.cell-width + Theme.space-s) - Theme.space-s);
+        around-height: root.height;
+        radius: Theme.radius-l;
+    }
+}
+
+// The accents as one tab stop: Left and Right move the choice.
+component AccentChoice {
+    private property <length> swatch: 28px;
+
+    function choose(index: int) {
+        if index >= 0 && index < Themes.accents.length && index != Themes.accent {
+            Themes.choose-accent(Themes.accents[index].hue);
+        }
+    }
+
+    accessible-role: radio-group;
+    accessible-label: @tr("Accent");
+    forward-focus: focus;
+
+    HorizontalLayout {
+        spacing: Theme.space-xs;
+        alignment: start;
+
+        for colour[index] in Themes.accents: Rectangle {
+            width: root.swatch + 2 * Theme.space-xs;
+            height: root.swatch + 2 * Theme.space-xs;
+            accessible-role: radio-button;
+            accessible-label: LabelWords.colour-name(colour.hue);
+            accessible-checkable: true;
+            accessible-checked: index == Themes.accent;
+            accessible-item-index: index;
+            accessible-action-default => {
+                root.choose(index);
+            }
+
+            Rectangle {
+                border-radius: self.width / 2;
+                border-width: index == Themes.accent ? 2px : 0px;
+                border-color: Theme.colors.text;
+            }
+            Rectangle {
+                x: Theme.space-xs;
+                y: Theme.space-xs;
+                width: root.swatch;
+                height: root.swatch;
+                border-radius: self.width / 2;
+                background: colour.colour;
+            }
+            TouchArea {
+                clicked => {
+                    Theme.keyboard-navigation = false;
+                    root.choose(index);
+                }
+            }
+        }
+    }
+
+    focus := FocusScope {
+        focus-on-click: false;
+        focus-gained(reason) => {
+            if reason == FocusReason.tab-navigation {
+                Theme.keyboard-navigation = true;
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                root.choose(Themes.accent - 1);
+                return accept;
+            }
+            if event.text == Key.RightArrow {
+                root.choose(Themes.accent + 1);
+                return accept;
+            }
+            reject
+        }
+    }
+
+    if focus.has-focus: FocusRing {
+        around-width: root.width;
+        around-height: root.height;
+        radius: Theme.radius-l;
+    }
+}
+
+component RowText inherits VerticalLayout {
+    in property <string> title;
+    in property <string> description;
+
+    spacing: Theme.space-xs;
+
+    Text {
+        text: root.title;
+        color: Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: Theme.weight-strong;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+    Text {
+        text: root.description;
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+}
+
+component Note inherits Text {
+    color: Theme.colors.text-muted;
+    font-size: Theme.font-small;
+    wrap: word-wrap;
+    min-height: self.preferred-height;
+}
+
+// The theme and the accent, as Settings and the setup wizard show them. With `files`
+// (Settings), also the theme files: their buttons, the files that can't be used and
+// the contrast warning for the chosen one.
+export component ThemeRows inherits VerticalLayout {
+    in property <bool> files: true;
+
+    spacing: Theme.space-xs;
+    forward-focus: choice;
+
+    VerticalLayout {
+        spacing: Theme.space-m;
+        padding-top: Theme.space-m;
+        padding-bottom: Theme.space-m;
+
+        RowText {
+            title: @tr("Theme");
+            description: root.files ? @tr("The built-in themes, then your own theme files from the themes folder.") : @tr("You can change it, and add your own themes, in Settings later.");
+        }
+
+        choice := ThemeChoice {
+            files: root.files;
+        }
+
+        if root.files && Themes.missing != "": Text {
+            text: @tr("The theme file {0} is gone or can't be used, so VCMP shows {1} instead.", Themes.missing, ThemeWords.name(Themes.tiles[Themes.current-index]));
+            color: Theme.colors.text;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        if root.files && Themes.failures.length > 0: VerticalLayout {
+            spacing: Theme.space-xs;
+
+            Text {
+                text: @tr("Some colours of this theme are hard to read (WCAG AA):");
+                color: Theme.colors.text;
+                font-size: Theme.font-small;
+                font-weight: Theme.weight-strong;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            for failure in Themes.failures: Text {
+                text: ThemeWords.failure(failure);
+                color: Theme.colors.text;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Theme.space-xl;
+        padding-top: Theme.space-m;
+        padding-bottom: Theme.space-m;
+
+        RowText {
+            horizontal-stretch: 1;
+            title: @tr("Accent");
+            description: Themes.file-chosen ? @tr("A theme file brings its own accent.") : @tr("Marks what is active: the current page, a chosen option, a switch that is on.");
+        }
+
+        if !Themes.file-chosen: VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+
+            AccentChoice { }
+        }
+    }
+
+    if root.files && Themes.folder-available: VerticalLayout {
+        spacing: Theme.space-m;
+        padding-top: Theme.space-m;
+        padding-bottom: Theme.space-m;
+
+        RowText {
+            title: @tr("Theme files");
+            description: @tr("A theme file sets every colour of a theme. Save a built-in theme as a file to start from, edit it, then reload.");
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+            alignment: start;
+
+            Button {
+                text: @tr("Open themes folder");
+                clicked => {
+                    Themes.open-folder();
+                }
+            }
+            Button {
+                text: @tr("Save as theme file");
+                label: @tr("Save the current theme as a theme file");
+                enabled: !Themes.file-chosen;
+                clicked => {
+                    Themes.save-copy();
+                }
+            }
+            Button {
+                text: @tr("Reload");
+                label: @tr("Reload theme files");
+                clicked => {
+                    Themes.reload();
+                }
+            }
+        }
+
+        if Themes.saved-as != "": Note {
+            text: @tr("Saved as {} in the themes folder.", Themes.saved-as);
+        }
+        if Themes.folder-error != "": Text {
+            text: Themes.folder-error;
+            color: Theme.colors.error;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+        for file in Themes.invalid: Note {
+            text: ThemeWords.problem(file);
+        }
+    }
+}

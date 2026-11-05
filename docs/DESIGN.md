@@ -27,6 +27,9 @@ its flavour and colour names.
 Chosen later from offered options (2026-10-17): a pastel pink as the single neon
 accent.
 
+2026-11-05: the accent can be chosen from the label hues; pink stays the default and
+there is still one accent at a time (see "Owner decisions", themes).
+
 ## Typography
 
 Nothing in my mind now
@@ -117,6 +120,17 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
   even with nothing liked. Its picture is a drawn heart, not covers. Album menus
   have the favourites entry too, for all the album's tracks; a menu offers Remove
   only when every track it acts on is liked.
+- 2026-11-05, themes (chosen from offered options, issue #84,
+  `docs/specs/2026-11-05-custom-themes.md`, following
+  `docs/specs/2026-10-20-lyrics-themes-spotify.md`): the Light / Dark / System
+  switch is gone ("I think we should get rid of dark/light switch and just provide
+  different themes"). Settings offers one list: four built-in themes, one light and
+  three dark that differ in depth and in temperature, with plain names, then the
+  user's own theme files (colours only). VCMP follows the OS's light or dark setting
+  once, on the first start, and never after. The accent is one of the ten label
+  hues, one for every built-in theme; theme files bring their own. Settings shows
+  the themes as tiles of their colours with the accents as dots below; the setup
+  wizard shows the built-in themes and the accent only.
 
 ## Awaiting the owner's review
 
@@ -146,3 +160,12 @@ the owner's until reviewed; keep, change or drop each.
   the surface grey. The favourites entry comes right after Add to queue in track
   menus and card menus, and first in the album page's More menu after the cover
   entries.
+- 2026-11-05, the themes' details (issue #84): the two new dark themes are Darker
+  (warm brown-greys, base `#1c1917`) and Midnight (neutral greys close to black,
+  base `#0e0e10`); Dark is today's cool blue-grey. The names Darker and Midnight are
+  the spec's examples. Light accents are the label hues darkened by hand to 4.5:1;
+  yellow can't get there and stay yellow, so Light doesn't offer it, and lavender
+  turns a vivid blue-violet. Red is offered as an accent although red means an error.
+  While a theme file is chosen the accent dots are hidden, with a line saying the file
+  brings its own accent. A tile is a small preview of base, mantle, surface, text and
+  the accent, with the theme's name below and a ring around the chosen one.

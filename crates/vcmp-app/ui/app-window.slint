@@ -1,5 +1,5 @@
 import "../../../assets/fonts/sora/Sora[wght].ttf";
-import { ReduceMotion, Theme, ThemeMode, ThemePalette } from "theme.slint";
+import { ReduceMotion, Theme, ThemeKind, ThemePalette } from "theme.slint";
 import { NavItem, PlaylistLink, ScrollArea } from "components.slint";
 import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
 import { FolderRow } from "folders-page.slint";
@@ -31,8 +31,10 @@ import { CaptionButtons, WindowFrame } from "window-frame.slint";
 import { ConfirmDialog, Confirmation } from "confirmation.slint";
 import { Setup, SetupWizard } from "setup.slint";
 import { Favourites } from "favourites.slint";
+import { AccentTile, ContrastFailure, InvalidThemeFile, ThemeFileProblem, Themes, ThemeTile } from "themes.slint";
 
 export { Confirmation, Favourites, Setup, WindowFrame }
+export { AccentTile, ContrastFailure, InvalidThemeFile, ThemeFileProblem, Themes, ThemeTile }
 export { LabelChoice, LabelDetail, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour }
 export { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
 export { LastfmProblem, LastfmState, LastfmStatus }
@@ -45,7 +47,7 @@ export { MovingPictures, PictureFrame, PictureSlot }
 export { ColumnWidths }
 export { UpdateState }
 export { TrackSelection }
-export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeMode, ThemePalette, TrackRow, UnreadableFile }
+export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeKind, ThemePalette, TrackRow, UnreadableFile }
 
 export enum Page { search, albums, artists, playlists, labels, songs, folders, settings, about }
 
@@ -338,6 +340,16 @@ export component AppWindow inherits Window {
     private property <ThemePalette> frame-colors: Theme.colors;
     changed frame-colors => {
         root.frame-changed();
+    }
+    // The system's colour scheme becomes known once the window exists; the first
+    // start picks Light or Dark from it (src/themes.rs).
+    private property <bool> system-scheme: Theme.system-dark;
+    changed system-scheme => {
+        Theme.system-scheme-changed();
+    }
+    private property <bool> system-scheme-known: Theme.system-scheme-known;
+    changed system-scheme-known => {
+        Theme.system-scheme-changed();
     }
     private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.now-playing-open || CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open || Setup.open || Confirmation.open;
     out property <length> frame-sidebar-width: sidebar.width;

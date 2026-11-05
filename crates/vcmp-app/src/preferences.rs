@@ -1,7 +1,8 @@
-//! Appearance preferences kept in the library database's settings table: the theme,
-//! reduced motion, the zoom, whether the queue panel is open, which artists the Artists page
+//! Appearance preferences kept in the library database's settings table: reduced
+//! motion, the zoom, whether the queue panel is open, which artists the Artists page
 //! lists, and the column widths of the track lists and the songs table. Also hands
-//! the operating system's reduce-motion setting to the theme.
+//! the operating system's reduce-motion setting to the theme. The theme itself is
+//! saved by `src/themes.rs`.
 
 use std::rc::Rc;
 
@@ -9,9 +10,8 @@ use slint::ComponentHandle;
 use vcmp_integrations::reduce_motion;
 use vcmp_library::Library;
 
-use crate::{AppWindow, ColumnWidths, ReduceMotion, Theme, ThemeMode, zoom};
+use crate::{AppWindow, ColumnWidths, ReduceMotion, Theme, zoom};
 
-pub const THEME: &str = "ui.theme";
 /// "system", "on" or "off"; see `parse_motion` for the older "true" and "false".
 pub const REDUCED_MOTION: &str = "ui.reduced_motion";
 /// The zoom as a factor of the system's scale, such as "1.25" (`src/zoom.rs`).
@@ -26,9 +26,6 @@ pub const SONG_COLUMNS: &str = "ui.song_columns";
 /// Applies the saved preferences, then saves them whenever the user changes them.
 pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<()> {
     let theme = window.global::<Theme>();
-    if let Some(mode) = library.setting(THEME)?.as_deref().and_then(parse_mode) {
-        theme.set_mode(mode);
-    }
     if let Some(choice) = library
         .setting(REDUCED_MOTION)?
         .as_deref()
@@ -88,10 +85,7 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
         let theme = window.global::<Theme>();
         let flag = |on: bool| if on { "true" } else { "false" };
         let saved = library
-            .set_setting(THEME, mode_name(theme.get_mode()))
-            .and_then(|()| {
-                library.set_setting(REDUCED_MOTION, motion_name(theme.get_motion_choice()))
-            })
+            .set_setting(REDUCED_MOTION, motion_name(theme.get_motion_choice()))
             .and_then(|()| library.set_setting(ZOOM, &format!("{}", theme.get_zoom())))
             .and_then(|()| library.set_setting(QUEUE_OPEN, flag(window.get_queue_open())))
             .and_then(|()| library.set_setting(ARTISTS_ALL, flag(window.get_artists_show_all())));
@@ -127,23 +121,6 @@ fn shares<const N: usize>(saved: &str) -> Option<[f32; N]> {
         })
         .collect::<Option<_>>()?;
     values.try_into().ok()
-}
-
-fn mode_name(mode: ThemeMode) -> &'static str {
-    match mode {
-        ThemeMode::System => "system",
-        ThemeMode::Light => "light",
-        ThemeMode::Dark => "dark",
-    }
-}
-
-fn parse_mode(name: &str) -> Option<ThemeMode> {
-    match name {
-        "system" => Some(ThemeMode::System),
-        "light" => Some(ThemeMode::Light),
-        "dark" => Some(ThemeMode::Dark),
-        _ => None,
-    }
 }
 
 fn motion_name(choice: ReduceMotion) -> &'static str {

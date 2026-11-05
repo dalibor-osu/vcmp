@@ -1,4 +1,4 @@
-import { ReduceMotion, Theme, ThemeMode } from "theme.slint";
+import { ReduceMotion, Theme } from "theme.slint";
 import { IconButton, SegmentedChoice, SettingRow, Toggle } from "components.slint";
 import { Glyph } from "icons.slint";
 import { PlayerState } from "player-state.slint";
@@ -16,22 +16,6 @@ export component DiscordRow inherits SettingRow {
         checked: PlayerState.discord;
         toggled(on) => {
             PlayerState.set-discord(on);
-        }
-    }
-}
-
-export component ThemeRow inherits SettingRow {
-    title: @tr("Theme");
-    description: @tr("Follow the system setting, or always use the light or dark theme.");
-    forward-focus: choice;
-
-    choice := SegmentedChoice {
-        label: @tr("Theme");
-        options: [@tr("System"), @tr("Light"), @tr("Dark")];
-        current-index: Theme.mode == ThemeMode.light ? 1 : Theme.mode == ThemeMode.dark ? 2 : 0;
-        selected(index) => {
-            Theme.mode = index == 1 ? ThemeMode.light : index == 2 ? ThemeMode.dark : ThemeMode.system;
-            Theme.preferences-changed();
         }
     }
 }

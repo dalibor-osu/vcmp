@@ -9,7 +9,10 @@ use std::rc::Rc;
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, SharedString};
-use vcmp_app::{AppWindow, Confirmation, Setup, Theme, ThemeMode, UpdateState, setup, updates};
+use vcmp_app::themes::Themes;
+use vcmp_app::{
+    AppWindow, Confirmation, Setup, Theme, Themes as ThemesState, UpdateState, setup, updates,
+};
 use vcmp_library::Library;
 
 fn open_library(dir: &Path) -> Library {
@@ -18,6 +21,7 @@ fn open_library(dir: &Path) -> Library {
 
 fn open_window() -> AppWindow {
     let window = vcmp_app::create_window().unwrap();
+    Themes::connect(&window, None, None);
     // Tall enough for the whole Settings page: the finder skips what is scrolled out
     // of view.
     window.window().set_size(LogicalSize::new(1100.0, 1600.0));
@@ -170,7 +174,7 @@ fn skip_and_escape_ask_first_and_keep_what_was_set() {
     find(&window, AccessibleRole::RadioButton, "Dark")
         .expect("the theme's Dark")
         .invoke_accessible_default_action();
-    assert_eq!(window.global::<Theme>().get_mode(), ThemeMode::Dark);
+    assert!(window.global::<Theme>().get_dark());
 
     // Escape asks; Cancel goes back to the same step.
     key(&window, Key::Escape);
@@ -189,7 +193,7 @@ fn skip_and_escape_ask_first_and_keep_what_was_set() {
     assert!(!question.get_open());
     assert!(!wizard.get_open());
     assert_eq!(closed.get(), 1);
-    assert_eq!(window.global::<Theme>().get_mode(), ThemeMode::Dark);
+    assert!(window.global::<Theme>().get_dark());
 }
 
 #[test]
@@ -217,7 +221,9 @@ fn the_keyboard_stays_in_the_wizard() {
 fn run_setup_again_opens_it_with_the_current_values() {
     i_slint_backend_testing::init_no_event_loop();
     let window = open_window();
-    window.global::<Theme>().set_mode(ThemeMode::Light);
+    window
+        .global::<ThemesState>()
+        .invoke_choose("darker".into());
     find(&window, AccessibleRole::Tab, "Settings")
         .unwrap()
         .invoke_accessible_default_action();
@@ -228,11 +234,11 @@ fn run_setup_again_opens_it_with_the_current_values() {
 
     press(&window, "Next step");
     press(&window, "Next step");
-    let light = ElementHandle::find_by_accessible_label(&window, "Light")
+    let darker = ElementHandle::find_by_accessible_label(&window, "Darker")
         .filter(|element| element.accessible_role() == Some(AccessibleRole::RadioButton))
         .collect::<Vec<_>>();
     assert!(
-        light
+        darker
             .iter()
             .any(|element| element.accessible_checked() == Some(true)),
         "the Look step shows the theme set now"

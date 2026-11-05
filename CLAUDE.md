@@ -52,7 +52,7 @@ The core crates must never depend on `vcmp-app` or Slint.
 cargo run -p vcmp-app
 ```
 
-`VCMP_HOME=<dir>` makes the app use `<dir>/library.sqlite3` and `<dir>/cache/`
+`VCMP_HOME=<dir>` makes the app use `<dir>/library.sqlite3`, `<dir>/cache/` and `<dir>/themes/`
 instead of the platform data and cache directories. For example,
 `VCMP_HOME=target/scan-example cargo run -p vcmp-app` opens the library that
 `cargo run --example scan` built. A fresh `VCMP_HOME` with no music folders opens
@@ -149,7 +149,7 @@ cargo run -p vcmp-playback --example play -- path/to/album
   without the owner; record their decisions there.
 - How the UI implements that direction, and the rules the tests enforce, are in
   [docs/ui.md](docs/ui.md). In short: no colour literals and no durations outside
-  `ui/theme.slint`, every visible string in `@tr()`, WCAG AA contrast in both themes,
+  `ui/theme.slint`, every visible string in `@tr()`, WCAG AA contrast in every built-in theme,
   everything operable by keyboard.
 - The owner uses the antislop plugin in "during" mode for UI work.
 

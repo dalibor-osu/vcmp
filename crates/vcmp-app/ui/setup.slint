@@ -5,7 +5,8 @@ import { LibrarySection } from "library-settings.slint";
 import { LastfmRow } from "lastfm-settings.slint";
 import { LastfmState } from "lastfm-state.slint";
 import { PlayerState } from "player-state.slint";
-import { DiscordRow, MotionRow, ThemeRow, ZoomRow } from "setting-rows.slint";
+import { DiscordRow, MotionRow, ZoomRow } from "setting-rows.slint";
+import { ThemeRows } from "themes.slint";
 import { UpdateCheckRow } from "updates.slint";
 import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
 import { AgentState, AgentsSwitchRow } from "agents.slint";
@@ -188,7 +189,8 @@ export component SetupWizard inherits Modal {
                     padding-bottom: Theme.space-m;
                     text: @tr("Changes show behind this dialog as you make them.");
                 }
-                ThemeRow {
+                ThemeRows {
+                    files: false;
                     property <int> wrap: root.wrap-first;
                     changed wrap => {
                         self.focus();

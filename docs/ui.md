@@ -5,7 +5,8 @@ How VCMP's Slint UI is put together and why. Visual direction comes from
 with `crates/vcmp-app/ui/`.
 
 Design Read: a desktop music player shell for music enthusiasts, in a calm pastel
-language (inspired by Catppuccin) with one pink accent and no glow (the owner dropped
+language (inspired by Catppuccin) with one accent, pink unless the user picks
+another, and no glow (the owner dropped
 the neon on 2026-10-18), dial ENERGY 1 / RHYTHM 2 / MOTION 2 (the dials come from
 DESIGN.md).
 
@@ -13,11 +14,12 @@ DESIGN.md).
 
 | File | Holds |
 |---|---|
-| `ui/theme.slint` | `ThemePalette` struct, `ThemeMode` and `ReduceMotion` enums, `Theme` global: colours, spacing, radii, type sizes, target height, content, column and dialog widths, the detail pages' cover size, the zoom, durations, drag scrolling |
+| `ui/theme.slint` | `ThemePalette` struct, `ThemeKind` and `ReduceMotion` enums, `Theme` global: the chosen theme's colours and kind, spacing, radii, type sizes, target height, content, column and dialog widths, the detail pages' cover size, the zoom, durations, drag scrolling |
 | `ui/components.slint` | `FocusRing`, `MenuHost` (see "Menus over lists"), `ScrollArea` (every scrolling part but the album grid and the songs table, without a scroll bar), `EdgeScroll`, `NavItem`, `PlaylistLink`, `SegmentedChoice`, `Toggle`, `SettingRow`, `Button`, `IconButton`, `Dropdown`, `SearchField`, `TextField`, `ProgressBar`, `Modal` (the dialog frame of the tag editor, the pickers, the confirmation and the setup wizard) |
 | `ui/setup.slint` | `Setup` global and `SetupWizard`: the first-run setup wizard (see "Setup wizard") |
 | `src/setup.rs` | Whether the wizard opens at the start, and its `ui.setup_done` flag |
-| `ui/setting-rows.slint` | `DiscordRow`, `ThemeRow`, `ZoomRow`, `MotionRow`: Settings rows the setup wizard shows too |
+| `ui/setting-rows.slint` | `DiscordRow`, `ZoomRow`, `MotionRow`: Settings rows the setup wizard shows too |
+| `ui/themes.slint` | `Themes` global, `ThemeWords` and `ThemeRows`: the theme tiles, the accent dots and the theme file buttons, notes and contrast warning (see "Themes") |
 | `ui/confirmation.slint` | `Confirmation` global and `ConfirmDialog`: the "are you sure?" before deleting a playlist, a label or the agents' backups |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
 | `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
@@ -67,7 +69,10 @@ DESIGN.md).
 | `src/labels.rs` | `LabelBrowser`: labels behind the `Labels` global: the menus' choices and toggles, the dialog, the filters, the label page, the chips rows show, the colour picker's images |
 | `ui/favourites.slint` | `Favourites` global (the fixed name, the menus' entry and the hearts' callbacks) and `FavouritesPicture`, the heart the Favourites playlist shows for a picture |
 | `src/favourites.rs` | `Hearts`: the liked set rows read, the one path that likes and unlikes, and the update of every heart on screen |
-| `src/theme.rs` | The light and dark palettes and the labels' colours, plus their contrast tests |
+| `src/theme/mod.rs` | The built-in themes, the accents and the labels' colours, plus their contrast tests; `apply` hands a palette to the `Theme` global |
+| `src/theme/contrast.rs` | The WCAG AA check: the pairs a palette must keep apart, used by the tests and the Settings warning |
+| `src/theme/file.rs` | Theme files: reading, writing and listing the themes folder |
+| `src/themes.rs` | `Themes`: the chosen theme in `ui.theme`, the first start's pick, the themes folder, and the `Themes` global |
 | `src/zoom.rs` | The zoom: its steps, and the window's scale factor as the system's times the zoom |
 
 ## Rules enforced by tests
@@ -77,7 +82,8 @@ DESIGN.md).
 | No colour literals in `.slint` files; every colour comes from `Theme.colors` | `tests/ui_invariants.rs` |
 | Durations only in `theme.slint`, so reduced motion turns all motion off in one place | `tests/ui_invariants.rs` |
 | Every user-visible string goes through `@tr()` (exceptions: "VCMP", "Sora", the slint.dev URL) | `tests/ui_invariants.rs` |
-| Every text pairing reaches 4.5:1 and every control boundary 3:1, in both palettes | `src/theme.rs` |
+| Every text pairing reaches 4.5:1 and every control boundary 3:1, on every built-in theme with every accent it offers; label dots reach 3:1 on every built-in theme | `src/theme/mod.rs` |
+| The theme and accent are restored; `light` and `dark` saved before themes keep their look; theme files load, or are listed with what is wrong; a chosen file that is gone falls back to the built-in theme of its kind | `tests/themes.rs`, `src/themes.rs`, `src/theme/file.rs` |
 | Every wrapped text sets `min-height: self.preferred-height` (or its height outright). Slint 1.18.1 measures an element an `if` creates at its single-line width, so a wrapped text there lost its last lines ([slint-ui/slint#13655](https://github.com/slint-ui/slint/issues/13655), fixed after 1.18.1); a text's own preferred height follows its real width. Drop the rule once Slint is past the fix | `tests/ui_invariants.rs` |
 | Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
 | No std-widgets `ScrollView`: every scrolling part is a `ScrollArea`, which draws no scroll bar; the queue and Settings show none, and the queue's rows and Clear end inside the panel | `tests/ui_invariants.rs`, `tests/player.rs` |
@@ -85,29 +91,104 @@ DESIGN.md).
 
 ## Palettes
 
-VCMP's own light and dark palettes, inspired by Catppuccin, with pink as the single
-accent and red for errors.
+Four built-in themes ([spec](specs/2026-11-05-custom-themes.md)): VCMP's own pastel
+palettes, inspired by Catppuccin, with red for errors. Light and Dark are the two
+palettes VCMP had before themes, unchanged. The dark ones differ in depth and in
+temperature: Dark is cool blue-grey, Darker warm brown-grey and deeper, Midnight
+neutral and close to black. The accent is chosen apart from the theme.
 
-| Token | Light | Dark | Use |
-|---|---|---|---|
-| base | `#eff1f5` | `#1e1e2e` | Content background |
-| mantle | `#e6e9ef` | `#181825` | Sidebar |
-| surface | `#ccd0da` | `#313244` | Hover, selected item, control track |
-| outline | `#7c7f93` | `#6c7086` | Control boundaries |
-| text | `#4c4f69` | `#cdd6f4` | Text |
-| text-muted | `#5c5f77` | `#a6adc8` | Descriptions, only on base or mantle |
-| accent | `#a1197d` | `#f5c2e7` | Current page, selected option, switched-on state |
-| on-accent | `#eff1f5` | `#11111b` | Text and marks on accent |
-| error | `#d20f39` | `#f38ba8` | What is wrong, as text on base only |
-| scrim | `#4c4f69` at 45 % (text) | `#11111b` at 70 % | Dims the sidebar and pages behind a dialog |
+| Token | Light | Dark | Darker | Midnight | Use |
+|---|---|---|---|---|---|
+| base | `#eff1f5` | `#1e1e2e` | `#1c1917` | `#0e0e10` | Content background |
+| mantle | `#e6e9ef` | `#181825` | `#151311` | `#08080a` | Sidebar |
+| surface | `#ccd0da` | `#313244` | `#2f2a26` | `#232327` | Hover, selected item, control track |
+| outline | `#7c7f93` | `#6c7086` | `#736a63` | `#65656d` | Control boundaries |
+| text | `#4c4f69` | `#cdd6f4` | `#e8ded5` | `#e2e2e8` | Text |
+| text-muted | `#5c5f77` | `#a6adc8` | `#b5aaa0` | `#a3a3ad` | Descriptions, only on base or mantle |
+| accent | the accent | the accent | the accent | the accent | Current page, selected option, switched-on state |
+| on-accent | `#eff1f5` | `#11111b` | `#0f0d0c` | `#08080a` | Text and marks on accent |
+| error | `#d20f39` | `#f38ba8` | `#f38ba8` | `#f38ba8` | What is wrong, as text on base only |
+| scrim | `#4c4f69` at 45 % | `#11111b` at 70 % | `#0f0d0c` at 70 % | `#08080a` at 70 % | Dims the sidebar and pages behind a dialog |
 
-A pastel pink (`#ea76cb`) reaches only 2.3:1 on the light base, so the light accent is
-the same hue darkened to 6.3:1. Paler greys fail contrast on the light backgrounds, so
-the light theme's muted text and outlines are the darker `#5c5f77` and `#7c7f93`. Even
-`#5c5f77` is 4.05:1 on the light surface, so a row filled for hover or selection turns
-its secondary text to `text`. The light red is 4.80:1 on base but 4.46:1 on mantle, so
-errors are written on base only. Nothing is drawn on the scrim; a dialog's card is
-base, with a surface border, so the dialog's text keeps base's contrast.
+The accents are the label hues, in their order; pink is the default. On the dark
+themes an accent is the label's pastel. On Light it is the same hue darkened by hand
+until it reaches 4.5:1 on `surface`, the hardest of the three backgrounds; yellow is
+brown by then, so Light doesn't offer it, and a yellow accent shows as pink there
+(the choice is kept for the dark themes).
+
+| Accent | Light | Dark themes |
+|---|---|---|
+| pink | `#a1197d` | `#f5c2e7` |
+| mauve | `#6f13e7` | `#cba6f7` |
+| red | `#ae0c2f` | `#f38ba8` |
+| peach | `#983801` | `#fab387` |
+| yellow | (none) | `#f9e2af` |
+| green | `#28641b` | `#a6e3a1` |
+| teal | `#0f6166` | `#94e2d5` |
+| sky | `#025d81` | `#89dceb` |
+| blue | `#094bcf` | `#89b4fa` |
+| lavender | `#1034fc` | `#b4befe` |
+
+Paler greys fail contrast on the light backgrounds, so the light theme's muted text
+and outlines are the darker `#5c5f77` and `#7c7f93`. Even `#5c5f77` is 4.05:1 on the
+light surface, so a row filled for hover or selection turns its secondary text to
+`text`. The light red is 4.80:1 on base but 4.46:1 on mantle, so errors are written
+on base only. Nothing is drawn on the scrim; a dialog's card is base, with a surface
+border, so the dialog's text keeps base's contrast.
+
+## Themes
+
+- **One theme at a time.** `src/themes.rs` resolves the choice to one palette and a
+  kind and hands both to the `Theme` global (`theme::apply`). The kind sets
+  `Theme.dark`, which picks the label colours and the Windows caption buttons, and
+  `Palette.color-scheme`, so the std widgets and the system title bar follow the
+  theme and no longer the OS.
+- **Saved** as JSON in `ui.theme`: `{"theme":"darker","accent":"teal"}`, or
+  `{"theme":"file:dusk","kind":"dark","accent":"pink"}` for a theme file. The kind
+  lets the built-in theme of that kind stand in when the file is gone; the accent
+  stays saved while a file is chosen, for going back to a built-in theme. Before
+  themes the value was `light`, `dark` or `system`: `light` and `dark` are the
+  built-in themes of the same name.
+- **The first start** (nothing saved, the old `system`, or a value VCMP can't read)
+  shows Light and waits for the OS's scheme, which Slint reports once the window
+  exists (`Theme.system-scheme-known`, watched by `AppWindow`). The pick is then
+  saved and stays; a choice made before that wins. A system that never reports a
+  scheme keeps Light, and is asked again at the next start.
+- **Theme files** are TOML files in the `themes` folder next to the library
+  database (`<data dir>/themes/`, or `$VCMP_HOME/themes/`), read at start and on
+  Reload, never watched:
+
+  ```toml
+  name = "Dusk"
+  kind = "dark"            # or "light"
+
+  [colors]
+  base = "#1e1e2e"
+  mantle = "#181825"
+  surface = "#313244"
+  outline = "#6c7086"
+  text = "#cdd6f4"
+  text-muted = "#a6adc8"
+  accent = "#f5c2e7"
+  on-accent = "#11111b"
+  error = "#f38ba8"
+  scrim = "#11111bb3"      # #rrggbbaa: translucent
+  ```
+
+  Every colour of the palette is required; keys VCMP doesn't know are ignored. A
+  colour added to the palette later gets a default derived from the others, so
+  older files keep loading. A file that can't be used is listed under the buttons
+  with what is wrong (`ThemeWords.problem`) and not offered.
+- **Settings** shows the tiles (built-in themes, then theme files by file name),
+  the accent dots (not on a theme file, which brings its own accent), and Open
+  themes folder, Save as theme file (the current built-in theme with its accent, as
+  `<id>-copy.toml`, a number added if taken) and Reload. A chosen file that fails
+  WCAG AA still applies, and the pairs below AA are listed with their contrast
+  (`theme/contrast.rs`, the same check the tests use). A chosen file that is gone
+  or broken shows the built-in theme of its kind, with a note naming the file.
+- **The setup wizard** shows the built-in themes and the accent only.
+- Without a library database the choice lasts for the session; the first start's
+  pick doesn't run.
 
 ## Design decisions
 
@@ -144,10 +225,11 @@ base, with a surface border, so the dialog's text keeps base's contrast.
 | A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
-| Light and dark plus "System", defaulting to System | No brand reason to force a theme; following the OS is least surprising |
+| One list of themes, no light/dark switch; the first start picks Light or Dark from the OS once | The owner's decision (2026-10-20, kept 2026-11-05): VCMP offers themes rather than a mode. Following the OS later is gone; the first start still matches it |
+| Theme tiles that show each theme's colours, accent dots below | A theme is seen before it is picked. The tiles wrap into rows, so many theme files still fit |
 | Motion: marker slide, page fade, control transitions (120 / 220 ms) | MOTION 2: transitions show where the selection went; nothing of the UI's own loops |
 | An animated picture (GIF, WebP, APNG) plays on the album, artist and playlist pages and in the now playing view; grids, lists, search, the sidebar, the player bar and the queue show its first frame. Awaiting the owner's review (DESIGN.md) | The owner asked for animated pictures (issue #56). The animation is the owner's own content, not UI motion, so it plays where the picture is the subject and the page holds one; a grid of moving covers would compete for attention and cost CPU and memory with every card. Reduced motion (the OS's or Settings') shows the first frame, and is the way to stop it |
-| Reduce motion is System, On or Off, defaulting to System | Built like the theme choice. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
+| Reduce motion is System, On or Off, defaulting to System | Built like the theme choice once was. People who need less motion set it once in the OS for every app; On and Off still decide for VCMP alone, either way |
 | An album's and an artist's other actions in a More menu ("…") beside Play and Shuffle | The owner's request (2026-10-28): the buttons under the cover (Add to playlist…, Edit tags…, the photo's) were distracting and seldom used. The playlist page already worked this way, so the three detail pages now share it. The album's menu holds Find cover online (or Find another cover and Remove cover for a cover fetched online), Add to playlist and Edit tags…; the artist's Find photo online, Choose photo… and Remove photo |
 | The cover or picture of an album, artist or playlist page as large as the page allows, from 128 to 280 px (`Theme.detail-cover-size`) | The owner's request (2026-10-28): the room the buttons under it took goes to the cover. It shrinks first in a narrow window, so the title and the Play, Shuffle and More buttons keep about 240 px beside it down to a 720 px window |
 | The cover picker is a dialog in the middle of the window, over the dimmed sidebar and pages | The owner's request (2026-10-20): a form or a few covers at the top left of a full-window overlay left most of a wide window empty. One dialog pattern (`Modal`) for the tag editor and both pickers; the page stays in sight behind the scrim, and the player bar stays usable. The pickers' card is 960 px wide (`Theme.dialog-wide-width`), room for five covers in a row, and as tall as the window allows from the start, so it doesn't grow as covers arrive |
@@ -975,7 +1057,7 @@ global. The player bar stays usable, as with the other dialogs.
   with `VCMP_SETUP=skip` (which writes nothing), it doesn't open. After that only
   "Run setup again", the first row of Settings, opens it.
 - **Steps:** Welcome, Music folders (`LibrarySection` without its heading), Look
-  (theme, zoom, reduce motion), Online services (Show on Discord, Last.fm, the
+  (the built-in themes and the accent, without theme files; zoom; reduce motion), Online services (Show on Discord, Last.fm, the
   update check, the fanart.tv key, each only in builds that have it, and the AI
   agents switch), Done (the scan's state and where everything is). The rows are
   Settings' own components on the same globals, so every choice applies and saves
@@ -1050,10 +1132,11 @@ by `LibraryView`) keeps the `Labels` global current.
 
 - **A colour is only a dot** (`LabelDot`) beside the name, in the text colour (muted
   on rows until the row is hovered or selected, like their other secondary text). So
-  any colour the owner picks leaves the name readable in both themes. The label
-  palette is pastel (inspired by Catppuccin) on the dark theme, and darkened in the
+  any colour the owner picks leaves the name readable in every theme. The label
+  palette is pastel (inspired by Catppuccin) on the dark themes, and darkened in the
   same hue on the light one until each colour reaches 3:1 on `surface`, the fill of a
-  hovered row (`src/theme.rs` tests it). A custom colour is drawn as it is.
+  hovered row (`src/theme/mod.rs` tests it on every built-in theme). A theme file
+  takes the label colours of its kind. A custom colour is drawn as it is.
 - **Menus.** Every track menu (track lists, the songs table, the queue, the now
   playing "…" menu) has a Labels submenu: each label as a checkable item, and New
   label…. Album cards (the Albums grid, an artist's albums, search) have labels in
@@ -1168,6 +1251,9 @@ window's top left on Linux, so there is no shift to speak of.
 
 ## Known limits
 
+- The first start's pick of Light or Dark waits for the OS's scheme. On a dark
+  system the window may show Light for a moment before it turns dark, once.
+- Theme files are read at start and on Reload only: an edit shows after Reload.
 - An animated picture can be stopped only by reduced motion (Settings or the OS),
   not on the picture itself. A GIF meant to play once loops like any other.
 - A label held by only some of the chosen tracks is marked by words in the menu

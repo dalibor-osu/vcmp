@@ -325,7 +325,20 @@ animated WebP and an APNG. For album covers, edit copies only.
 
 ### Window, look and keyboard
 
-- [ ] Light, dark and system theme, with the system switched while VCMP runs.
+- [ ] Settings → Theme: each of Light, Dark, Darker and Midnight, and a few
+      accents on each, recolour the whole window at once, the std widgets (About's
+      Slint logo) and the title bar included. Yellow is offered on the dark themes
+      only; with yellow chosen, Light shows pink. Restart: theme and accent kept.
+- [ ] First start (a fresh `VCMP_HOME`) with the OS set to dark: VCMP starts on
+      Dark (a moment of Light before it is fine); with the OS light, on Light.
+      Switch the OS afterwards: VCMP stays. An older library saved on `system`
+      does the same once.
+- [ ] Theme files: Save as theme file, Open themes folder (the folder opens in the
+      file manager), edit a colour in the copy, Reload: the copy's tile shows the
+      edit, and chosen it applies. Break a colour or remove one: the file is listed
+      under the buttons with what is wrong. Give `text` the base colour: the warning
+      lists the failing pairs. Delete the chosen file and Reload, then restart: the
+      built-in theme of its kind shows, with a note naming the file.
 - [ ] Settings → Zoom on a large monitor: + and − step through 80 to 200 %, the
       whole window grows and shrinks at once, the player bar stays at the bottom
       without resizing the window, and clicks still land where they point.
@@ -554,9 +567,8 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       Maximised, nothing is cut off at the top or the screen's edges, and the
       buttons still sit in the corner; minimise and restore from the taskbar.
       **(never seen working)**
-- [ ] Switch VCMP's theme (Light, Dark, System) while it runs, and with System
-      chosen switch Windows between light and dark: the window menu (Alt+Space)
-      follows the theme. **(never seen working)**
+- [ ] Switch VCMP's theme between a light and a dark one while it runs: the window
+      menu (Alt+Space) follows the theme. **(never seen working)**
 - [ ] Settings → Zoom at 150 % and on a monitor scaled to 150 %: the buttons stay
       clickable where they are drawn, and the maximise button still shows Snap
       layouts. **(never seen working)**

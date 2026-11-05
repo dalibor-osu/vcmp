@@ -24,6 +24,7 @@ pub mod setup;
 pub mod shortcuts;
 pub mod tag_editor;
 pub mod theme;
+pub mod themes;
 pub mod title_bar;
 pub mod updates;
 pub mod wheel;
@@ -31,7 +32,7 @@ pub mod zoom;
 
 slint::include_modules!();
 
-/// Creates the main window with the theme palettes and the icon art installed.
+/// Creates the main window with the light theme and the icon art installed.
 pub fn create_window() -> Result<AppWindow, slint::PlatformError> {
     let window = AppWindow::new()?;
     theme::install(&window);

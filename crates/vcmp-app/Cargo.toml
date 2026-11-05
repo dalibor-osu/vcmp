@@ -22,6 +22,8 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 # The winit hook catches Space before Slint routes it (src/shortcuts.rs).
 slint = { workspace = true, features = ["unstable-winit-030"] }
+# Theme files in the themes folder (src/theme/file.rs).
+toml = "1.1.8"
 vcmp-integrations = { version = "26.10.2", path = "../vcmp-integrations" }
 vcmp-library = { version = "26.10.2", path = "../vcmp-library" }
 vcmp-mcp = { version = "26.10.2", path = "../vcmp-mcp" }

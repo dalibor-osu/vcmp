@@ -6563,6 +6563,7 @@ dependencies = [
  "slint",
  "slint-build",
  "tempfile",
+ "toml",
  "vcmp-integrations",
  "vcmp-library",
  "vcmp-mcp",
