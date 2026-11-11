@@ -30,7 +30,7 @@ Read it before changing anything structural.
 | OS reduce-motion setting | zbus to the XDG settings portal (Linux), windows-sys (Windows), objc2-app-kit, objc2-foundation and block2 (macOS); all already come with Slint |
 | Last.fm | ureq for the API, md5 for its request signatures, keyring 4 for the session key (Keychain, Credential Manager, Secret Service over zbus), unicode-normalization for matching loved tracks with accents ignored |
 | AI agents (MCP) | rmcp 3.6 (the official Rust SDK) serving Streamable HTTP through axum 0.8 on 127.0.0.1, on a tokio runtime of its own; getrandom for the token |
-| VCMP server | axum 0.8 on a multi-threaded tokio runtime, plain HTTP behind a reverse proxy; serde for the shared API types, toml for its configuration file, base64 for covers in tag edits, env_logger; a Docker image for Linux x64 and ARM64 (`packaging/server/Dockerfile`) |
+| VCMP server | axum 0.8 on a multi-threaded tokio runtime, plain HTTP behind a reverse proxy; serde for the shared API types, toml for its configuration file, base64 for covers in tag edits, env_logger; a Docker image for Linux x64 and ARM64 (`packaging/server/Dockerfile`). The app talks to it with ureq and keeps each server's token in the OS keyring (keyring 4) |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
 | Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`; while that can't run, `packaging/release-local.sh` builds the Windows and Linux ones locally in Docker (docs/development.md, "Building the archives locally"). Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
@@ -47,6 +47,7 @@ Workspace layout:
 | `crates/vcmp-mcp` | The MCP server AI agents connect to: its tools, the token and Origin checks; changes go to the app through its `Changes` trait, playback through its `Playback` trait |
 | `crates/vcmp-protocol` | The HTTP API between a VCMP server and the app: paths, request and answer types, error codes, the protocol version; serde only |
 | `crates/vcmp-server` | Binary `vcmp-server`: a `vcmp-library` library served over HTTP to the app, its configuration, tokens and admin calls ([docs/server.md](docs/server.md)) |
+| `crates/vcmp-client` | The app's side of a VCMP server: its HTTP client, the sync of its catalogue into the library, the server track source with its audio cache, and the tokens in the OS keyring |
 
 The core crates must never depend on `vcmp-app` or Slint. `vcmp-server` also never
 depends on `vcmp-playback` or anything that needs a sound card or display.

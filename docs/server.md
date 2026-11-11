@@ -6,9 +6,10 @@ to run it. The agreed decisions are in the
 [impl/2026-11-11-vcmp-streaming-server.md](impl/2026-11-11-vcmp-streaming-server.md).
 Keep this file in sync with the crate.
 
-The app can't connect to a server yet: the server, its API and its image exist, and
-the app's side (mirroring the catalogue, playing server tracks, the admin controls)
-is the next part of the work.
+The app's side is `crates/vcmp-client` (the HTTP client, the sync into the app's
+library and the audio cache) and the Music servers section of Settings
+([ui.md](ui.md#music-servers)); [library.md](library.md#server-tracks) has how the
+mirror is kept.
 
 ## What it is
 
@@ -232,6 +233,23 @@ The app mirrors a server's tracks and asks only for what changed
 - `If-Range` with another `ETag` gets the whole file with 200: a download is never
   resumed into a file a tag edit rewrote.
 
+## Playing in the app
+
+- **Whole files.** The app's server source (`vcmp_client::ServerSource`, registered
+  for `SourceKind::Server`) downloads a track's whole file into the cache folder's
+  `streams/`, then decodes it like a local file, so gapless joins, seeking and
+  bit-exactness are the engine's. While a file is not there yet, `open` answers
+  `NotReady` and the engine shows buffering ([playback.md](playback.md)).
+- **One download at a time,** on its own thread. Playing a track puts it first; the
+  engine's prepare hint queues the next track behind it; at most 4 wait, the oldest
+  hints dropped first. A download that broke off resumes with `Range` and `If-Range`.
+- **The cache** keeps files named by server, track id, size and modification time,
+  so a file a tag edit rewrote is fetched again, never mixed up. It is bounded (2 GB
+  by default, set in Settings); the least recently played go first, never one played
+  in the last 15 minutes.
+- **A failed download** (the server away, the file gone) is reported once as a real
+  failure, so the engine skips the track.
+
 ## Threads
 
 | Thread | Runs |
@@ -256,7 +274,6 @@ cover the configuration, the tokens and the range parsing.
 
 ## Known limits
 
-- The app can't connect yet; nothing in the app uses the server.
 - The image is not published, and releases don't contain the server yet. It was
   built and run for amd64 under Docker Desktop on Windows; the ARM64 image wasn't
   built yet.

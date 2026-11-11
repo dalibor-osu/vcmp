@@ -1492,9 +1492,19 @@ impl PlayerService {
                 });
             }
             Event::TrackFailed { track, error } => {
-                let name = Path::new(track.id.as_ref())
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned());
+                let name = self
+                    .library
+                    .track_id_for_path(Path::new(track.id.as_ref()))
+                    .ok()
+                    .flatten()
+                    .and_then(|id| self.library.track(id).ok().flatten())
+                    .filter(|track| track.file.is_none())
+                    .map(|track| track.title)
+                    .or_else(|| {
+                        Path::new(track.id.as_ref())
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                    });
                 state.set_problem(PlayerProblem::TrackFailed);
                 state.set_problem_detail(format!("{} ({error})", name.unwrap_or_default()).into());
             }
@@ -1534,6 +1544,10 @@ impl PlayerService {
             }
             Event::Synced(token) => {
                 self.synced(token);
+                return;
+            }
+            Event::Buffering(track) => {
+                state.set_buffering(track.is_some());
                 return;
             }
         }
@@ -2134,14 +2148,21 @@ impl PlayerService {
 /// The queue entry for a track; artist and album ids keep shuffle from bunching them.
 /// Tracks whose path is not valid Unicode can't be named to the engine and are left out.
 fn entry(track: &Track) -> Option<QueueEntry> {
-    let Some(path) = track.path.to_str() else {
-        log::warn!(
-            "left out of the queue, its path is not valid Unicode: {}",
-            track.path.display()
-        );
-        return None;
+    let reference = match &track.file {
+        Some(file) => {
+            let Some(path) = file.to_str() else {
+                log::warn!(
+                    "left out of the queue, its path is not valid Unicode: {}",
+                    file.display()
+                );
+                return None;
+            };
+            TrackRef::local(path)
+        }
+        None if track.remote.is_some() => TrackRef::server(track.key()),
+        None => return None,
     };
-    let mut entry = QueueEntry::new(TrackRef::local(path));
+    let mut entry = QueueEntry::new(reference);
     if let Some(artist) = track.artist_id {
         entry = entry.with_artist(artist.0.to_string());
     }

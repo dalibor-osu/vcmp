@@ -409,10 +409,11 @@ async fn audio(
             .track(TrackId(id))
             .map_err(Failure::internal)?
             .filter(|track| track.available)
+            .and_then(|track| Some((track.file?, track.format)))
             .ok_or_else(|| Failure::not_found("no such track, or its file is gone"))
     })
     .await?;
-    audio::respond(&track.path, track.format, &headers).await
+    audio::respond(&track.0, track.1, &headers).await
 }
 
 async fn cover(

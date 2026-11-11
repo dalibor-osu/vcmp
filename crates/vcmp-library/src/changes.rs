@@ -196,6 +196,7 @@ impl Library {
                 .format
                 .filter(|_| track.available)
                 .ok_or(Error::UnavailableTrack(*id))?;
+            let file = track.file.clone().ok_or(Error::UnavailableTrack(*id))?;
             let resolved = other_tags::resolve(&edit.other, format, false)
                 .map_err(|key| Error::UnsupportedKey { track: *id, key })?;
             let entries = self.track_tags(*id)?;
@@ -218,14 +219,14 @@ impl Library {
             let cover_before = if edit.cover.is_keep() {
                 None
             } else {
-                Some(match tags::embedded_cover(&track.path) {
+                Some(match tags::embedded_cover(&file) {
                     Some(data) => self.keep_cover(&data)?,
                     None => String::new(),
                 })
             };
             files.push(NewFile {
                 track: *id,
-                path: track.path,
+                path: file,
                 edits: self.targets(edit)?,
                 values,
                 cover_before,
@@ -314,7 +315,7 @@ impl Library {
             }
             files.push(NewFile {
                 track: *id,
-                path: track.path,
+                path: track.file.unwrap_or_default(),
                 edits: changes
                     .iter()
                     .map(|(name, on)| (format!("label:{name}"), on.then(|| vec![name.clone()])))
@@ -777,7 +778,7 @@ impl Library {
         raw: bool,
     ) -> Result<std::result::Result<TagEdit, TagWriteError>> {
         let track = self.track(file.track)?.filter(|track| track.available);
-        let Some(track) = track else {
+        let Some(local) = track.and_then(|track| track.file) else {
             return Ok(Err(TagWriteError::Unavailable));
         };
         let edit = match edit_from(&file.edits) {
@@ -798,7 +799,7 @@ impl Library {
                     .unwrap_or_default()
             }),
         };
-        Ok(edit::write(&track.path, &edit, raw, Some(&expected)).map(|()| edit))
+        Ok(edit::write(&local, &edit, raw, Some(&expected)).map(|()| edit))
     }
 
     /// Accepts a pending label set: creates its new labels (or takes a label of the

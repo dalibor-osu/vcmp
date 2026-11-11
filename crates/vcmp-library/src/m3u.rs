@@ -40,6 +40,7 @@ pub struct M3uExport {
     pub missing: usize,
     /// Paths left out of the file, because it can't hold them.
     pub left_out: Vec<PathBuf>,
+    pub from_servers: Vec<String>,
 }
 
 /// What [`Library::import_playlist`] did.
@@ -332,8 +333,10 @@ impl TagIndex {
             by_artist_and_title: HashMap::new(),
             by_title: HashMap::new(),
         };
-        let mut statement = conn
-            .prepare("SELECT id, artist, title, duration_ms, available FROM tracks ORDER BY id")?;
+        let mut statement = conn.prepare(
+            "SELECT id, artist, title, duration_ms, available FROM tracks
+                 WHERE id NOT IN (SELECT track_id FROM remote_tracks) ORDER BY id",
+        )?;
         let mut rows = statement.query([])?;
         while let Some(row) = rows.next()? {
             let candidate = Candidate {
@@ -398,8 +401,15 @@ fn contents(
     let mut text = String::from("#EXTM3U\n");
     let mut report = M3uExport::default();
     for track in tracks {
-        let Some(path) = entry_path(folder, &track.path, same_root(&track.path)) else {
-            report.left_out.push(track.path.clone());
+        let Some(file) = &track.file else {
+            report.from_servers.push(match &track.artist {
+                Some(artist) if !artist.is_empty() => format!("{artist} - {}", track.title),
+                _ => track.title.clone(),
+            });
+            continue;
+        };
+        let Some(path) = entry_path(folder, file, same_root(file)) else {
+            report.left_out.push(file.clone());
             continue;
         };
         let seconds = match track.duration.as_secs_f64().round() as i64 {
@@ -491,7 +501,8 @@ mod tests {
     fn track(path: &str, artist: Option<&str>, title: &str, seconds: f64) -> Track {
         Track {
             id: TrackId(1),
-            path: PathBuf::from(path),
+            file: Some(PathBuf::from(path)),
+            remote: None,
             available: true,
             format: None,
             title: title.to_owned(),

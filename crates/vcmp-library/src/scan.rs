@@ -552,8 +552,10 @@ fn discover(
 }
 
 fn known_tracks(conn: &Connection) -> Result<HashMap<Vec<u8>, Known>> {
-    let mut statement =
-        conn.prepare("SELECT path, id, file_size, modified_ms, available, source_id FROM tracks")?;
+    let mut statement = conn.prepare(
+        "SELECT path, id, file_size, modified_ms, available, source_id FROM tracks
+             WHERE id NOT IN (SELECT track_id FROM remote_tracks)",
+    )?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, Vec<u8>>(0)?,
@@ -602,9 +604,9 @@ fn apply(
         .map(|name| upsert_artist(tx, name, owner_mbid))
         .transpose()?;
     let album_id = Some(match &tags.album {
-        Some(album) => upsert_album(tx, album, owner, owner_id, tags.mb_album_id.as_deref())?,
+        Some(album) => upsert_album(tx, "", album, owner, owner_id, tags.mb_album_id.as_deref())?,
         // Without an album tag: the owner's Unknown album.
-        None => upsert_unknown_album(tx, owner_id)?,
+        None => upsert_unknown_album(tx, "", owner_id)?,
     });
 
     let id = match existing {
@@ -708,7 +710,7 @@ fn relink_candidate(
 ) -> Result<Option<i64>> {
     let mut statement = tx.prepare_cached(
         "SELECT id FROM tracks
-         WHERE available = 0
+         WHERE available = 0 AND id NOT IN (SELECT track_id FROM remote_tracks)
            AND duration_ms BETWEEN ?4 - ?5 AND ?4 + ?5
            AND title = ?1 COLLATE NOCASE
            AND IFNULL(artist, '') = ?2 COLLATE NOCASE
@@ -749,15 +751,16 @@ fn upsert_artist(tx: &Transaction, name: &str, mbid: Option<&str>) -> Result<i64
 /// (or track artist) plus title, compared case-insensitively.
 fn upsert_album(
     tx: &Transaction,
+    prefix: &str,
     title: &str,
     owner: Option<&str>,
     owner_id: Option<i64>,
     mbid: Option<&str>,
 ) -> Result<i64> {
     let key = match mbid {
-        Some(mbid) => format!("mb:{}", mbid.to_lowercase()),
+        Some(mbid) => format!("{prefix}mb:{}", mbid.to_lowercase()),
         None => format!(
-            "{}\u{1f}{}",
+            "{prefix}{}\u{1f}{}",
             owner.unwrap_or_default().to_lowercase(),
             title.to_lowercase()
         ),
@@ -773,9 +776,9 @@ fn upsert_album(
 /// The "Unknown" album of the artist `owner_id` (or of no artist), which holds the
 /// tracks without an album tag. Keyed by the artist's id, so the schema migration
 /// that first made them builds the same keys.
-fn upsert_unknown_album(tx: &Transaction, owner_id: Option<i64>) -> Result<i64> {
+fn upsert_unknown_album(tx: &Transaction, prefix: &str, owner_id: Option<i64>) -> Result<i64> {
     let key = format!(
-        "unknown:{}",
+        "{prefix}unknown:{}",
         owner_id.map(|id| id.to_string()).unwrap_or_default()
     );
     let mut statement = tx.prepare_cached(
@@ -788,7 +791,7 @@ fn upsert_unknown_album(tx: &Transaction, owner_id: Option<i64>) -> Result<i64> 
 
 /// Removes albums and artists nothing refers to any more, refreshes album years and
 /// rebuilds the artist and album search indexes.
-fn finish_groups(conn: &mut Connection) -> Result<()> {
+pub(crate) fn finish_groups(conn: &mut Connection) -> Result<()> {
     let tx = conn.transaction()?;
     tx.execute_batch(
         "DELETE FROM albums WHERE id NOT IN (SELECT album_id FROM tracks WHERE album_id IS NOT NULL);
@@ -819,7 +822,7 @@ fn find_artwork(
     let albums: Vec<(i64, Option<String>, i64)> = conn
         .prepare(
             "SELECT id, artwork_hash, artwork_state FROM albums
-             WHERE unknown = 0
+             WHERE unknown = 0 AND group_key NOT LIKE 'server:%'
                AND EXISTS (SELECT 1 FROM tracks WHERE album_id = albums.id AND available = 1)",
         )?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
@@ -1047,6 +1050,115 @@ pub(crate) fn track_id_for_path(conn: &Connection, path: &Path) -> Result<Option
             |row| row.get(0),
         )
         .optional()?)
+}
+
+pub(crate) fn apply_remote(
+    tx: &Transaction,
+    server: crate::ServerId,
+    track: &crate::MirroredTrack,
+) -> Result<()> {
+    let prefix = crate::query::server_group_prefix(server);
+    let artist_id = track
+        .artist
+        .as_deref()
+        .map(|name| upsert_artist(tx, name, track.mb_artist_id.as_deref()))
+        .transpose()?;
+    let (owner, owner_mbid) = match &track.album_artist {
+        Some(name) => (Some(name.as_str()), track.mb_album_artist_id.as_deref()),
+        None => (track.artist.as_deref(), track.mb_artist_id.as_deref()),
+    };
+    let owner_id = owner
+        .map(|name| upsert_artist(tx, name, owner_mbid))
+        .transpose()?;
+    let album_id = match &track.album {
+        Some(album) => upsert_album(
+            tx,
+            &prefix,
+            album,
+            owner,
+            owner_id,
+            track.mb_release_id.as_deref(),
+        )?,
+        None => upsert_unknown_album(tx, &prefix, owner_id)?,
+    };
+
+    let existing: Option<i64> = tx
+        .prepare_cached("SELECT track_id FROM remote_tracks WHERE server = ?1 AND remote_id = ?2")?
+        .query_row(params![server.0, track.remote_id], |row| row.get(0))
+        .optional()?;
+    let id = match existing {
+        Some(id) => id,
+        None => {
+            let identity = PathBuf::from(crate::query::remote_key(server, track.remote_id));
+            tx.execute(
+                "INSERT INTO tracks (path, file_size, modified_ms, format, title, duration_ms, added_ms)
+                 VALUES (?1, 0, 0, '', '', 0, ?2)",
+                params![path_codec::encode(&identity), track.added_ms],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO remote_tracks (track_id, server, remote_id, folder, path)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, server.0, track.remote_id, track.folder, track.path],
+            )?;
+            id
+        }
+    };
+    tx.execute(
+        "UPDATE tracks SET source_id = NULL, file_size = ?2, modified_ms = ?3, available = ?4,
+             format = ?5, title = ?6, artist = ?7, artist_id = ?8, album = ?9,
+             album_artist = ?10, album_id = ?11, track_number = ?12, disc_number = ?13,
+             year = ?14, genre = ?15, duration_ms = ?16, mb_recording_id = ?17, added_ms = ?18
+         WHERE id = ?1",
+        params![
+            id,
+            track.size as i64,
+            track.modified_ms,
+            track.available,
+            track.format.map_or("", Format::as_str),
+            track.title,
+            track.artist,
+            artist_id,
+            track.album,
+            track.album_artist,
+            album_id,
+            track.track_number,
+            track.disc_number,
+            track.year,
+            track.genre,
+            track.duration.as_millis() as i64,
+            track.mb_recording_id,
+            track.added_ms,
+        ],
+    )?;
+    tx.execute(
+        "UPDATE remote_tracks SET folder = ?2, path = ?3 WHERE track_id = ?1",
+        params![id, track.folder, track.path],
+    )?;
+    let artwork = track
+        .artwork
+        .as_deref()
+        .filter(|key| crate::feed::valid_artwork_key(key));
+    tx.execute(
+        "UPDATE albums SET artwork_hash = ?2, artwork_state = ?3 WHERE id = ?1",
+        params![album_id, artwork, if artwork.is_some() { 1 } else { 2 }],
+    )?;
+    let search_artist = [track.artist.as_deref(), track.album_artist.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    tx.execute("DELETE FROM track_search WHERE rowid = ?1", [id])?;
+    tx.execute(
+        "INSERT INTO track_search (rowid, title, artist, album) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            id,
+            track.title,
+            search_artist,
+            track.album.as_deref().unwrap_or_default()
+        ],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]

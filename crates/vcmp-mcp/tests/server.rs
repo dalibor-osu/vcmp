@@ -13,7 +13,9 @@ use lofty::file::TaggedFileExt;
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
 use serde_json::{Value, json};
 use vcmp_library::{
-    ChangeSetId, ChangeStatus, LabelEdit, Library, NewLabel, PlaylistId, TagEdit, TrackId,
+    AlbumId, ArtistId, ChangeSetId, ChangeStatus, FeedCursor, Format, LabelEdit, Library,
+    MirroredTrack, NewLabel, PlaylistId, ServerId, TagEdit, TrackId, remote_key,
+    server_folder_location,
 };
 use vcmp_mcp::Changes;
 use vcmp_mcp::{
@@ -311,6 +313,10 @@ impl Setup {
             .to_owned();
         assert!(instructions.contains("album_artist"), "{instructions}");
         assert!(instructions.contains("left_out"), "{instructions}");
+        assert!(
+            instructions.contains("Playlists and the queue may still hold some"),
+            "{instructions}"
+        );
         assert_eq!(answer(&body)["result"]["serverInfo"]["name"], "vcmp");
         self.post(
             &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
@@ -359,7 +365,12 @@ fn id_of(library: &Library, path_end: &str) -> TrackId {
         .tracks()
         .unwrap()
         .into_iter()
-        .find(|track| track.path.ends_with(Path::new(path_end)))
+        .find(|track| {
+            track
+                .file
+                .as_ref()
+                .is_some_and(|file| file.ends_with(Path::new(path_end)))
+        })
         .unwrap()
         .id
 }
@@ -457,7 +468,7 @@ fn tag_changes_wait_for_review_under_the_agents_name() {
     let setup = start();
     let mut session = setup.session();
     let a = id_of(&setup.library, "a.flac");
-    let before = std::fs::read(setup.library.track(a).unwrap().unwrap().path).unwrap();
+    let before = std::fs::read(setup.library.track(a).unwrap().unwrap().file.unwrap()).unwrap();
 
     let answer = session
         .call(
@@ -476,7 +487,7 @@ fn tag_changes_wait_for_review_under_the_agents_name() {
     assert_eq!(set.summary.status, ChangeStatus::Pending);
     assert_eq!(set.summary.agent, "test-agent");
     assert_eq!(
-        std::fs::read(setup.library.track(a).unwrap().unwrap().path).unwrap(),
+        std::fs::read(setup.library.track(a).unwrap().unwrap().file.unwrap()).unwrap(),
         before,
         "nothing is written"
     );
@@ -889,7 +900,7 @@ fn the_relay_reads_the_settings_again_for_a_new_token() {
 /// counts it as available.
 fn lose_b(setup: &Setup) -> TrackId {
     let b = id_of(&setup.library, "b.flac");
-    std::fs::remove_file(setup.library.track(b).unwrap().unwrap().path).unwrap();
+    std::fs::remove_file(setup.library.track(b).unwrap().unwrap().file.unwrap()).unwrap();
     b
 }
 
@@ -1180,7 +1191,7 @@ fn now_playing_names_the_tracks_and_what_they_play_from() {
     let elsewhere = PathBuf::from("/not/in/the/library.flac");
     *setup.player.status.lock().unwrap() = Some(Status {
         state: PlayState::Paused,
-        current: Some(a.path.clone()),
+        current: Some(a.file.clone().unwrap()),
         position: Duration::from_millis(61_240),
         duration: Some(Duration::from_secs(200)),
         volume: 0.5,
@@ -1195,8 +1206,8 @@ fn now_playing_names_the_tracks_and_what_they_play_from() {
         },
         sleep_timer: SleepTimer::Minutes(25),
         context: Some(Context::Album(album)),
-        up_next: vec![b.path.clone()],
-        upcoming: vec![elsewhere.clone(), b.path.clone()],
+        up_next: vec![b.file.clone().unwrap()],
+        upcoming: vec![elsewhere.clone(), b.file.clone().unwrap()],
         context_len: 5,
     });
 
@@ -1244,7 +1255,7 @@ fn a_repeating_context_is_listed_once() {
         .unwrap();
     let status = |repeat, shuffle_kind, upcoming| Status {
         state: PlayState::Playing,
-        current: Some(a.path.clone()),
+        current: Some(a.file.clone().unwrap()),
         position: Duration::ZERO,
         duration: None,
         volume: 1.0,
@@ -1256,7 +1267,7 @@ fn a_repeating_context_is_listed_once() {
         sleep_timer: SleepTimer::Off,
         context: None,
         up_next: Vec::new(),
-        upcoming: vec![a.path.clone(); upcoming],
+        upcoming: vec![a.file.clone().unwrap(); upcoming],
         context_len: 1,
     };
     let mut now = |status| {
@@ -1280,4 +1291,582 @@ fn a_repeating_context_is_listed_once() {
     let off = now(status(Repeat::Off, ShuffleKind::FewerRepeats, 0));
     assert_eq!(off["upcoming"], json!([]));
     assert_eq!(off["repeats"], false);
+}
+
+const SERVER_SECRETS: [&str; 4] = [
+    "afar.flac",
+    "Remote Genre",
+    "remote-release",
+    "vcmp-server:",
+];
+
+struct Mirror {
+    server: ServerId,
+    near: TrackId,
+    far: TrackId,
+    far_album: AlbumId,
+    artist: ArtistId,
+    remote_artist: ArtistId,
+}
+
+fn mirrored(remote_id: i64, title: &str, artist: &str, album: &str) -> MirroredTrack {
+    MirroredTrack {
+        remote_id,
+        available: true,
+        folder: Some(3),
+        path: format!("Hidden Folder/{remote_id} afar.flac"),
+        format: Some(Format::Flac),
+        size: 1000,
+        modified_ms: 1,
+        title: title.into(),
+        artist: Some(artist.into()),
+        album: Some(album.into()),
+        album_artist: None,
+        track_number: Some(1),
+        disc_number: None,
+        year: Some(1901),
+        genre: Some("Remote Genre".into()),
+        duration: Duration::from_secs(100),
+        added_ms: 1,
+        artwork: None,
+        mb_release_id: Some(format!("remote-release-{remote_id}")),
+        mb_artist_id: None,
+        mb_album_artist_id: None,
+        mb_recording_id: None,
+    }
+}
+
+fn mirror(setup: &mut Setup) -> Mirror {
+    let server = setup
+        .library
+        .add_server("test-server", "Home server", "http://192.168.1.2:8270")
+        .unwrap()
+        .id;
+    setup
+        .library
+        .apply_server_page(
+            server,
+            &[
+                mirrored(1, "Song from afar", "Artist", "Far Album"),
+                mirrored(2, "Only remote", "Remote Artist", "Remote Album"),
+            ],
+            FeedCursor {
+                revision: 1,
+                track: 2,
+            },
+        )
+        .unwrap();
+    setup.library.finish_server_sync(server).unwrap();
+    let near = setup.library.remote_track(server, 1).unwrap().unwrap();
+    let far = setup.library.remote_track(server, 2).unwrap().unwrap();
+    let far_album = setup
+        .library
+        .albums()
+        .unwrap()
+        .into_iter()
+        .find(|album| album.title == "Far Album")
+        .unwrap();
+    assert_eq!(far_album.server, Some(server));
+    let artist_named = |name: &str| {
+        setup
+            .library
+            .artists()
+            .unwrap()
+            .into_iter()
+            .find(|artist| artist.name == name)
+            .unwrap()
+    };
+    let artist = artist_named("Artist");
+    assert_eq!(
+        (artist.album_count, artist.track_count),
+        (2, 3),
+        "the library counts the server's album and track"
+    );
+    Mirror {
+        server,
+        near,
+        far,
+        far_album: far_album.id,
+        artist: artist.id,
+        remote_artist: artist_named("Remote Artist").id,
+    }
+}
+
+fn checked(session: &mut Session<'_>, tool: &str, arguments: Value) -> Result<Value, String> {
+    let answer = session.call(tool, arguments);
+    let text = match &answer {
+        Ok(value) => value.to_string(),
+        Err(error) => error.clone(),
+    };
+    for secret in SERVER_SECRETS {
+        assert!(
+            !text.contains(secret),
+            "{tool} gave away {secret:?}: {text}"
+        );
+    }
+    answer
+}
+
+fn near_entry() -> Value {
+    json!({ "server_track": true, "title": "Song from afar", "artist": "Artist" })
+}
+
+const CANT_PLAY: &str = "it is a VCMP server's track, which agents can't play";
+
+#[test]
+fn a_servers_tracks_stay_out_of_reading_and_changes() {
+    let mut setup = start();
+    let mirror = mirror(&mut setup);
+    let a = id_of(&setup.library, "a.flac");
+    let b = id_of(&setup.library, "b.flac");
+    let chill = setup.library.create_label("Chill", "palette:teal").unwrap();
+    setup.library.add_label(chill, &[a, mirror.near]).unwrap();
+    let playlist = setup.library.create_playlist("Mix").unwrap();
+    setup.library.add_to_playlist(playlist, &[a]).unwrap();
+    let mut session = setup.session();
+    let local_artist = json!({
+        "id": mirror.artist.0, "name": "Artist", "album_count": 1, "track_count": 2
+    });
+
+    for limit in [1, 20] {
+        let found = checked(
+            &mut session,
+            "search",
+            json!({ "text": "artist", "limit": limit }),
+        )
+        .unwrap();
+        assert_eq!(found["artists"], json!([local_artist]), "{found}");
+        let albums: Vec<&Value> = found["albums"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|album| &album["title"])
+            .collect();
+        assert_eq!(albums, [&json!("Album")], "{found}");
+        let tracks = found["tracks"].as_array().unwrap();
+        assert_eq!(tracks.len(), limit.min(2), "{found}");
+        assert!(
+            tracks
+                .iter()
+                .all(|track| track["id"] == a.0 || track["id"] == b.0),
+            "{found}"
+        );
+    }
+    assert_eq!(
+        checked(&mut session, "search", json!({ "text": "afar" })).unwrap(),
+        json!({ "artists": [], "albums": [], "tracks": [] })
+    );
+
+    let albums = checked(&mut session, "list_albums", json!({})).unwrap();
+    assert_eq!(albums["total"], 1);
+    assert_eq!(albums["albums"][0]["title"], "Album");
+    assert_eq!(
+        checked(
+            &mut session,
+            "get_album",
+            json!({ "album_id": mirror.far_album.0 })
+        )
+        .unwrap_err(),
+        format!("there is no album {}", mirror.far_album.0)
+    );
+    let artists = checked(&mut session, "list_artists", json!({})).unwrap();
+    assert_eq!(artists, json!({ "total": 1, "artists": [local_artist] }));
+
+    for ids in [json!([mirror.near.0]), json!([a.0, mirror.far.0])] {
+        let refused = checked(&mut session, "get_tracks", json!({ "track_ids": ids })).unwrap_err();
+        assert!(
+            refused.contains("is a VCMP server's track, which agents can't read"),
+            "{refused}"
+        );
+    }
+
+    let missing = checked(
+        &mut session,
+        "find_tracks_by_tag",
+        json!({ "key": "Composer", "missing": true }),
+    )
+    .unwrap();
+    assert_eq!(missing["total"], 1, "{missing}");
+    assert_eq!(missing["tracks"][0]["id"], b.0);
+    let brief = checked(
+        &mut session,
+        "find_tracks_by_tag",
+        json!({ "key": "Composer", "missing": true, "brief": true, "offset": 1 }),
+    )
+    .unwrap();
+    assert_eq!(brief, json!({ "total": 1, "tracks": [] }));
+    let held = checked(
+        &mut session,
+        "find_tracks_by_tag",
+        json!({ "key": "Composer" }),
+    )
+    .unwrap();
+    assert_eq!(held["total"], 1);
+    assert_eq!(held["tracks"][0]["id"], a.0);
+
+    assert_eq!(
+        checked(&mut session, "list_labels", json!({})).unwrap(),
+        json!([{ "name": "Chill", "colour": "teal", "track_count": 1 }])
+    );
+    let labelled = checked(
+        &mut session,
+        "find_tracks_by_labels",
+        json!({ "labels": ["chill"] }),
+    )
+    .unwrap();
+    let ids: Vec<&Value> = labelled
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|track| &track["id"])
+        .collect();
+    assert_eq!(ids, [&json!(a.0)]);
+    assert_eq!(
+        checked(
+            &mut session,
+            "find_tracks_by_labels",
+            json!({ "labels": ["chill"], "offset": 1 }),
+        )
+        .unwrap(),
+        json!([])
+    );
+
+    for changes in [
+        json!([{ "track_id": mirror.near.0, "genre": "Jazz" }]),
+        json!([
+            { "track_id": a.0, "genre": "Jazz" },
+            { "track_id": mirror.far.0, "genre": "Jazz" }
+        ]),
+    ] {
+        let refused = checked(
+            &mut session,
+            "propose_tag_changes",
+            json!({ "changes": changes }),
+        )
+        .unwrap_err();
+        assert!(
+            refused.contains("is a VCMP server's track, which agents can't change"),
+            "{refused}"
+        );
+    }
+    let refused = checked(
+        &mut session,
+        "propose_label_changes",
+        json!({ "changes": [{ "track_ids": [b.0, mirror.near.0], "add": ["chill"] }] }),
+    )
+    .unwrap_err();
+    assert!(
+        refused.contains(&format!(
+            "track {} is a VCMP server's track, which agents can't label",
+            mirror.near.0
+        )),
+        "{refused}"
+    );
+    assert!(
+        setup.library.change_sets().unwrap().is_empty(),
+        "nothing was recorded"
+    );
+
+    let refused = checked(
+        &mut session,
+        "add_to_playlist",
+        json!({ "playlist_id": playlist.0, "track_ids": [b.0, mirror.far.0] }),
+    )
+    .unwrap_err();
+    assert!(
+        refused.contains("which agents can't add to playlists"),
+        "{refused}"
+    );
+    assert_eq!(setup.library.playlist_entries(playlist).unwrap().len(), 1);
+
+    let base = dunce::canonicalize(setup._dir.path()).unwrap();
+    let mut owner = Library::open(&base.join("library.sqlite3"), &base.join("cache")).unwrap();
+    let far_set = owner
+        .submit_label_changes(
+            "Owner",
+            &[(
+                mirror.far,
+                LabelEdit {
+                    add: vec!["Rainy".into()],
+                    remove: Vec::new(),
+                },
+            )],
+            &[NewLabel {
+                name: "Rainy".into(),
+                colour: "palette:blue".into(),
+            }],
+        )
+        .unwrap();
+    owner.accept_change_set(far_set, |_, _| {}).unwrap();
+    let refused = checked(
+        &mut session,
+        "propose_undo",
+        json!({ "change_set_id": far_set.0 }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        refused,
+        format!(
+            "change set {} covers a VCMP server's track, which agents can't change",
+            far_set.0
+        )
+    );
+    assert_eq!(
+        checked(&mut session, "list_labels", json!({})).unwrap(),
+        json!([
+            { "name": "Chill", "colour": "teal", "track_count": 1 },
+            { "name": "Rainy", "colour": "blue", "track_count": 0 }
+        ])
+    );
+}
+
+#[test]
+fn a_servers_tracks_keep_their_place_in_playlists_and_the_queue() {
+    let mut setup = start();
+    let mirror = mirror(&mut setup);
+    let a = id_of(&setup.library, "a.flac");
+    let b = id_of(&setup.library, "b.flac");
+    let chill = setup.library.create_label("Chill", "palette:teal").unwrap();
+    setup.library.add_label(chill, &[a, mirror.near]).unwrap();
+    let playlist = setup.library.create_playlist("Mix").unwrap();
+    setup
+        .library
+        .add_to_playlist(playlist, &[a, mirror.near, b])
+        .unwrap();
+    let mut session = setup.session();
+    let entries = |session: &mut Session<'_>| {
+        checked(
+            session,
+            "get_playlist",
+            json!({ "playlist_id": playlist.0 }),
+        )
+        .unwrap()["entries"]
+            .clone()
+    };
+
+    let listed = entries(&mut session);
+    assert_eq!(listed[0]["position"], 0);
+    assert_eq!(listed[0]["track"]["id"], a.0);
+    assert_eq!(listed[1], json!({ "position": 1, "track": near_entry() }));
+    assert_eq!(listed[2]["position"], 2);
+    assert_eq!(listed[2]["track"]["id"], b.0);
+
+    let answer = checked(
+        &mut session,
+        "play_playlist",
+        json!({ "playlist_id": playlist.0, "start_position": 1 }),
+    )
+    .unwrap();
+    assert_eq!(answer["playing"], 2);
+    assert_eq!(answer["starts_with"]["id"], b.0);
+    assert_eq!(
+        answer["left_out"],
+        json!([{
+            "position": 1, "server_track": true, "title": "Song from afar",
+            "artist": "Artist", "reason": CANT_PLAY
+        }])
+    );
+    assert_eq!(
+        setup.player.take(),
+        [Asked::Play(
+            vec![a.0, b.0],
+            Context::Playlist(playlist),
+            Some(1),
+            None
+        )]
+    );
+
+    checked(
+        &mut session,
+        "move_in_playlist",
+        json!({ "playlist_id": playlist.0, "from": 1, "to": 0 }),
+    )
+    .unwrap();
+    let listed = entries(&mut session);
+    assert_eq!(listed[0], json!({ "position": 0, "track": near_entry() }));
+    assert_eq!(listed[1]["track"]["id"], a.0);
+    checked(
+        &mut session,
+        "remove_from_playlist",
+        json!({ "playlist_id": playlist.0, "positions": [0] }),
+    )
+    .unwrap();
+    let listed = entries(&mut session);
+    let ids: Vec<&Value> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| &entry["track"]["id"])
+        .collect();
+    assert_eq!(ids, [&json!(a.0), &json!(b.0)]);
+
+    let answer = checked(
+        &mut session,
+        "play_tracks",
+        json!({ "track_ids": [mirror.near.0, a.0] }),
+    )
+    .unwrap();
+    assert_eq!(answer["playing"], 1);
+    assert_eq!(
+        answer["left_out"],
+        json!([{
+            "track_id": mirror.near.0, "server_track": true, "title": "Song from afar",
+            "artist": "Artist", "reason": CANT_PLAY
+        }])
+    );
+    let none = checked(
+        &mut session,
+        "queue_tracks",
+        json!({ "track_ids": [mirror.far.0] }),
+    )
+    .unwrap_err();
+    assert_eq!(
+        none,
+        format!(
+            "none of these tracks can be played: track {}: {CANT_PLAY}",
+            mirror.far.0
+        )
+    );
+    let answer = checked(&mut session, "play_label", json!({ "label": "chill" })).unwrap();
+    assert_eq!(answer["playing"], 1);
+    assert_eq!(
+        answer["left_out"],
+        json!([{
+            "server_track": true, "title": "Song from afar", "artist": "Artist",
+            "reason": CANT_PLAY
+        }])
+    );
+    let answer = checked(
+        &mut session,
+        "play_artist",
+        json!({ "artist_id": mirror.artist.0 }),
+    )
+    .unwrap();
+    assert_eq!(answer["playing"], 2);
+    assert_eq!(
+        answer["left_out"],
+        json!([{
+            "server_track": true, "title": "Song from afar", "artist": "Artist",
+            "reason": CANT_PLAY
+        }])
+    );
+    assert_eq!(
+        checked(
+            &mut session,
+            "play_artist",
+            json!({ "artist_id": mirror.remote_artist.0 }),
+        )
+        .unwrap_err(),
+        format!("there is no artist {}", mirror.remote_artist.0)
+    );
+    assert_eq!(
+        checked(
+            &mut session,
+            "play_album",
+            json!({ "album_id": mirror.far_album.0 }),
+        )
+        .unwrap_err(),
+        format!("there is no album {}", mirror.far_album.0)
+    );
+    assert_eq!(
+        setup.player.take(),
+        [
+            Asked::Play(vec![a.0], Context::Agent("test-agent".into()), None, None),
+            Asked::Play(vec![a.0], Context::Label(chill), None, None),
+            Asked::Play(vec![a.0, b.0], Context::Artist(mirror.artist), None, None),
+        ]
+    );
+
+    let a_file = setup.library.track(a).unwrap().unwrap().file.unwrap();
+    let b_file = setup.library.track(b).unwrap().unwrap().file.unwrap();
+    let key = |id: TrackId| PathBuf::from(setup.library.track(id).unwrap().unwrap().key());
+    let status = |context| Status {
+        state: PlayState::Playing,
+        current: Some(key(mirror.near)),
+        position: Duration::ZERO,
+        duration: None,
+        volume: 1.0,
+        muted: false,
+        shuffle: false,
+        shuffle_kind: ShuffleKind::FewerRepeats,
+        repeat: Repeat::Off,
+        output: OutputDevices::default(),
+        sleep_timer: SleepTimer::Off,
+        context: Some(context),
+        up_next: vec![key(mirror.far), a_file.clone()],
+        upcoming: vec![
+            b_file.clone(),
+            key(mirror.near),
+            PathBuf::from(remote_key(mirror.server, 99)),
+        ],
+        context_len: 3,
+    };
+    *setup.player.status.lock().unwrap() = Some(status(Context::Album(mirror.far_album)));
+    let now = checked(&mut session, "get_now_playing", json!({})).unwrap();
+    assert_eq!(now["track"], near_entry());
+    assert_eq!(
+        now["up_next"][0],
+        json!({
+            "position": 0,
+            "track": { "server_track": true, "title": "Only remote", "artist": "Remote Artist" }
+        })
+    );
+    assert_eq!(now["up_next"][1]["position"], 1);
+    assert_eq!(now["up_next"][1]["track"]["id"], a.0);
+    assert_eq!(now["upcoming"][0]["position"], 2);
+    assert_eq!(now["upcoming"][0]["track"]["id"], b.0);
+    assert_eq!(
+        now["upcoming"][1],
+        json!({ "position": 3, "track": near_entry() })
+    );
+    assert_eq!(
+        now["upcoming"][2],
+        json!({
+            "position": 4,
+            "track": { "server_track": true, "title": null, "artist": null }
+        })
+    );
+    assert_eq!(
+        now["context"],
+        json!({ "kind": "server_album", "id": null, "name": "Far Album" })
+    );
+    *setup.player.status.lock().unwrap() = Some(status(Context::Folder(server_folder_location(
+        mirror.server,
+        3,
+    ))));
+    let now = checked(&mut session, "get_now_playing", json!({})).unwrap();
+    assert_eq!(
+        now["context"],
+        json!({ "kind": "server_folder", "id": null, "name": null })
+    );
+
+    for position in [0, 3] {
+        let refused = checked(
+            &mut session,
+            "edit_queue",
+            json!({ "action": "skip_to", "position": position }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            refused,
+            format!(
+                "the entry at position {position} is a VCMP server's track, which agents can't play"
+            )
+        );
+    }
+    for arguments in [
+        json!({ "action": "move", "position": 0, "to": 1 }),
+        json!({ "action": "remove", "position": 0 }),
+        json!({ "action": "skip_to", "position": 2 }),
+    ] {
+        checked(&mut session, "edit_queue", arguments).unwrap();
+    }
+    assert_eq!(
+        setup.player.take(),
+        [
+            Asked::Control(Control::MoveInUpNext { from: 0, to: 1 }),
+            Asked::Control(Control::RemoveFromUpNext(0)),
+            Asked::Control(Control::SkipTo(2)),
+        ]
+    );
 }

@@ -42,7 +42,15 @@ impl LyricsReader for ThreadReader {
         let spawned = thread::Builder::new()
             .name("vcmp-lyrics-read".into())
             .spawn(move || {
-                let local = read_local_lyrics(&path);
+                let remote = path
+                    .to_str()
+                    .and_then(vcmp_library::parse_remote_key)
+                    .is_some();
+                let local = if remote {
+                    LocalLyrics::default()
+                } else {
+                    read_local_lyrics(&path)
+                };
                 PlayerService::post(move |service| service.local_lyrics_read(&path, local));
             });
         if let Err(error) = spawned {

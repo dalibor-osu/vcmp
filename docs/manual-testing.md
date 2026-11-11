@@ -615,8 +615,8 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 
 ### VCMP server **(never seen working behind nginx, on ARM64 or on a Linux host)**
 
-The app can't connect to a server yet; these check the server on its own
-([server.md](server.md)). Use a copy of some albums as its music.
+These check the server on its own ([server.md](server.md)). Use a copy of some
+albums as its music.
 
 - [ ] `docker build -f packaging/server/Dockerfile -t vcmp-server .` builds, and
       `docker buildx build --platform linux/amd64,linux/arm64 ...` builds both.
@@ -642,6 +642,37 @@ The app can't connect to a server yet; these check the server on its own
       (nginx doesn't buffer it first).
 - [ ] On an ARM64 machine (a Raspberry Pi, an ARM NAS), the arm64 image runs and
       scans.
+
+### Music servers in the app **(never seen working)**
+
+With the server above running and the app on a `VCMP_HOME` copy (never the real
+library: this build migrates it to schema 19, which 26.11.0 refuses).
+
+- [ ] Settings, Music servers: enter `127.0.0.1:8268` and the user token, Connect.
+      The row says Syncing with a count, then Connected; the server's albums are in
+      Albums with "Artist · <server name>", covers included; Search finds its
+      tracks; Folders lists "<server name> · music".
+- [ ] A wrong token: "The server refused that token". An address that answers
+      nothing: "The server can't be reached". `http://` to a public host name: the
+      plain http warning with Connect anyway and Cancel.
+- [ ] Play a server album: the bar shows buffering for a moment, then it plays;
+      seeking works; the next track follows (gapless when it downloaded in time).
+      Play it again: it starts at once. Settings shows the downloaded size.
+- [ ] Add server tracks to a playlist, heart one, label one; restart the app: all
+      still there. Export the playlist: the page says how many entries were left out
+      because they play from a server.
+- [ ] Stop the server: after the next sync (Sync now) its row says it can't be
+      reached and its albums' titles are dimmed; an album played before still plays.
+      Start it again and Sync now: back to normal.
+- [ ] Remove the server, add it again: the playlist and the heart come back.
+- [ ] With the admin token: Manage… lists the folders; add a folder by its path in
+      the container, the scan report updates and the new music arrives; Rescan;
+      New user token shows a token to copy and the old one stops working; New admin
+      token keeps this app connected. Edit a server track's title in the tag editor:
+      the album page shows the new title. With the music mounted read-only, the edit
+      reports the file as read-only.
+- [ ] Ask an AI agent (MCP) for the playlist with server tracks: it lists them as
+      server tracks without tags, and can't play them.
 
 ## Linux
 

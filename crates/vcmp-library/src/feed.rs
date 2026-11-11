@@ -117,14 +117,19 @@ impl Library {
     }
 
     pub fn artwork_by_key(&self, key: &str) -> Option<Artwork> {
-        let (stem, extension) = key.split_once('.')?;
-        let valid = !stem.is_empty()
-            && stem.bytes().all(|b| b.is_ascii_hexdigit())
-            && !extension.is_empty()
-            && extension.bytes().all(|b| b.is_ascii_lowercase());
-        if !valid {
+        if !valid_artwork_key(key) {
             return None;
         }
         self.artwork.get(key)
     }
+}
+
+pub(crate) fn valid_artwork_key(key: &str) -> bool {
+    let Some((stem, extension)) = key.split_once('.') else {
+        return false;
+    };
+    !stem.is_empty()
+        && stem.bytes().all(|b| b.is_ascii_hexdigit())
+        && !extension.is_empty()
+        && extension.bytes().all(|b| b.is_ascii_lowercase())
 }

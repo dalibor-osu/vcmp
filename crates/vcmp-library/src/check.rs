@@ -66,7 +66,8 @@ impl Library {
     pub fn duplicate_groups(&self) -> Result<Vec<DuplicateGroup>> {
         let mut statement = self.conn.prepare(&format!(
             "SELECT {TRACK_COLUMNS} FROM tracks t
-             WHERE t.available = 1 AND t.artist IS NOT NULL AND TRIM(t.artist) != ''
+             WHERE t.available = 1 AND t.id NOT IN (SELECT track_id FROM remote_tracks)
+               AND t.artist IS NOT NULL AND TRIM(t.artist) != ''
                AND {HAS_TITLE}"
         ))?;
         let tracks: Vec<Track> = statement
@@ -122,7 +123,8 @@ impl Library {
             "SELECT {TRACK_COLUMNS}, NOT {HAS_TITLE} FROM tracks t
              LEFT JOIN albums a ON a.id = t.album_id
              LEFT JOIN artists aa ON aa.id = a.artist_id
-             WHERE t.available = 1 AND (NOT {HAS_TITLE}
+             WHERE t.available = 1 AND t.id NOT IN (SELECT track_id FROM remote_tracks)
+               AND (NOT {HAS_TITLE}
                 OR t.artist IS NULL OR TRIM(t.artist) = ''
                 OR t.album IS NULL OR TRIM(t.album) = ''
                 OR t.track_number IS NULL OR t.year IS NULL)
@@ -136,7 +138,7 @@ impl Library {
                 let blank = |text: &Option<String>| text.as_deref().is_none_or(is_blank);
                 Ok(TrackGaps {
                     missing: MissingFields {
-                        title: row.get(16)?,
+                        title: row.get(crate::query::TRACK_COLUMN_COUNT)?,
                         artist: blank(&track.artist),
                         album: blank(&track.album),
                         track_number: track.track_number.is_none(),
@@ -177,7 +179,7 @@ impl Library {
     pub fn albums_without_cover(&self) -> Result<Vec<Album>> {
         self.albums()?
             .into_iter()
-            .filter(|album| !album.unknown && album.artwork.is_none())
+            .filter(|album| !album.unknown && album.server.is_none() && album.artwork.is_none())
             .filter_map(|album| match self.artwork_looked_for(album.id) {
                 Ok(true) => Some(Ok(album)),
                 Ok(false) => None,
@@ -261,7 +263,7 @@ pub(crate) fn group_duplicates(tracks: Vec<Track>) -> Vec<Vec<Track>> {
     }
     let mut groups = Vec::new();
     for (_, mut same) in by_name {
-        same.sort_by(|a, b| a.duration.cmp(&b.duration).then(a.path.cmp(&b.path)));
+        same.sort_by(|a, b| a.duration.cmp(&b.duration).then(a.file.cmp(&b.file)));
         let mut group: Vec<Track> = Vec::new();
         for track in same {
             if let Some(last) = group.last()
@@ -291,7 +293,8 @@ mod tests {
     fn track(id: i64, artist: &str, title: &str, millis: u64) -> Track {
         Track {
             id: TrackId(id),
-            path: PathBuf::from(format!("{id}.flac")),
+            file: Some(PathBuf::from(format!("{id}.flac"))),
+            remote: None,
             available: true,
             format: None,
             title: title.into(),

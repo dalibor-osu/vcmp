@@ -43,26 +43,26 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 
 | Tool | Does |
 |---|---|
-| `search` | Artists, albums and tracks holding every word (the library's search) |
-| `list_albums`, `list_artists` | Pages of 100 (at most 500) |
-| `get_album` | An album and its tracks |
-| `get_tracks` | Tracks by id with the nine fields, path, availability and every tag by key |
+| `search` | Artists, albums and tracks on this computer holding every word (the library's search) |
+| `list_albums`, `list_artists` | Pages of 100 (at most 500); an artist's counts are of their music on this computer |
+| `get_album` | An album and its tracks; a VCMP server's album is not found |
+| `get_tracks` | Tracks by id with the nine fields, path, availability and every tag by key; a VCMP server's track is refused |
 | `list_tag_keys` | Every key with how many tracks hold it |
 | `find_tracks_by_tag` | Tracks holding a key (and value), or lacking it, with `total` counting them all, as `list_albums` does. `brief` lists each track by id, title, artist, album and album id only: a page of 500 full tracks came to 170–290 KB, more than Claude Code shows inline |
-| `list_labels` | The owner's labels with their colour (a palette name or `#rrggbb`) and how many available tracks hold each |
-| `find_tracks_by_labels` | Available tracks holding every label named (ignoring case) |
-| `list_playlists`, `get_playlist` | Playlists and their entries with positions |
+| `list_labels` | The owner's labels with their colour (a palette name or `#rrggbb`) and how many available tracks on this computer hold each |
+| `find_tracks_by_labels` | Available tracks on this computer holding every label named (ignoring case) |
+| `list_playlists`, `get_playlist` | Playlists and their entries with positions; a VCMP server's track keeps its place as `server_track` |
 | `propose_tag_changes` | Records a change set of up to 500 tracks: the nine fields by name (`remove` clears them), the cover among them as `{"file": "<absolute path>"}` or `{"url": "<http or https address>"}`, and any other tag by key (an empty list removes it). Each image is read or downloaded once, however many tracks it goes into |
 | `propose_label_changes` | Records a label set: groups of tracks with labels to add and remove (a track in several groups gets them all), and new labels with a colour (a palette name or `#rrggbb`); at most 500 tracks. Every new label is created on accepting, whether a track gets it or not, so a call with only `new_labels` sets up the owner's labels; the answer names them |
 | `get_change_set`, `list_change_sets` | Status, and per file the values before, asked for and after, and whether the cover is replaced or removed; for a label set, per track each label held before, asked, and held after |
 | `propose_undo` | Records the undo of an accepted change of tags or labels; the labels a change created go with it unless a track holds them |
 | `propose_playlist_deletion` | Records a deletion for review |
-| `create_playlist`, `rename_playlist`, `add_to_playlist`, `remove_from_playlist`, `move_in_playlist` | Done at once |
+| `create_playlist`, `rename_playlist`, `add_to_playlist`, `remove_from_playlist`, `move_in_playlist` | Done at once; `add_to_playlist` refuses a VCMP server's track |
 | `play_tracks` | Plays tracks by id (at most 500) in place of what plays: a queue context of its own, named after the agent in the queue panel ("Next from Claude"). Optional `start_track_id` and `shuffle` (true or false; left out, it stays as it is) |
 | `play_album`, `play_playlist`, `play_label`, `play_artist` | Play these as their pages' play buttons do, with the same queue context and order (an artist: their albums, then their appearances elsewhere). A label by name; a playlist's start by entry position |
 | `queue_tracks` | Puts tracks into Up next, `next` or at the `end` |
 | `playback_control` | Play, pause, toggle, stop, next, previous, seek (`position_seconds`), and `show_window` (brings the window to the front). There is no quit |
-| `edit_queue` | Skip to an entry, remove or move an Up next entry, clear Up next; positions as `get_now_playing` lists them |
+| `edit_queue` | Skip to an entry (not to a VCMP server's track), remove or move an Up next entry, clear Up next; positions as `get_now_playing` lists them |
 | `set_playback_options` | Shuffle on or off, its kind (`fewer_repeats`, `true_random`), repeat (`off`, `all`, `one`), volume 0 to 100 |
 | `list_output_devices`, `set_output_device` | The devices as Settings lists them (listed afresh, so Settings' list follows), the chosen one and the one playing instead when it is missing; choosing one by name (exactly, else ignoring case), or the system default |
 | `set_sleep_timer` | Off, end of this track, or 1 to 90 minutes |
@@ -71,7 +71,7 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 The play and queue tools read what to play on the server's own connection, so a
 track that can't be played is left out there: one whose file is gone (the library
 marks it unavailable, or it isn't on the disk any more), one the library doesn't
-know, or one whose path isn't valid Unicode. The answer names each under
+know, one whose path isn't valid Unicode, or a VCMP server's track. The answer names each under
 `left_out` with the reason, and playing starts at the next playable track when the
 one to start with is left out (as the window does for playlists). When nothing can
 be played, the tool answers with an error listing why.
@@ -83,7 +83,44 @@ by mood), and what each of the nine fields does in VCMP (grouping by album and a
 artist, Unknown albums, MusicBrainz release IDs). The agent's name in the history and in the
 queue panel is the client's title or name from its handshake. The instructions also
 list the playback tools, say that playback needs its own switch, and ask the agent
-to tell the owner about tracks left out.
+to tell the owner about tracks left out. They say that playlists and the queue may
+hold VCMP servers' tracks, which the agent can move and remove by position but not
+read, change or play.
+
+## VCMP servers' tracks
+
+The library may hold tracks mirrored from a VCMP server ([server.md](server.md)).
+Agents reach only the music on this computer (the
+[spec](specs/2026-11-11-vcmp-streaming-server.md), "Local-only guard"). A track is a
+server's when it has no file (`Track::file` is `None`), an album when `Album::server`
+is set.
+
+- **Left out of reading.** `search`, `list_albums`, `list_artists`, `get_album`,
+  `list_labels`, `find_tracks_by_tag` and `find_tracks_by_labels` list, count and
+  page this computer's tracks and albums only. An artist with no music here is not
+  listed, and `play_artist` says there is no such artist; one with some is counted
+  by what is here. A server's album is not found.
+- **Refused by id.** `get_tracks`, `propose_tag_changes`, `propose_label_changes`
+  and `add_to_playlist` refuse the whole request when it names a server's track:
+  "track 7 is a VCMP server's track, which agents can't read; leave it out" (or
+  change, label, add to playlists). Nothing reaches the app. `propose_undo` refuses
+  a change set that covers a server's track.
+- **Kept in place.** `get_playlist` and `get_now_playing` list a server's track
+  where it stands, so positions stay the ones the window shows. In place of the
+  track they give `{"server_track": true, "title": "...", "artist": "..."}`: no id,
+  path, tags or labels. A queued server key the library doesn't know gets null for
+  both. Moving and removing such an entry by position works (`move_in_playlist`,
+  `remove_from_playlist`, `edit_queue`'s move and remove). `edit_queue` won't skip
+  to one. Playing from a server's album shows as the context `server_album` with
+  its title, from a server's folder as `server_folder`, both without an id.
+- **Left out of playing.** The play tools leave a server's track out and name it
+  under `left_out` with `server_track: true`, its title and artist, and the reason.
+  `track_id` is there only when the agent named the track; a playlist entry gives
+  its position.
+
+`track_out`, which renders every track an answer lists, renders a server's track in
+that reduced form, so a tool that misses a check still can't hand out its path or
+tags.
 
 ## Changes go through the app
 
@@ -145,7 +182,10 @@ ends the session.
 for the app (`Changes` done at once on a test connection, and a recorder for
 `Playback`) and talks real HTTP to it: the token and Origin checks, the handshake,
 reading tags, change sets that wait, playlist edits, and every playback tool,
-including requests with missing files and unknown tracks. The same file runs the relay over in-memory input and output against
+including requests with missing files and unknown tracks. Two of its tests mirror
+two server tracks next to the local ones, in a playlist, under a label and in the
+queue, and call every tool above: no answer may hold their paths, genre, release ids
+or keys, positions stay, and the play tools and changes leave them out. The same file runs the relay over in-memory input and output against
 that server: a whole session, the answers when nothing listens or the switch is off,
 and a new token. `crates/vcmp-app/tests/agents.rs` covers the switch, the port and
 token, what the relay reads from the settings, the review in the window, the
@@ -179,3 +219,10 @@ client is in [manual-testing.md](manual-testing.md).
   100 tracks after it. Earlier tracks (the history) aren't listed.
 - A change waits for the window's event loop to take it; when that takes more than
   30 seconds, the agent is told that VCMP didn't answer in time.
+- To leave VCMP servers' tracks out of counts and pages, `list_artists`,
+  `list_labels`, `find_tracks_by_tag`, `find_tracks_by_labels`, and `search` when it
+  finds artists, read every available track on each call. `search` asks the library
+  again, for four times as many, while servers' matches crowd this computer's out of
+  a kind's page.
+- `playback_control`'s `next` and `previous` go through the queue as the window's
+  buttons do, so they can reach a VCMP server's track; only `skip_to` refuses one.

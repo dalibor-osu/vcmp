@@ -2,7 +2,7 @@
 //! through [`Changes`], and playback through [`Playback`], to the app. Every answer is
 //! JSON text. The playback tools are in `playback.rs`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -14,9 +14,9 @@ use rmcp::{RoleServer, ServerHandler, tool, tool_handler, tool_router};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use vcmp_library::{
-    Album, AlbumId, Artist, ChangeKind, ChangeSet, ChangeSetId, ChangeSetSummary, ChangeStatus,
-    FieldEdit, FileResult, LABEL_PALETTE, Label, LabelEdit, Library, NewLabel, Playlist,
-    PlaylistId, TagEdit, Track, TrackId, valid_label_colour,
+    Album, AlbumId, Artist, ArtistId, ChangeKind, ChangeSet, ChangeSetId, ChangeSetSummary,
+    ChangeStatus, FieldEdit, FileResult, LABEL_PALETTE, Label, LabelEdit, Library, NewLabel,
+    Playlist, PlaylistId, TagEdit, Track, TrackId, valid_label_colour,
 };
 
 use crate::playback::{self, Playback};
@@ -84,7 +84,15 @@ has now.
 Playlists: create_playlist, rename_playlist, add_to_playlist, remove_from_playlist \
 and move_in_playlist change playlists at once. Deleting one is never immediate: \
 propose_playlist_deletion waits for the owner, and a deleted playlist can't be \
-restored.";
+restored.
+
+VCMP servers: VCMP also plays music that another computer serves it (a VCMP \
+server). These tools reach only the music on this computer: search, the albums, \
+artists, labels and tags hold none of a server's tracks, and a server's track can't \
+be read, changed, labelled, added to a playlist or played by you. Playlists and the \
+queue may still hold some: such an entry keeps its place, listed with server_track \
+true and only its title and artist, so positions stay the ones VCMP shows. You can \
+move and remove such entries by position.";
 
 #[derive(Clone)]
 pub struct VcmpServer {
@@ -154,6 +162,111 @@ impl VcmpServer {
             .await
             .map_err(|error| error.to_string())??;
         json(&result)
+    }
+
+    async fn refuse_server_tracks(&self, ids: Vec<i64>, what: &'static str) -> Result<(), String> {
+        self.read_raw(move |library| {
+            for id in ids {
+                if library
+                    .track(TrackId(id))
+                    .map_err(failed)?
+                    .is_some_and(|track| track.file.is_none())
+                {
+                    return Err(server_track(id, what));
+                }
+            }
+            Ok(())
+        })
+        .await
+    }
+}
+
+fn server_track(id: i64, what: &str) -> String {
+    format!("track {id} is a VCMP server's track, which agents can't {what}; leave it out")
+}
+
+fn server_track_ids(library: &Library) -> Result<HashSet<TrackId>, String> {
+    Ok(library
+        .tracks()
+        .map_err(failed)?
+        .into_iter()
+        .filter(|track| track.file.is_none())
+        .map(|track| track.id)
+        .collect())
+}
+
+fn artist_counts(library: &Library) -> Result<HashMap<ArtistId, (u32, u32)>, String> {
+    let mut counts: HashMap<ArtistId, (u32, u32)> = HashMap::new();
+    for album in library.albums().map_err(failed)? {
+        if album.server.is_none()
+            && let Some(artist) = album.artist_id
+        {
+            counts.entry(artist).or_default().0 += 1;
+        }
+    }
+    for track in library.tracks().map_err(failed)? {
+        if track.file.is_some()
+            && let Some(artist) = track.artist_id
+        {
+            counts.entry(artist).or_default().1 += 1;
+        }
+    }
+    Ok(counts)
+}
+
+fn local_artists(
+    artists: &[Artist],
+    counts: Option<&HashMap<ArtistId, (u32, u32)>>,
+) -> Vec<Artist> {
+    artists
+        .iter()
+        .filter_map(|artist| {
+            let &(album_count, track_count) = counts?.get(&artist.id)?;
+            Some(Artist {
+                album_count,
+                track_count,
+                ..artist.clone()
+            })
+        })
+        .collect()
+}
+
+fn search_local(library: &Library, text: &str, limit: usize) -> Result<serde_json::Value, String> {
+    let mut counts = None;
+    let mut asked = limit;
+    loop {
+        let found = library.search(text, asked).map_err(failed)?;
+        if counts.is_none() && !found.artists.is_empty() {
+            counts = Some(artist_counts(library)?);
+        }
+        let artists = local_artists(&found.artists, counts.as_ref());
+        let albums: Vec<&Album> = found
+            .albums
+            .iter()
+            .filter(|album| album.server.is_none())
+            .collect();
+        let tracks: Vec<&Track> = found
+            .tracks
+            .iter()
+            .filter(|track| track.file.is_some())
+            .collect();
+        let short = |kept: usize, listed: usize| kept < limit && listed == asked;
+        if short(artists.len(), found.artists.len())
+            || short(albums.len(), found.albums.len())
+            || short(tracks.len(), found.tracks.len())
+        {
+            asked = asked.saturating_mul(4).min(i64::MAX as usize);
+            continue;
+        }
+        return Ok(serde_json::json!({
+            "artists": artists.iter().take(limit).map(artist_out).collect::<Vec<_>>(),
+            "albums": albums.into_iter().take(limit).map(album_out).collect::<Vec<_>>(),
+            "tracks": tracks
+                .into_iter()
+                .take(limit)
+                .map(|track| track_out(library, track, None))
+                .collect::<Result<Vec<_>, String>>()?,
+        }));
     }
 }
 
@@ -378,28 +491,26 @@ pub struct MoveArgs {
 #[tool_router]
 impl VcmpServer {
     #[tool(
-        description = "Find artists, albums and tracks whose title, artist or album holds every word, ignoring case and diacritics."
+        description = "Find artists, albums and tracks on this computer whose title, artist or album holds every word, ignoring case and diacritics."
     )]
     async fn search(&self, Parameters(args): Parameters<SearchArgs>) -> Result<String, String> {
         let limit = args.limit.unwrap_or(20).clamp(1, MAX_PAGE) as usize;
-        self.read(move |library| {
-            let found = library.search(&args.text, limit).map_err(failed)?;
-            Ok(serde_json::json!({
-                "artists": found.artists.iter().map(artist_out).collect::<Vec<_>>(),
-                "albums": found.albums.iter().map(album_out).collect::<Vec<_>>(),
-                "tracks": tracks_out(library, &found.tracks)?,
-            }))
-        })
-        .await
+        self.read(move |library| search_local(library, &args.text, limit))
+            .await
     }
 
     #[tool(
-        description = "List the albums, by album artist and title, with their ids, years and track counts."
+        description = "List the albums on this computer, by album artist and title, with their ids, years and track counts."
     )]
     async fn list_albums(&self, Parameters(args): Parameters<PageArgs>) -> Result<String, String> {
         let (offset, limit) = page(args.offset, args.limit);
         self.read(move |library| {
-            let albums = library.albums().map_err(failed)?;
+            let albums: Vec<Album> = library
+                .albums()
+                .map_err(failed)?
+                .into_iter()
+                .filter(|album| album.server.is_none())
+                .collect();
             Ok(serde_json::json!({
                 "total": albums.len(),
                 "albums": albums.iter().skip(offset).take(limit).map(album_out).collect::<Vec<_>>(),
@@ -408,11 +519,14 @@ impl VcmpServer {
         .await
     }
 
-    #[tool(description = "List every artist with their number of albums and tracks.")]
+    #[tool(
+        description = "List every artist with music on this computer, with their number of albums and tracks there."
+    )]
     async fn list_artists(&self, Parameters(args): Parameters<PageArgs>) -> Result<String, String> {
         let (offset, limit) = page(args.offset, args.limit);
         self.read(move |library| {
-            let artists = library.artists().map_err(failed)?;
+            let counts = artist_counts(library)?;
+            let artists = local_artists(&library.artists().map_err(failed)?, Some(&counts));
             Ok(serde_json::json!({
                 "total": artists.len(),
                 "artists": artists.iter().skip(offset).take(limit).map(artist_out).collect::<Vec<_>>(),
@@ -428,6 +542,7 @@ impl VcmpServer {
             let album = library
                 .album(id)
                 .map_err(failed)?
+                .filter(|album| album.server.is_none())
                 .ok_or_else(|| format!("there is no album {}", args.album_id))?;
             let tracks = library.album_tracks(id).map_err(failed)?;
             Ok(serde_json::json!({
@@ -439,7 +554,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Tracks by id: the fields VCMP shows, the file, whether it is available, and every tag the file holds by key, as the last scan read it."
+        description = "Tracks by id: the fields VCMP shows, the file, whether it is available, and every tag the file holds by key, as the last scan read it. A VCMP server's track is refused."
     )]
     async fn get_tracks(&self, Parameters(args): Parameters<TracksArgs>) -> Result<String, String> {
         if args.track_ids.len() > MAX_PAGE as usize {
@@ -453,6 +568,9 @@ impl VcmpServer {
                     .track(TrackId(id))
                     .map_err(failed)?
                     .ok_or_else(|| format!("there is no track {id}"))?;
+                if track.file.is_none() {
+                    return Err(server_track(id, "read"));
+                }
                 let tags = if with_tags {
                     let mut tags: BTreeMap<String, Vec<String>> = BTreeMap::new();
                     for entry in library.track_tags(track.id).map_err(failed)? {
@@ -494,14 +612,19 @@ impl VcmpServer {
         self.read(move |library| {
             let value = args.value.as_deref();
             let missing = args.missing.unwrap_or(false);
-            let total = library
+            let server = server_track_ids(library)?;
+            let count = library
                 .count_tracks_by_tag(&args.key, value, missing)
                 .map_err(failed)?;
-            let ids = library
-                .tracks_by_tag(&args.key, value, missing, offset, limit)
-                .map_err(failed)?;
-            let mut tracks = Vec::with_capacity(ids.len());
-            for id in ids {
+            let ids: Vec<TrackId> = library
+                .tracks_by_tag(&args.key, value, missing, 0, count)
+                .map_err(failed)?
+                .into_iter()
+                .filter(|id| !server.contains(id))
+                .collect();
+            let total = ids.len();
+            let mut tracks = Vec::with_capacity(limit.min(total));
+            for id in ids.into_iter().skip(offset).take(limit) {
                 if let Some(track) = library.track(id).map_err(failed)? {
                     tracks.push(if args.brief.unwrap_or(false) {
                         brief_track_out(&track)
@@ -520,12 +643,16 @@ impl VcmpServer {
     )]
     async fn list_labels(&self) -> Result<String, String> {
         self.read(|library| {
-            Ok(library
-                .labels()
-                .map_err(failed)?
-                .iter()
-                .map(label_out)
-                .collect::<Vec<_>>())
+            let server = server_track_ids(library)?;
+            let mut labels = library.labels().map_err(failed)?;
+            for (track, held) in library.label_links().map_err(failed)? {
+                if server.contains(&track) {
+                    for label in labels.iter_mut().filter(|label| held.contains(&label.id)) {
+                        label.track_count = label.track_count.saturating_sub(1);
+                    }
+                }
+            }
+            Ok(labels.iter().map(label_out).collect::<Vec<_>>())
         })
         .await
     }
@@ -550,11 +677,17 @@ impl VcmpServer {
                     .ok_or_else(|| format!("there is no label named {name:?}; see list_labels"))?;
                 ids.push(label.id);
             }
+            let server = server_track_ids(library)?;
             let found = library
-                .tracks_with_labels(&ids, offset, limit)
+                .tracks_with_labels(&ids, 0, offset + limit + server.len())
                 .map_err(failed)?;
-            let mut tracks = Vec::with_capacity(found.len());
-            for id in found {
+            let mut tracks = Vec::with_capacity(limit.min(found.len()));
+            for id in found
+                .into_iter()
+                .filter(|id| !server.contains(id))
+                .skip(offset)
+                .take(limit)
+            {
                 if let Some(track) = library.track(id).map_err(failed)? {
                     tracks.push(track_out(library, &track, None)?);
                 }
@@ -578,7 +711,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "One playlist's entries in order, with their positions; an entry whose file is gone stays, marked unavailable."
+        description = "One playlist's entries in order, with their positions; an entry whose file is gone stays, marked unavailable, and a VCMP server's track stays as server_track with its title and artist only."
     )]
     async fn get_playlist(
         &self,
@@ -618,6 +751,11 @@ impl VcmpServer {
                 "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
             ));
         }
+        self.refuse_server_tracks(
+            args.changes.iter().map(|change| change.track_id).collect(),
+            "change",
+        )
+        .await?;
         // Each image once, however many tracks it goes into.
         let sources: Vec<CoverSource> = args
             .changes
@@ -683,6 +821,8 @@ impl VcmpServer {
                 "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
             ));
         }
+        self.refuse_server_tracks(order.iter().map(|id| id.0).collect(), "label")
+            .await?;
         let new_labels = args
             .new_labels
             .into_iter()
@@ -767,6 +907,25 @@ impl VcmpServer {
         Parameters(args): Parameters<ChangeArgs>,
         context: RequestContext<RoleServer>,
     ) -> Result<String, String> {
+        let change = args.change_set_id;
+        self.read_raw(move |library| {
+            let Some(set) = library.change_set(ChangeSetId(change)).map_err(failed)? else {
+                return Ok(());
+            };
+            for file in &set.files {
+                if library
+                    .track(file.track)
+                    .map_err(failed)?
+                    .is_some_and(|track| track.file.is_none())
+                {
+                    return Err(format!(
+                        "change set {change} covers a VCMP server's track, which agents can't change"
+                    ));
+                }
+            }
+            Ok(())
+        })
+        .await?;
         let agent = agent(&context);
         self.change(move |changes| {
             let id = changes.submit_undo(&agent, ChangeSetId(args.change_set_id))?;
@@ -825,7 +984,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Append tracks to a playlist, in the order given. A track may appear more than once."
+        description = "Append tracks to a playlist, in the order given. A track may appear more than once. A VCMP server's track is refused."
     )]
     async fn add_to_playlist(
         &self,
@@ -834,6 +993,8 @@ impl VcmpServer {
         if args.track_ids.len() > MAX_FILES {
             return Err(format!("add at most {MAX_FILES} tracks at a time"));
         }
+        self.refuse_server_tracks(args.track_ids.clone(), "add to playlists")
+            .await?;
         self.change(move |changes| {
             let tracks = args.track_ids.into_iter().map(TrackId).collect();
             changes.edit_playlist(PlaylistEdit::Add(PlaylistId(args.playlist_id), tracks))?;
@@ -1062,6 +1223,9 @@ pub(crate) fn track_out(
     track: &Track,
     tags: Option<BTreeMap<String, Vec<String>>>,
 ) -> Result<serde_json::Value, String> {
+    let Some(file) = &track.file else {
+        return Ok(server_track_out(Some(track)));
+    };
     let labels: Vec<String> = library
         .track_labels_of(track.id)
         .map_err(failed)?
@@ -1082,7 +1246,7 @@ pub(crate) fn track_out(
         "artist_id": track.artist_id.map(|id| id.0),
         "duration_seconds": track.duration.as_secs(),
         "format": track.format.map(|format| format!("{format:?}")),
-        "path": track.path.to_string_lossy(),
+        "path": file.to_string_lossy(),
         "available": track.available,
         "labels": labels,
     });
@@ -1092,8 +1256,19 @@ pub(crate) fn track_out(
     Ok(out)
 }
 
+pub(crate) fn server_track_out(track: Option<&Track>) -> serde_json::Value {
+    serde_json::json!({
+        "server_track": true,
+        "title": track.map(|track| &track.title),
+        "artist": track.and_then(|track| track.artist.as_ref()),
+    })
+}
+
 /// A track in the few fields that tell it apart, for long lists.
 fn brief_track_out(track: &Track) -> serde_json::Value {
+    if track.file.is_none() {
+        return server_track_out(Some(track));
+    }
     serde_json::json!({
         "id": track.id.0,
         "title": track.title,

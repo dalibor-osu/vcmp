@@ -917,9 +917,7 @@ fn main() -> Result<(), slint::PlatformError> {
             && let tracks = library.album_tracks(album.id).expect("tracks")
             && let Some(track) = tracks.first()
         {
-            let entry = |track: &vcmp_library::Track| {
-                QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref()))
-            };
+            let entry = |track: &vcmp_library::Track| QueueEntry::new(TrackRef::local(track.key()));
             player.handle_event(Event::QueueChanged(QueueView {
                 // A few in Next in queue, so the panel holds more than it shows.
                 up_next: tracks.iter().rev().take(4).map(entry).collect(),
@@ -928,7 +926,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 ..QueueView::default()
             }));
             player.handle_event(Event::TrackChanged(Some(NowPlaying {
-                entry: QueueEntry::new(TrackRef::local(track.path.to_string_lossy().as_ref())),
+                entry: QueueEntry::new(TrackRef::local(track.key())),
                 duration: Some(track.duration),
                 origin: None,
             })));

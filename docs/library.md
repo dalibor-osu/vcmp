@@ -38,7 +38,7 @@ path (see [Writing tags](#writing-tags)), and `Library::accept_change_set` (see
 
 ## Schema
 
-Version 18, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 19, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 Migrations run with foreign keys off (`Library::open` turns them on afterwards), so
 a migration that rebuilds a table, as version 12 rebuilds `change_sets` to widen
@@ -71,6 +71,9 @@ the CHECK on its kind, doesn't delete the rows that refer to it.
 | `not_duplicates` | Duplicate groups the owner marked "Not duplicates": one row per track, with a group id shared by the tracks marked together (version 14; see [Library check](#library-check)) |
 | `plays` | Every play that counted: track, when it started and the origin of the context it played from, indexed by track and time and by time (version 15; see [Play history](#play-history)) |
 | `lyrics_lookups` | What LRCLIB answered for a track (LRC text, plain text, or nothing), the question it answered (title, artist, album, duration in seconds) and when, keyed by source and track id (`local` and the library track id) rather than a reference (version 16; see [Lyrics](#lyrics)) |
+| `servers` | The VCMP servers the app is connected to, or was: the server's own id (unique), its name and address, whether it is connected (removing one keeps its row), the feed cursor reached and when it last synced (version 19; see [Server tracks](#server-tracks)) |
+| `remote_tracks` | Which `tracks` rows are a server's: the server, the server's own track id (unique per server), its music folder and its path inside it (version 19) |
+| `server_folders` | Each server's music folders by the server's id and name, for the Folders page (version 19) |
 | `love_queue` | Loves and unloves waiting to be sent to Last.fm: artist, title and love or unlove, oldest first, one row per artist and title (version 17). A newer entry replaces the waiting one with a new id, so the one being sent as it is replaced isn't mistaken for it |
 
 Paths are stored as platform-native bytes (`src/path_codec.rs`), so file names that
@@ -515,6 +518,48 @@ too, unused.
   artwork key only when the key has a key's shape (hex, a dot, a lowercase
   extension), since keys come from clients.
 
+## Server tracks
+
+`src/mirror.rs`, with the writes in `scan::apply_remote`. The app mirrors the
+catalogue of every VCMP server it is connected to into its own library
+([server.md](server.md), [ui.md](ui.md#music-servers)), so server music is in the
+same pages, search, playlists, favourites, labels and play history as local music.
+The client side (the HTTP calls and the sync loop) is `crates/vcmp-client`.
+
+- **A server track is a `tracks` row** with a `remote_tracks` row beside it. Its
+  `path` is `vcmp-server:<server row id>:<server's track id>` (`remote_key`), which no
+  file has: it is the track's identity, and `Track::key()` hands it to the window
+  and the player (`TrackRef::server`), which find the row again with
+  `track_id_for_path` as for local files. `Track::file` is None for a server track;
+  everything that opens a file takes `file`, so the compiler lists every such place.
+  `Track::remote` holds the server, its id, folder and path inside the folder.
+- **Grouping** uses the scanner's own functions with the key prefixed
+  `server:<server row id>:`, so an album held locally and on a server is two albums
+  (`Album::server` says whose), while artists stay one by name. MusicBrainz release
+  IDs group as they do locally.
+- **Applying a feed page** (`Library::apply_server_page`) writes its tracks and the
+  new cursor in one transaction, after the page was fetched: the write lock is never
+  held across the network. A row keeps its id through every change, so playlists and
+  hearts follow it. The album's artwork key is the server's (checked to have a key's
+  shape before it names a file); the app fetches the original and the thumbnail into
+  its own artwork cache under the same names (`missing_server_artwork`,
+  `store_server_artwork`).
+- **From the start again** (a new server, a removed one added again, or a server
+  behind the app's cursor, as after a restore from a backup): the feed lists every
+  track the server ever had, so the rows of that server it doesn't list are marked
+  unavailable (`forget_unseen_server_tracks`).
+- **Removing a server** marks its tracks unavailable and resets its cursor; its rows
+  stay. Adding the same server again (same server id) updates the row, and the full
+  sync makes the tracks available again with the same ids.
+- **Local only:** the scanner's known files, re-linking, the added-date backfill
+  and the artwork pass leave server rows and albums alone (a test syncs a server,
+  scans a local folder holding a file with the same tags, and checks that no
+  mirrored row or album changed). The library check, M3U import (by path and by tags)
+  and change sets take local tracks only; M3U export leaves server tracks out and
+  lists them in `M3uExport::from_servers` (the owner's choice).
+- **Reachability is not stored:** a server that can't be reached is the app's
+  connection state, never written to rows; its tracks stay available here.
+
 ## Watching
 
 `LibraryWatcher` watches the reachable sources and calls back once no change has
@@ -566,7 +611,9 @@ tracks are searched separately.
   covers deletes the owner's file.
 - **Search:** `Library::search_playlists` keeps the playlists whose name holds every
   typed word, ignoring case.
-- **M3U export** (`src/m3u.rs`, `Library::export_playlist`) writes a playlist as a
+- **M3U export** (`src/m3u.rs`, `Library::export_playlist`) leaves a VCMP server's
+  tracks out (a playlist file can only point at files) and names them in
+  `M3uExport::from_servers`. It writes a playlist as a
   UTF-8 file without a byte order mark and with `\n` line ends, as the spec decided
   (`docs/specs/2026-10-22-listening-and-library-features.md`, "M3U"):
   `#EXTM3U`, then per entry, in order and repeats included, an

@@ -454,6 +454,35 @@ BEGIN
     WHERE album_id = NEW.id;
 END;
 "#,
+    r#"
+CREATE TABLE servers (
+    id INTEGER PRIMARY KEY,
+    server_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    address TEXT NOT NULL,
+    connected INTEGER NOT NULL DEFAULT 1,
+    cursor_revision INTEGER NOT NULL DEFAULT 0,
+    cursor_track INTEGER NOT NULL DEFAULT 0,
+    added_ms INTEGER NOT NULL,
+    synced_ms INTEGER
+) STRICT;
+
+CREATE TABLE remote_tracks (
+    track_id INTEGER PRIMARY KEY REFERENCES tracks(id),
+    server INTEGER NOT NULL REFERENCES servers(id),
+    remote_id INTEGER NOT NULL,
+    folder INTEGER,
+    path TEXT NOT NULL,
+    UNIQUE (server, remote_id)
+) STRICT;
+
+CREATE TABLE server_folders (
+    server INTEGER NOT NULL REFERENCES servers(id),
+    remote_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY (server, remote_id)
+) STRICT;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

@@ -6638,11 +6638,35 @@ dependencies = [
  "slint-build",
  "tempfile",
  "toml",
+ "vcmp-client",
  "vcmp-integrations",
  "vcmp-library",
  "vcmp-mcp",
  "vcmp-playback",
+ "vcmp-protocol",
+ "vcmp-server",
  "webbrowser",
+]
+
+[[package]]
+name = "vcmp-client"
+version = "26.11.0"
+dependencies = [
+ "base64",
+ "dunce",
+ "image",
+ "keyring",
+ "lofty",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "ureq",
+ "vcmp-library",
+ "vcmp-playback",
+ "vcmp-protocol",
+ "vcmp-server",
 ]
 
 [[package]]

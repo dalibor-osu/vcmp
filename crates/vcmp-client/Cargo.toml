@@ -1,0 +1,28 @@
+[package]
+name = "vcmp-client"
+description = "The VCMP app's side of a VCMP server: its HTTP client, the sync of its catalogue and its audio cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+base64 = "0.23.1"
+keyring = "4.2.0"
+log = "0.4.34"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
+vcmp-library = { version = "26.11.0", path = "../vcmp-library" }
+vcmp-playback = { version = "26.11.0", path = "../vcmp-playback" }
+vcmp-protocol = { version = "26.11.0", path = "../vcmp-protocol" }
+
+[dev-dependencies]
+dunce = "1.0.5"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+lofty = "0.25.4"
+tempfile = "3.27.0"
+vcmp-server = { version = "26.11.0", path = "../vcmp-server" }

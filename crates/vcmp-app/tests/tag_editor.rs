@@ -184,7 +184,7 @@ fn one_track_gets_its_new_title_everywhere() {
     app.save();
     assert!(!app.state().get_open(), "closes once written");
     let track = app.track("First");
-    assert_eq!(track.path, path);
+    assert_eq!(track.file, Some(path.clone()));
     assert_eq!(track.artist.as_deref(), Some("Band"), "the rest is kept");
     let rows: Vec<String> = app
         .window
@@ -572,7 +572,7 @@ fn the_playing_track_is_written_once_playback_lets_go_of_it() {
         .set_playback_file(Some(&app.music.join("2.flac")));
     assert!(app.editor.wait_until_written(Duration::from_secs(10)));
     assert_eq!(title_in_file(&path).as_deref(), Some("First"));
-    assert_eq!(app.track("First").path, path);
+    assert_eq!(app.track("First").file, Some(path.clone()));
 }
 
 #[test]
@@ -653,7 +653,7 @@ fn waiting_edits_are_written_when_vcmp_closes() {
     // main() stops the engine first, which closes the file.
     app.editor.write_waiting();
     assert_eq!(title_in_file(&path).as_deref(), Some("First"));
-    assert_eq!(app.track("First").path, path);
+    assert_eq!(app.track("First").file, Some(path.clone()));
 }
 
 #[cfg(unix)]

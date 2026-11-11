@@ -554,7 +554,7 @@ fn a_file_playback_holds_open_keeps_the_change_waiting_where_it_cannot_be_replac
     let one = app.library.track(app.id("One")).unwrap().unwrap();
     app.retitle("Claude", &[("One", "Uno")]);
     app.agents.set_open_files_locked(true);
-    app.agents.set_playback_file(Some(&one.path));
+    app.agents.set_playback_file(one.file.as_deref());
 
     app.press("1 change by an agent waits for your review, opens it");
     let state = app.state();
@@ -762,7 +762,9 @@ fn track(app: &App, title: &str) -> Track {
 }
 
 fn queued(track: &Track) -> QueueEntry {
-    QueueEntry::new(TrackRef::local(track.path.to_str().unwrap()))
+    QueueEntry::new(TrackRef::local(
+        track.file.as_ref().unwrap().to_str().unwrap(),
+    ))
 }
 
 #[test]
@@ -797,7 +799,10 @@ fn agents_play_through_the_player_as_its_buttons_do() {
         .collect();
     assert_eq!(
         paths,
-        [one.path.to_str().unwrap(), two.path.to_str().unwrap()]
+        [
+            one.file.as_ref().unwrap().to_str().unwrap(),
+            two.file.as_ref().unwrap().to_str().unwrap()
+        ]
     );
     assert_eq!(entries[0].album.as_deref(), Some(&*album.0.to_string()));
     assert_eq!(origin.as_deref(), Some(&*format!("album:{}", album.0)));
@@ -882,14 +887,20 @@ fn agents_read_what_the_player_shows() {
 
     let status = player.agent_status().unwrap();
     assert_eq!(status.state, PlayState::Playing);
-    assert_eq!(status.current, Some(one.path.clone()));
+    assert_eq!(status.current, one.file.clone());
     assert_eq!(status.position, Duration::from_secs(12));
     assert_eq!(status.duration, Some(Duration::from_secs(90)));
     assert_eq!(status.repeat, Repeat::All);
     assert!(!status.shuffle);
     assert_eq!(status.context, Some(Context::Album(album)));
-    assert_eq!(status.up_next, std::slice::from_ref(&single.path));
-    assert_eq!(status.upcoming, std::slice::from_ref(&two.path));
+    assert_eq!(
+        status.up_next,
+        std::slice::from_ref(single.file.as_ref().unwrap())
+    );
+    assert_eq!(
+        status.upcoming,
+        std::slice::from_ref(two.file.as_ref().unwrap())
+    );
     assert_eq!(status.context_len, 2);
     assert_eq!(status.sleep_timer, vcmp_mcp::SleepTimer::Minutes(30));
     assert_eq!(

@@ -57,6 +57,26 @@ A player for the music files on your own drives, for Windows 10 and newer and Li
   tags and covers, label tracks and build playlists, if you turn it on. Tag and
   label changes wait for your review.
 
+## Music servers
+
+A VCMP server shares a music library from another computer, a NAS or a VPS, and
+VCMP plays it next to your own music: its albums are in the same pages, search and
+playlists, with the server's name after the artist. You can connect to several.
+
+- **Running a server:** [docs/server.md](docs/server.md) shows how to run it in
+  Docker or as a program, and behind nginx for https.
+- **Connecting:** in Settings, under Music servers, enter the server's address and
+  one of its tokens (`vcmp-server tokens` on the server shows them), then Connect.
+  The token is kept in your system's keyring.
+- **Playing:** a track downloads when it plays, and the next one while the current
+  one plays. Played tracks stay on your computer up to the size you choose (2 GB at
+  first), so they start at once next time and still play while the server can't be
+  reached; its albums are dimmed then.
+- **With the admin token** you can also manage the server's music folders, rescan
+  it, edit its tracks' tags and replace its tokens, from Settings and the tag editor.
+- Playlists, favourites, labels and play history stay on your computer; they aren't
+  shared through the server.
+
 ## Download
 
 Get VCMP from [GitHub Releases](https://github.com/dalibor-osu/vcmp/releases).

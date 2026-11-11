@@ -27,6 +27,8 @@ pub struct AudioChunk<'a> {
 /// Opens tracks of one [`SourceKind`].
 pub trait TrackSource: Send + Sync {
     fn open(&self, id: &str) -> Result<Box<dyn TrackStream>, PlaybackError>;
+
+    fn prepare(&self, _id: &str) {}
 }
 
 /// One opened track, decoded on demand by the engine's decoder thread.
@@ -48,12 +50,14 @@ pub trait TrackStream: Send {
 #[derive(Clone)]
 pub struct Sources {
     local: Arc<dyn TrackSource>,
+    server: Arc<dyn TrackSource>,
 }
 
 impl Default for Sources {
     fn default() -> Self {
         Sources {
             local: Arc::new(LocalSource),
+            server: Arc::new(NoServer),
         }
     }
 }
@@ -63,6 +67,7 @@ impl Sources {
     pub fn with(mut self, kind: SourceKind, source: Arc<dyn TrackSource>) -> Self {
         match kind {
             SourceKind::Local => self.local = source,
+            SourceKind::Server => self.server = source,
         }
         self
     }
@@ -70,6 +75,17 @@ impl Sources {
     pub fn get(&self, kind: SourceKind) -> &dyn TrackSource {
         match kind {
             SourceKind::Local => self.local.as_ref(),
+            SourceKind::Server => self.server.as_ref(),
         }
+    }
+}
+
+struct NoServer;
+
+impl TrackSource for NoServer {
+    fn open(&self, _id: &str) -> Result<Box<dyn TrackStream>, PlaybackError> {
+        Err(PlaybackError::Unsupported(
+            "no source for VCMP server tracks is configured".into(),
+        ))
     }
 }

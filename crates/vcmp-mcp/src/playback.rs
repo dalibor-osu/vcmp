@@ -14,9 +14,11 @@ use rmcp::service::RequestContext;
 use rmcp::{RoleServer, tool, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use vcmp_library::{AlbumId, ArtistId, LabelId, Library, PlaylistId, Track, TrackId};
+use vcmp_library::{
+    AlbumId, ArtistId, LabelId, Library, PlaylistId, Track, TrackId, parse_remote_key,
+};
 
-use crate::tools::{MAX_FILES, VcmpServer, agent, failed, track_out};
+use crate::tools::{MAX_FILES, VcmpServer, agent, failed, server_track_out, track_out};
 
 /// What every agent is told about playback when it connects, after the library's part.
 pub(crate) const INSTRUCTIONS: &str = "\
@@ -24,9 +26,11 @@ Playing: play_tracks, play_album, play_playlist, play_label and play_artist repl
 what plays with those tracks and start at once, as VCMP's own play buttons do; \
 queue_tracks puts tracks into Up next, which plays before the rest. Nothing waits for \
 review, but the owner may have switched playback control off: then these tools say \
-so, and you can tell them where to switch it on. Tracks whose files are missing are left out and named in the answer under \
-left_out with the reason: tell the owner about them. playback_control plays, pauses, \
-stops, skips, seeks and brings VCMP's window to the front; edit_queue changes Up next; \
+so, and you can tell them where to switch it on. Tracks whose files are missing, and \
+VCMP servers' tracks, are left out and named in the answer under left_out with the \
+reason: tell the owner about them. playback_control plays, pauses, stops, skips, \
+seeks and brings VCMP's window to the front; edit_queue changes Up next, but can't \
+skip to a VCMP server's track; \
 set_playback_options sets shuffle, repeat and volume; list_output_devices and \
 set_output_device choose where the sound goes; set_sleep_timer stops playback after \
 this track or after some minutes. get_now_playing tells what plays, where in it, and \
@@ -163,7 +167,8 @@ pub struct OutputDevices {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Status {
     pub state: PlayState,
-    /// The current track's file.
+    /// The current track's file, or a VCMP server's track by its key
+    /// ([`Track::key`]).
     pub current: Option<PathBuf>,
     pub position: Duration,
     pub duration: Option<Duration>,
@@ -176,7 +181,8 @@ pub struct Status {
     pub output: OutputDevices,
     pub sleep_timer: SleepTimer,
     pub context: Option<Context>,
-    /// The files in Up next, then the context's next ones, in play order.
+    /// The files in Up next, then the context's next ones, in play order; a VCMP
+    /// server's track by its key.
     pub up_next: Vec<PathBuf>,
     pub upcoming: Vec<PathBuf>,
     /// How many tracks the context holds. With repeat all, or true random shuffle,
@@ -358,6 +364,7 @@ struct Candidate {
     /// Its playlist entry's position.
     position: Option<u32>,
     track: Option<Track>,
+    named: bool,
 }
 
 impl Candidate {
@@ -366,7 +373,14 @@ impl Candidate {
             id: track.id.0,
             position: None,
             track: Some(track),
+            named: false,
         }
+    }
+
+    fn on_server(&self) -> bool {
+        self.track
+            .as_ref()
+            .is_some_and(|track| track.file.is_none())
     }
 }
 
@@ -379,13 +393,16 @@ struct Chosen {
 
 /// Why `track` can't be played, if it can't.
 fn unplayable(track: &Track) -> Option<String> {
-    if !track.available || !track.path.exists() {
-        return Some(format!("its file is missing: {}", track.path.display()));
+    let Some(file) = &track.file else {
+        return Some("it is a VCMP server's track, which agents can't play".into());
+    };
+    if !track.available || !file.exists() {
+        return Some(format!("its file is missing: {}", file.display()));
     }
-    if track.path.to_str().is_none() {
+    if file.to_str().is_none() {
         return Some(format!(
             "its path is not valid Unicode, which VCMP can't play: {}",
-            track.path.display()
+            file.display()
         ));
     }
     None
@@ -412,13 +429,25 @@ fn choose(candidates: Vec<Candidate>, start: Option<usize>) -> Result<Chosen, St
             chosen.tracks.extend(candidate.track);
             continue;
         };
-        reasons.push(format!("track {}: {reason}", candidate.id));
+        let hidden = candidate.on_server() && !candidate.named;
+        let title = candidate.track.as_ref().map(|track| &track.title);
+        let name = match (hidden, candidate.position) {
+            (false, _) => format!("track {}", candidate.id),
+            (true, Some(position)) => format!("the entry at position {position}"),
+            (true, None) => format!("{:?}", title.map_or("", String::as_str)),
+        };
+        reasons.push(format!("{name}: {reason}"));
         let mut out = serde_json::json!({
-            "track_id": candidate.id,
-            "title": candidate.track.as_ref().map(|track| &track.title),
+            "title": title,
             "artist": candidate.track.as_ref().and_then(|track| track.artist.as_ref()),
             "reason": reason,
         });
+        if !hidden {
+            out["track_id"] = serde_json::json!(candidate.id);
+        }
+        if candidate.on_server() {
+            out["server_track"] = serde_json::json!(true);
+        }
         if let Some(position) = candidate.position {
             out["position"] = serde_json::json!(position);
         }
@@ -471,6 +500,7 @@ fn by_id(library: &Library, ids: &[i64]) -> Result<Vec<Candidate>, String> {
                 id,
                 position: None,
                 track: library.track(TrackId(id)).map_err(failed)?,
+                named: true,
             })
         })
         .collect()
@@ -531,26 +561,36 @@ fn percent(volume: f32) -> u32 {
     (volume.clamp(0.0, 1.0) * 100.0).round() as u32
 }
 
-/// A queued file as a track the library knows, or by its path alone.
+/// A queued file as a track the library knows, or by its path alone; a VCMP server's
+/// track, known or not, without its key.
 fn queued_out(library: &Library, path: &Path) -> Result<serde_json::Value, String> {
-    let track = match library.track_id_for_path(path).map_err(failed)? {
+    let remote = path.to_str().and_then(parse_remote_key);
+    let id = match remote {
+        Some((server, id)) => library.remote_track(server, id).map_err(failed)?,
+        None => library.track_id_for_path(path).map_err(failed)?,
+    };
+    let track = match id {
         Some(id) => library.track(id).map_err(failed)?,
         None => None,
     };
-    match track {
-        Some(track) => track_out(library, &track, None),
-        None => Ok(serde_json::json!({ "path": path.to_string_lossy() })),
+    match (track, remote) {
+        (Some(track), _) => track_out(library, &track, None),
+        (None, Some(_)) => Ok(server_track_out(None)),
+        (None, None) => Ok(serde_json::json!({ "path": path.to_string_lossy() })),
     }
+}
+
+fn is_server_key(path: &Path) -> bool {
+    path.to_str().and_then(parse_remote_key).is_some()
 }
 
 fn context_out(library: &Library, context: &Context) -> Result<serde_json::Value, String> {
     let (kind, id, name) = match context {
         Context::Agent(name) => ("agent", None, Some(name.clone())),
-        Context::Album(id) => (
-            "album",
-            Some(id.0),
-            library.album(*id).map_err(failed)?.map(|album| album.title),
-        ),
+        Context::Album(id) => match library.album(*id).map_err(failed)? {
+            Some(album) if album.server.is_some() => ("server_album", None, Some(album.title)),
+            album => ("album", Some(id.0), album.map(|album| album.title)),
+        },
         Context::Artist(id) => (
             "artist",
             Some(id.0),
@@ -572,6 +612,9 @@ fn context_out(library: &Library, context: &Context) -> Result<serde_json::Value
             None,
             library.label(*id).map_err(failed)?.map(|label| label.name),
         ),
+        Context::Folder(path) if path.to_string_lossy().starts_with("vcmp-server:") => {
+            ("server_folder", None, None)
+        }
         Context::Folder(path) => ("folder", None, Some(path.to_string_lossy().into_owned())),
         Context::Search => ("search", None, None),
         Context::Songs => ("songs", None, None),
@@ -639,7 +682,7 @@ fn status_out(
 #[tool_router(router = playback_router, vis = "pub(crate)")]
 impl VcmpServer {
     #[tool(
-        description = "Play tracks by id, in the order given, in place of what plays now; VCMP's queue names you as where they come from. Tracks whose files are missing are left out and named in the answer."
+        description = "Play tracks by id, in the order given, in place of what plays now; VCMP's queue names you as where they come from. Tracks whose files are missing, and VCMP servers' tracks, are left out and named in the answer."
     )]
     async fn play_tracks(
         &self,
@@ -666,6 +709,7 @@ impl VcmpServer {
             library
                 .album(id)
                 .map_err(failed)?
+                .filter(|album| album.server.is_none())
                 .ok_or_else(|| format!("there is no album {}", args.album_id))?;
             let candidates: Vec<Candidate> = library
                 .album_tracks(id)
@@ -680,7 +724,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Play a playlist, as its page's play button does; entries whose files are missing are left out and named in the answer."
+        description = "Play a playlist, as its page's play button does; entries whose files are missing, and VCMP servers' tracks, are left out and named in the answer."
     )]
     async fn play_playlist(
         &self,
@@ -700,6 +744,7 @@ impl VcmpServer {
                     id: entry.track.id.0,
                     position: Some(entry.position),
                     track: Some(entry.track),
+                    named: false,
                 })
                 .collect();
             if candidates.is_empty() {
@@ -752,7 +797,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Play everything by an artist, as the artist page does: their albums, then the tracks they appear on elsewhere."
+        description = "Play everything by an artist on this computer, as the artist page does: their albums, then the tracks they appear on elsewhere. Their VCMP servers' tracks are left out and named in the answer."
     )]
     async fn play_artist(
         &self,
@@ -771,6 +816,9 @@ impl VcmpServer {
             if candidates.is_empty() {
                 return Err(format!("artist {} has no available tracks", args.artist_id));
             }
+            if candidates.iter().all(Candidate::on_server) {
+                return Err(format!("there is no artist {}", args.artist_id));
+            }
             let start = start_at(&candidates, args.start_track_id, "by this artist")?;
             Ok((candidates, start, Context::Artist(id), args.shuffle))
         })
@@ -778,7 +826,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Put tracks into Up next, which plays before the rest of the queue: next (right after the current track) or at its end. Tracks whose files are missing are left out and named in the answer."
+        description = "Put tracks into Up next, which plays before the rest of the queue: next (right after the current track) or at its end. Tracks whose files are missing, and VCMP servers' tracks, are left out and named in the answer."
     )]
     async fn queue_tracks(
         &self,
@@ -832,7 +880,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Change the queue: skip_to plays the entry at position (entries before it are dropped), remove takes an Up next entry out, move moves one to the Up next position to, clear_up_next empties Up next. Positions are as get_now_playing lists them."
+        description = "Change the queue: skip_to plays the entry at position (entries before it are dropped; a VCMP server's track can't be skipped to), remove takes an Up next entry out, move moves one to the Up next position to, clear_up_next empties Up next. Positions are as get_now_playing lists them."
     )]
     async fn edit_queue(
         &self,
@@ -844,7 +892,25 @@ impl VcmpServer {
                 .ok_or_else(|| "this action needs position".to_owned())
         };
         let control = match args.action {
-            QueueEdit::SkipTo => Control::SkipTo(position()?),
+            QueueEdit::SkipTo => {
+                let position = position()?;
+                let playback = self.playback.clone();
+                let status = tokio::task::spawn_blocking(move || playback.status())
+                    .await
+                    .map_err(|error| error.to_string())??;
+                if status
+                    .up_next
+                    .iter()
+                    .chain(&status.upcoming)
+                    .nth(position)
+                    .is_some_and(|path| is_server_key(path))
+                {
+                    return Err(format!(
+                        "the entry at position {position} is a VCMP server's track, which agents can't play"
+                    ));
+                }
+                Control::SkipTo(position)
+            }
             QueueEdit::Remove => Control::RemoveFromUpNext(position()?),
             QueueEdit::Move => Control::MoveInUpNext {
                 from: position()?,
@@ -938,7 +1004,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "What plays now: the track, playing, paused or stopped, the position, volume, shuffle, repeat, output device and sleep timer, what it plays from, Up next, and the tracks after it. With repeats true (repeat all, or true_random shuffle) the tracks after it go on without end: they are listed for one pass, as many as the context holds."
+        description = "What plays now: the track, playing, paused or stopped, the position, volume, shuffle, repeat, output device and sleep timer, what it plays from, Up next, and the tracks after it. With repeats true (repeat all, or true_random shuffle) the tracks after it go on without end: they are listed for one pass, as many as the context holds. A VCMP server's track is listed as server_track with its title and artist only."
     )]
     async fn get_now_playing(
         &self,
