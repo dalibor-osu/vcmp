@@ -543,9 +543,10 @@ export component PlayerBar inherits Rectangle {
 
                 Text {
                     width: 52px;
-                    text: PlayerState.position-text;
+                    text: PlayerState.buffering ? @tr("Loading") : PlayerState.position-text;
                     color: Theme.colors.text-muted;
                     font-size: Theme.font-small;
+                    overflow: elide;
                     horizontal-alignment: right;
                     vertical-alignment: center;
                     accessible-role: none;
@@ -556,7 +557,7 @@ export component PlayerBar inherits Rectangle {
                     enabled: PlayerState.has-track && PlayerState.duration-ms > 0;
                     value: PlayerState.duration-ms > 0 ? PlayerState.position-ms / PlayerState.duration-ms : 0;
                     label: @tr("Position");
-                    value-text: @tr("{0} of {1}", PlayerState.position-text, PlayerState.duration-text);
+                    value-text: PlayerState.buffering ? @tr("Loading the track from its server") : @tr("{0} of {1}", PlayerState.position-text, PlayerState.duration-text);
                     step: PlayerState.duration-ms > 0 ? 5000 / PlayerState.duration-ms : 0.05;
                     released(fraction) => {
                         PlayerState.seek(round(fraction * PlayerState.duration-ms));

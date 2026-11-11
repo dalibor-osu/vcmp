@@ -127,6 +127,7 @@ pub enum Event {
     /// changes, not on a seek. On Windows an open file can't be replaced, so the tag
     /// editor waits for this before writing the file.
     Decoding(Option<TrackRef>),
+    Buffering(Option<TrackRef>),
     QueueChanged(QueueView),
     /// A track could not be played and was skipped.
     TrackFailed {

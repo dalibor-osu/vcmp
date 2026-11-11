@@ -19,10 +19,22 @@ pub struct AlbumId(pub i64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArtistId(pub i64);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ServerId(pub i64);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RemoteRef {
+    pub server: ServerId,
+    pub id: i64,
+    pub folder: Option<i64>,
+    pub path: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Track {
     pub id: TrackId,
-    pub path: PathBuf,
+    pub file: Option<PathBuf>,
+    pub remote: Option<RemoteRef>,
     pub available: bool,
     pub format: Option<Format>,
     pub title: String,
@@ -41,6 +53,52 @@ pub struct Track {
     pub added: SystemTime,
 }
 
+impl Track {
+    pub fn key(&self) -> String {
+        match (&self.file, &self.remote) {
+            (Some(file), _) => file.to_string_lossy().into_owned(),
+            (None, Some(remote)) => remote_key(remote.server, remote.id),
+            (None, None) => String::new(),
+        }
+    }
+
+    pub fn location(&self) -> PathBuf {
+        match (&self.file, &self.remote) {
+            (Some(file), _) => file.clone(),
+            (None, Some(remote)) => remote.location(),
+            (None, None) => PathBuf::new(),
+        }
+    }
+}
+
+impl RemoteRef {
+    pub fn location(&self) -> PathBuf {
+        let mut location = match self.folder {
+            Some(folder) => server_folder_location(self.server, folder),
+            None => PathBuf::from(format!("vcmp-server:{}", self.server.0)),
+        };
+        for part in self.path.split('/') {
+            if !part.is_empty() && part != "." && part != ".." {
+                location.push(part);
+            }
+        }
+        location
+    }
+}
+
+pub fn remote_key(server: ServerId, id: i64) -> String {
+    format!("vcmp-server:{}:{}", server.0, id)
+}
+
+pub fn parse_remote_key(key: &str) -> Option<(ServerId, i64)> {
+    let (server, id) = key.strip_prefix("vcmp-server:")?.split_once(':')?;
+    Some((ServerId(server.parse().ok()?), id.parse().ok()?))
+}
+
+pub fn server_folder_location(server: ServerId, folder: i64) -> PathBuf {
+    PathBuf::from(format!("vcmp-server:{}", server.0)).join(format!("{folder}"))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Album {
     pub id: AlbumId,
@@ -56,6 +114,7 @@ pub struct Album {
     pub fetched_cover: bool,
     /// MusicBrainz release ID, when the files are tagged with one.
     pub musicbrainz_id: Option<String>,
+    pub server: Option<ServerId>,
     /// The "Unknown" album holding the artist's tracks without an album tag (or,
     /// without an artist, every track that names neither). Its title is empty, and
     /// it has no artwork.
@@ -89,12 +148,33 @@ pub(crate) enum TrackFilter {
 pub(crate) const TRACK_COLUMNS: &str =
     "t.id, t.path, t.available, t.format, t.title, t.artist, t.artist_id, t.album,
     t.album_id, t.album_artist, t.track_number, t.disc_number, t.year, t.genre, t.duration_ms,
-    t.added_ms";
+    t.added_ms,
+    (SELECT rt.server FROM remote_tracks rt WHERE rt.track_id = t.id),
+    (SELECT rt.remote_id FROM remote_tracks rt WHERE rt.track_id = t.id),
+    (SELECT rt.folder FROM remote_tracks rt WHERE rt.track_id = t.id),
+    (SELECT rt.path FROM remote_tracks rt WHERE rt.track_id = t.id)";
+
+pub(crate) const TRACK_COLUMN_COUNT: usize = 20;
 
 pub(crate) fn track_from(row: &Row) -> rusqlite::Result<Track> {
+    let remote = match (
+        row.get::<_, Option<i64>>(16)?,
+        row.get::<_, Option<i64>>(17)?,
+    ) {
+        (Some(server), Some(id)) => Some(RemoteRef {
+            server: ServerId(server),
+            id,
+            folder: row.get(18)?,
+            path: row.get::<_, Option<String>>(19)?.unwrap_or_default(),
+        }),
+        _ => None,
+    };
     Ok(Track {
         id: TrackId(row.get(0)?),
-        path: path_codec::decode(&row.get::<_, Vec<u8>>(1)?),
+        file: remote
+            .is_none()
+            .then(|| path_codec::decode(&row.get::<_, Vec<u8>>(1).unwrap_or_default())),
+        remote,
         available: row.get(2)?,
         format: Format::parse(&row.get::<_, String>(3)?),
         title: row.get(4)?,
@@ -157,7 +237,7 @@ pub(crate) fn track(conn: &Connection, TrackId(id): TrackId) -> Result<Option<Tr
 }
 
 const ALBUM_QUERY: &str = "SELECT a.id, a.title, ar.name, a.artist_id, a.year, COUNT(t.id),
-        a.artwork_hash, a.mbid, fc.artwork_hash, a.unknown
+        a.artwork_hash, a.mbid, fc.artwork_hash, a.unknown, a.group_key
     FROM albums a
     JOIN tracks t ON t.album_id = a.id AND t.available = 1
     LEFT JOIN artists ar ON ar.id = a.artist_id
@@ -177,8 +257,19 @@ fn album_from(row: &Row, store: &ArtworkStore) -> rusqlite::Result<Album> {
         artwork: own.clone().or(fetched.clone()),
         fetched_cover: own.is_none() && fetched.is_some(),
         musicbrainz_id: row.get(7)?,
+        server: server_of_group(&row.get::<_, String>(10)?),
         unknown: row.get(9)?,
     })
+}
+
+pub(crate) fn server_group_prefix(server: ServerId) -> String {
+    format!("server:{}:", server.0)
+}
+
+pub(crate) fn server_of_group(key: &str) -> Option<ServerId> {
+    let rest = key.strip_prefix("server:")?;
+    let (id, _) = rest.split_once(':')?;
+    id.parse().ok().map(ServerId)
 }
 
 /// One album, if it still has available tracks.

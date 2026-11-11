@@ -321,12 +321,15 @@ pub fn cards(albums: &[Album]) -> Vec<Card> {
     albums
         .iter()
         .map(|album| {
+            let (source, away) = crate::servers::mark(album.server);
             let tile = AlbumTile {
                 id: album.id.0 as i32,
                 title: album.title.as_str().into(),
                 artist: album.artist.clone().unwrap_or_default().into(),
                 initial: album_initial(album).into(),
                 unknown: album.unknown,
+                source,
+                away,
                 ..AlbumTile::default()
             };
             (

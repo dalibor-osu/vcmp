@@ -99,9 +99,10 @@ impl CheckPage {
         state.on_reveal(move |list, block, track| {
             if let Some(page) = weak.upgrade()
                 && let Some(track) = page.track(list, block, track)
-                && let Err(error) = file_manager::reveal(&track.path)
+                && let Some(file) = &track.file
+                && let Err(error) = file_manager::reveal(file)
             {
-                log::warn!("could not show {}: {error}", track.path.display());
+                log::warn!("could not show {}: {error}", file.display());
             }
         });
         let weak = Rc::downgrade(&page);
@@ -276,7 +277,7 @@ impl CheckPage {
         let editor = window.global::<TagEditorState>();
         if track >= 0 {
             if let Some(track) = self.track(list, block, track) {
-                editor.invoke_edit_track(track.path.to_string_lossy().as_ref().into());
+                editor.invoke_edit_track(track.key().into());
             }
             return;
         }
@@ -289,7 +290,7 @@ impl CheckPage {
                     album
                         .tracks
                         .iter()
-                        .map(|gaps| gaps.track.path.to_string_lossy().as_ref().into())
+                        .map(|gaps| gaps.track.key().into())
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -409,7 +410,7 @@ fn gap_block(album: &AlbumGaps) -> GapBlock {
 
 fn check_track(track: &Track, details: String, gaps: Option<&TrackGaps>) -> CheckTrack {
     let missing = gaps.map(|gaps| gaps.missing).unwrap_or_default();
-    let path = track.path.to_string_lossy();
+    let path = track.key();
     CheckTrack {
         title: track.title.as_str().into(),
         number: track
@@ -418,7 +419,7 @@ fn check_track(track: &Track, details: String, gaps: Option<&TrackGaps>) -> Chec
             .unwrap_or_default()
             .into(),
         details: details.into(),
-        path: path.as_ref().into(),
+        path: path.as_str().into(),
         short_path: shorten_middle(&path, PATH_CHARS).into(),
         missing_title: missing.title,
         missing_artist: missing.artist,

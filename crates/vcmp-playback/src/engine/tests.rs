@@ -1,9 +1,10 @@
 //! The whole engine, driven through a test device that the test pulls audio from
 //! in place of a sound card.
 
+use std::collections::{HashMap, HashSet};
 use std::f64::consts::TAU;
-use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -112,6 +113,82 @@ fn missing(name: &str) -> QueueEntry {
     QueueEntry::new(TrackRef::local(format!("/nonexistent/vcmp/{name}.flac")))
 }
 
+fn served(part: &str, extension: &str) -> QueueEntry {
+    QueueEntry::new(TrackRef::server(fixture(part, extension).to_str().unwrap()))
+}
+
+#[derive(Default)]
+struct SlowServer(Mutex<Downloads>);
+
+#[derive(Default)]
+struct Downloads {
+    held: HashSet<String>,
+    delayed: HashMap<String, usize>,
+    opens: HashMap<String, usize>,
+    prepared: Vec<String>,
+}
+
+impl SlowServer {
+    fn hold(&self, entry: &QueueEntry) {
+        let mut downloads = self.0.lock().unwrap();
+        downloads.held.insert(entry.track.id.to_string());
+    }
+
+    fn release(&self, entry: &QueueEntry) {
+        let mut downloads = self.0.lock().unwrap();
+        downloads.held.remove(entry.track.id.as_ref());
+    }
+
+    fn delay(&self, entry: &QueueEntry, opens: usize) {
+        let mut downloads = self.0.lock().unwrap();
+        downloads.delayed.insert(entry.track.id.to_string(), opens);
+    }
+
+    fn opens(&self, entry: &QueueEntry) -> usize {
+        let downloads = self.0.lock().unwrap();
+        downloads
+            .opens
+            .get(entry.track.id.as_ref())
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn prepared(&self) -> Vec<String> {
+        self.0.lock().unwrap().prepared.clone()
+    }
+}
+
+impl TrackSource for SlowServer {
+    fn open(&self, id: &str) -> Result<Box<dyn TrackStream>, PlaybackError> {
+        {
+            let mut downloads = self.0.lock().unwrap();
+            *downloads.opens.entry(id.to_owned()).or_default() += 1;
+            if downloads.held.contains(id) {
+                return Err(PlaybackError::NotReady);
+            }
+            if let Some(left) = downloads.delayed.get_mut(id)
+                && *left > 0
+            {
+                *left -= 1;
+                return Err(PlaybackError::NotReady);
+            }
+        }
+        LocalSource.open(id)
+    }
+
+    fn prepare(&self, id: &str) {
+        self.0.lock().unwrap().prepared.push(id.to_owned());
+    }
+}
+
+fn eventually(what: &str, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + TIMEOUT;
+    while !done() {
+        assert!(Instant::now() < deadline, "{what}");
+        sleep(Duration::from_millis(1));
+    }
+}
+
 struct Harness {
     player: Player,
     events: Receiver<Event>,
@@ -132,10 +209,28 @@ impl Harness {
         output_device: Option<&str>,
         before: impl FnOnce(&TestDevice),
     ) -> Self {
+        let sources = Sources::default().with(SourceKind::Local, Arc::new(TestSource));
+        Harness::start(format, devices, output_device, before, sources)
+    }
+
+    fn serving(server: &Arc<SlowServer>) -> Self {
+        let sources = Sources::default()
+            .with(SourceKind::Local, Arc::new(TestSource))
+            .with(SourceKind::Server, server.clone());
+        Harness::start(CD, &[], None, |_| {}, sources)
+    }
+
+    fn start(
+        format: AudioFormat,
+        devices: &[&str],
+        output_device: Option<&str>,
+        before: impl FnOnce(&TestDevice),
+        sources: Sources,
+    ) -> Self {
         let device = TestDevice::new(format, devices);
         before(&device);
         let options = PlayerOptions {
-            sources: Sources::default().with(SourceKind::Local, Arc::new(TestSource)),
+            sources,
             output_device: output_device.map(str::to_owned),
             volume: 1.0,
         };
@@ -197,6 +292,11 @@ impl Harness {
 
     fn count(&self, which: impl Fn(&Event) -> bool) -> usize {
         self.seen.iter().filter(|(e, _)| which(e)).count()
+    }
+
+    fn sync(&mut self, token: u64) {
+        self.send(Command::Sync(token));
+        self.wait_for("the engine's answer", |e| *e == Event::Synced(token));
     }
 
     fn wait_for_track(&mut self, entry: Option<&QueueEntry>) {
@@ -947,4 +1047,249 @@ fn the_track_being_decoded_is_reported_when_it_changes() {
     h.play_to_end();
     h.wait_for("nothing open after the last track", decoding(None));
     assert_eq!(h.count(|event| matches!(event, Event::Decoding(_))), 5);
+}
+
+fn buffering(entry: Option<&QueueEntry>) -> impl Fn(&Event) -> bool {
+    let track = entry.map(|entry| entry.track.clone());
+    move |event| *event == Event::Buffering(track.clone())
+}
+
+fn failed(event: &Event) -> bool {
+    matches!(event, Event::TrackFailed { .. })
+}
+
+fn started(entry: &QueueEntry) -> impl Fn(&Event) -> bool {
+    move |event| matches!(event, Event::TrackChanged(Some(now)) if now.entry == *entry)
+}
+
+#[test]
+fn server_tracks_fail_without_a_server_source() {
+    let mut h = Harness::new(CD);
+    let (track, a) = (served("a", "flac"), file("a", "flac"));
+    h.play_context(vec![track.clone(), a.clone()]);
+    let failure = h.wait_for("failure", failed);
+    assert!(matches!(
+        failure,
+        Event::TrackFailed { track: t, error: PlaybackError::Unsupported(_) } if t == track.track
+    ));
+    h.wait_for_track(Some(&a));
+}
+
+#[test]
+fn a_track_not_there_yet_buffers_then_plays() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let a = served("a", "flac");
+    server.hold(&a);
+    h.play_context(vec![a.clone()]);
+    h.wait_for("buffering", buffering(Some(&a)));
+    h.sync(1);
+    assert!(server.opens(&a) > 0);
+    assert_eq!(h.count(|e| matches!(e, Event::TrackChanged(_))), 0);
+    assert_eq!(h.count(failed), 0);
+    let snapshot = h.player.snapshot().unwrap();
+    assert_eq!(snapshot.queue.current, Some(QueueSlot::Context(0)));
+    assert_eq!(snapshot.position, Duration::ZERO);
+
+    server.release(&a);
+    h.wait_for("buffering done", buffering(None));
+    h.wait_for_track(Some(&a));
+    let out = h.play_to_end();
+    assert_eq!(out.len() / 2, SPLIT);
+    assert!(max_error(&out, 0, ramp(CD)) < 1e-4);
+    assert_eq!(h.count(failed), 0);
+    assert_eq!(h.count(|e| matches!(e, Event::Buffering(_))), 2);
+}
+
+#[test]
+fn not_ready_answers_never_count_as_failures() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let a = served("a", "flac");
+    server.delay(&a, MAX_FAILURES + 5);
+    h.play_context(vec![a.clone()]);
+    h.wait_for_track(Some(&a));
+    assert!(server.opens(&a) > MAX_FAILURES);
+    assert_eq!(h.play_to_end().len() / 2, SPLIT);
+    assert_eq!(h.count(failed), 0);
+    assert_eq!(
+        h.count(|e| matches!(e, Event::Buffering(Some(_)))),
+        1,
+        "one wait, however many tries"
+    );
+}
+
+#[test]
+fn a_following_track_not_there_yet_starts_once_it_is() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let (a, b) = (served("a", "flac"), served("b", "flac"));
+    server.hold(&b);
+    h.play_context(vec![a.clone(), b.clone()]);
+    h.wait_for_track(Some(&a));
+    let first = h.play_until("no wait for the next track", buffering(Some(&b)));
+    assert_eq!(first.len() / 2, SPLIT, "all of the current track");
+    assert!(max_error(&first, 0, ramp(CD)) < 1e-4);
+    h.sync(1);
+    assert_eq!(h.count(started(&b)), 0);
+    assert!(
+        h.render(1_000).iter().all(|&s| s == 0.0),
+        "silence while waiting"
+    );
+
+    server.release(&b);
+    h.wait_for("buffering done", buffering(None));
+    h.wait_for_track(Some(&b));
+    let second = h.play_to_end();
+    assert_eq!(second.len() / 2, TOTAL - SPLIT);
+    assert!(
+        max_error(&second, SPLIT, ramp(CD)) < 1e-4,
+        "the next track from its start"
+    );
+    assert_eq!(h.count(failed), 0);
+}
+
+#[test]
+fn a_following_track_ready_in_time_still_joins_gaplessly() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let (a, b) = (served("a", "flac"), served("b", "flac"));
+    server.hold(&b);
+    h.play_context(vec![a.clone(), b.clone()]);
+    h.wait_for_track(Some(&a));
+    eventually("the next track was never tried", || server.opens(&b) > 0);
+    server.release(&b);
+    h.wait_until_buffered(TOTAL);
+    let out = h.play_to_end();
+    assert_eq!(out.len() / 2, TOTAL);
+    assert!(max_error(&out, 0, ramp(CD)) < 1e-4);
+    h.wait_for_track(Some(&b));
+    assert_eq!(h.count(|e| matches!(e, Event::Buffering(_))), 0);
+}
+
+#[test]
+fn skipping_while_buffering_moves_on() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let (a, b) = (served("a", "flac"), served("b", "flac"));
+    server.hold(&a);
+    h.play_context(vec![a.clone(), b.clone()]);
+    h.wait_for("buffering", buffering(Some(&a)));
+    h.send(Command::Next);
+    h.wait_for("buffering done", buffering(None));
+    h.wait_for_track(Some(&b));
+    let tries = server.opens(&a);
+    let out = h.play_to_end();
+    assert_eq!(out.len() / 2, TOTAL - SPLIT);
+    assert!(max_error(&out, SPLIT, ramp(CD)) < 1e-4);
+    assert_eq!(
+        server.opens(&a),
+        tries,
+        "the skipped track is not tried again"
+    );
+    assert_eq!(h.count(started(&a)), 0);
+    assert_eq!(h.count(failed), 0);
+}
+
+#[test]
+fn stopping_while_buffering_ends_the_wait() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let a = served("a", "flac");
+    server.hold(&a);
+    h.play_context(vec![a.clone()]);
+    h.wait_for("buffering", buffering(Some(&a)));
+    h.send(Command::Stop);
+    h.wait_for("buffering cancelled", buffering(None));
+    h.wait_for_state(PlaybackState::Stopped);
+    let tries = server.opens(&a);
+    sleep(Duration::from_millis(100));
+    h.sync(1);
+    assert_eq!(server.opens(&a), tries, "nothing waits once stopped");
+    assert_eq!(h.count(|e| matches!(e, Event::TrackChanged(_))), 0);
+
+    server.release(&a);
+    h.send(Command::Play);
+    h.wait_for_track(Some(&a));
+    assert_eq!(h.play_to_end().len() / 2, SPLIT);
+}
+
+#[test]
+fn a_seek_while_buffering_is_where_the_track_starts() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let a = served("a", "flac");
+    server.hold(&a);
+    h.play_context(vec![a.clone()]);
+    h.wait_for("buffering", buffering(Some(&a)));
+    let target = Duration::from_secs_f64(11_025.0 / f64::from(RATE));
+    h.send(Command::Seek(target));
+    h.sync(1);
+    assert_eq!(h.player.snapshot().unwrap().position, target);
+    assert_eq!(
+        h.count(|e| matches!(e, Event::Buffering(_))),
+        1,
+        "still the same wait"
+    );
+
+    server.release(&a);
+    h.wait_for_track(Some(&a));
+    h.wait_for("the place asked for", |e| *e == Event::Position(target));
+    let out = h.play_to_end();
+    assert_eq!(out.len() / 2, SPLIT - 11_025);
+    assert!(max_error(&out, 11_025, ramp(CD)) < 1e-4);
+}
+
+#[test]
+fn a_restored_track_waits_paused_at_its_saved_position() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let (a, b) = (served("a", "flac"), served("b", "flac"));
+    server.hold(&a);
+    let mut queue = Queue::with_seed(1);
+    queue.set_context(vec![a.clone(), b.clone()], None, None);
+    let snapshot = PlaybackSnapshot {
+        queue: queue.snapshot(),
+        position: Duration::from_secs_f64(11_025.0 / f64::from(RATE)),
+    };
+    h.send(Command::Restore(snapshot.clone()));
+    h.wait_for_state(PlaybackState::Paused);
+    h.wait_for("buffering", buffering(Some(&a)));
+    assert_eq!(
+        h.player.snapshot().unwrap(),
+        snapshot,
+        "the saved place is kept while waiting"
+    );
+
+    server.release(&a);
+    h.wait_for_track(Some(&a));
+    h.wait_for("restored position", |e| {
+        *e == Event::Position(snapshot.position)
+    });
+    h.send(Command::Play);
+    h.wait_for_state(PlaybackState::Playing);
+    let out = h.play(SPLIT - 11_025);
+    assert!(max_error(&out, 11_025, ramp(CD)) < 1e-4);
+}
+
+#[test]
+fn the_following_track_is_prepared_a_track_ahead() {
+    let server = Arc::new(SlowServer::default());
+    let mut h = Harness::serving(&server);
+    let (a, b, c) = (served("a", "flac"), served("b", "flac"), served("a", "wav"));
+    let inserted = served("b", "wav");
+    let id = |entry: &QueueEntry| entry.track.id.to_string();
+    h.play_context(vec![a.clone(), b.clone(), c.clone()]);
+    h.wait_for_track(Some(&a));
+    h.sync(1);
+    assert_eq!(server.prepared(), [id(&b)]);
+    h.send(Command::PlayNext(vec![inserted.clone()]));
+    h.sync(2);
+    assert_eq!(server.prepared(), [id(&b), id(&inserted)]);
+    h.play_to_end();
+    assert_eq!(
+        server.prepared(),
+        [id(&b), id(&inserted), id(&b), id(&c)],
+        "each track once it is next, nothing after the last"
+    );
 }

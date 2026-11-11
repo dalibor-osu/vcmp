@@ -957,6 +957,7 @@ export component TextField {
     in-out property <string> text;
     // Shown while the field is empty.
     in property <string> placeholder;
+    in property <InputType> input-type: InputType.text;
     in property <length> font-size: Theme.font-body;
     in property <bool> read-only;
     callback accepted(string);
@@ -1024,6 +1025,7 @@ export component TextField {
                     text <=> root.text;
                     single-line: true;
                     read-only: root.read-only;
+                    input-type: root.input-type;
                     color: Theme.colors.text;
                     font-size: root.font-size;
                     vertical-alignment: center;

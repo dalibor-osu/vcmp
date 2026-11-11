@@ -86,7 +86,7 @@ fn clicking_navigation_switches_pages() {
 fn clicking_settings_controls_changes_them() {
     let window = open_window();
     // Tall enough that the Appearance section clears the player bar without scrolling.
-    window.window().set_size(LogicalSize::new(1100.0, 1400.0));
+    window.window().set_size(LogicalSize::new(1100.0, 2400.0));
     let theme = window.global::<Theme>();
     open_page(&window, "Settings");
 
@@ -125,11 +125,12 @@ fn everything_works_from_the_keyboard() {
     assert_eq!(window.get_current_page(), Page::Settings);
 
     // From the Settings entry: About, Favourites below the sections, Run setup again,
-    // Add folder, Update automatically, the shuffle choice, the output device, Find
-    // lyrics online, Clear play history, then the theme choice. Without folders there
-    // is no Rescan button or Library check, without a player service no Discord
-    // switch, and without a themes folder no theme file buttons.
-    for _ in 0..10 {
+    // Add folder, Update automatically, a music server's address and token, the
+    // shuffle choice, the output device, Find lyrics online, Clear play history, then
+    // the theme choice. Without folders there is no Rescan button or Library check,
+    // without a server address no Connect button, without a player service no
+    // Discord switch, and without a themes folder no theme file buttons.
+    for _ in 0..12 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);

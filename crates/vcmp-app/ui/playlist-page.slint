@@ -36,6 +36,7 @@ export struct PlaylistDetail {
     // left out because a playlist file can't hold their path.
     export-missing: int,
     export-left-out: int,
+    export-from-servers: int,
 }
 
 // One playlist: its picture and name, what can be done with it, and its tracks in
@@ -376,6 +377,13 @@ export component PlaylistView {
                     }
                     if !root.playlist.export-failed && root.playlist.export-missing > 0: Text {
                         text: @tr("{n} entry's file isn't there now. It is written with the path it last had, so other players skip it until the file is back." | "{n} entries' files aren't there now. They are written with the paths they last had, so other players skip them until the files are back." % root.playlist.export-missing);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                    if !root.playlist.export-failed && root.playlist.export-from-servers > 0: Text {
+                        text: @tr("{n} entry was left out: it plays from a VCMP server, and a playlist file can only point at files on this computer." | "{n} entries were left out: they play from a VCMP server, and a playlist file can only point at files on this computer." % root.playlist.export-from-servers);
                         color: Theme.colors.text;
                         font-size: Theme.font-body;
                         wrap: word-wrap;

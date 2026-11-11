@@ -644,6 +644,67 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Delete backups… asks first, in a dialog, then empties the list of finished
       changes.
 
+### VCMP server **(never seen working behind nginx, on ARM64 or on a Linux host)**
+
+These check the server on its own ([server.md](server.md)). Use a copy of some
+albums as its music.
+
+- [ ] `docker build -f packaging/server/Dockerfile -t vcmp-server .` builds, and
+      `docker buildx build --platform linux/amd64,linux/arm64 ...` builds both.
+- [ ] Run the compose file from server.md with the copy mounted at `/music`. The log
+      says it scans and listens; `docker compose exec vcmp-server vcmp-server tokens`
+      prints the server id and two tokens, and the log never shows a token.
+- [ ] `curl http://127.0.0.1:8268/health` says `ok`;
+      `curl -H "Authorization: Bearer <user token>" http://127.0.0.1:8268/api/v1/feed`
+      lists the tracks, and without the header it answers 401.
+- [ ] `curl -H "Authorization: Bearer <user token>" -o song http://127.0.0.1:8268/api/v1/tracks/<id>/audio`
+      saves a file identical to the original; a player plays it.
+- [ ] With `/music` mounted `:ro`, the handshake (`/api/v1/handshake` with the admin
+      token) says `"can_write_tags": false`; without `:ro`, true.
+- [ ] Copy another album into the music folder: within a few seconds of the copy
+      ending, the feed after the last cursor lists only its tracks. On a Linux host
+      only: Docker Desktop doesn't pass a host folder's changes in, so there it
+      takes `POST /api/v1/scan` with the admin token (202), as tried on Windows.
+- [ ] `docker compose restart`: the same server id and tokens; `docker stop` stops
+      it within its grace period.
+- [ ] Behind nginx with the owner's Cloudflare-managed certificate: the feed and a
+      download work through `https://`, the answers carry
+      `Cache-Control: private, no-store`, and a download of a large FLAC streams
+      (nginx doesn't buffer it first).
+- [ ] On an ARM64 machine (a Raspberry Pi, an ARM NAS), the arm64 image runs and
+      scans.
+
+### Music servers in the app **(never seen working)**
+
+With the server above running and the app on a `VCMP_HOME` copy (never the real
+library: this build migrates it to schema 19, which 26.11.0 refuses).
+
+- [ ] Settings, Music servers: enter `127.0.0.1:8268` and the user token, Connect.
+      The row says Syncing with a count, then Connected; the server's albums are in
+      Albums with "Artist · <server name>", covers included; Search finds its
+      tracks; Folders lists "<server name> · music".
+- [ ] A wrong token: "The server refused that token". An address that answers
+      nothing: "The server can't be reached". `http://` to a public host name: the
+      plain http warning with Connect anyway and Cancel.
+- [ ] Play a server album: the bar shows buffering for a moment, then it plays;
+      seeking works; the next track follows (gapless when it downloaded in time).
+      Play it again: it starts at once. Settings shows the downloaded size.
+- [ ] Add server tracks to a playlist, heart one, label one; restart the app: all
+      still there. Export the playlist: the page says how many entries were left out
+      because they play from a server.
+- [ ] Stop the server: after the next sync (Sync now) its row says it can't be
+      reached and its albums' titles are dimmed; an album played before still plays.
+      Start it again and Sync now: back to normal.
+- [ ] Remove the server, add it again: the playlist and the heart come back.
+- [ ] With the admin token: Manage… lists the folders; add a folder by its path in
+      the container, the scan report updates and the new music arrives; Rescan;
+      New user token shows a token to copy and the old one stops working; New admin
+      token keeps this app connected. Edit a server track's title in the tag editor:
+      the album page shows the new title. With the music mounted read-only, the edit
+      reports the file as read-only.
+- [ ] Ask an AI agent (MCP) for the playlist with server tracks: it lists them as
+      server tracks without tags, and can't play them.
+
 ## Linux
 
 - [ ] The pointer while a menu is open (docs/ui.md, "Menus over lists"). Do this

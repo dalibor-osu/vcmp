@@ -17,11 +17,13 @@ mod check;
 mod edit;
 mod error;
 mod favourites;
+mod feed;
 mod labels;
 mod lookups;
 mod loves;
 mod lyrics;
 mod m3u;
+mod mirror;
 mod other_tags;
 mod path_codec;
 mod playlists;
@@ -48,6 +50,7 @@ pub use check::{AlbumGaps, DUPLICATE_WINDOW, DuplicateGroup, MissingFields, Trac
 pub use edit::{FieldEdit, InvalidTagEdit, TagEdit, TagField, TagWriteError};
 pub use error::{Error, Result};
 pub use favourites::{Favourite, FavouritesSummary};
+pub use feed::{FeedCursor, FeedTrack};
 pub use labels::{LABEL_NAME_MAX, LABEL_PALETTE, Label, LabelId, valid_label_colour};
 pub use lookups::{CoverArtId, CoverLookup};
 pub use loves::{Love, QueuedLove};
@@ -57,9 +60,13 @@ pub use lyrics::{
     read_local_lyrics,
 };
 pub use m3u::{M3uEntry, M3uExport, M3uImport, m3u_file_name};
+pub use mirror::{MirroredTrack, RemoteFile, Server, ServerFolder};
 pub use playlists::{Playlist, PlaylistEntry, PlaylistId};
 pub use plays::PlayStats;
-pub use query::{Album, AlbumId, Artist, ArtistId, SearchResults, Track, TrackId};
+pub use query::{
+    Album, AlbumId, Artist, ArtistId, RemoteRef, SearchResults, ServerId, Track, TrackId,
+    parse_remote_key, remote_key, server_folder_location,
+};
 pub use scan::{ScanPhase, ScanProgress, ScanReport, SkippedFile};
 pub use scrobbles::{QueuedScrobble, Scrobble};
 pub use tags::{Format, TagEntry};
@@ -404,9 +411,12 @@ impl Library {
             }
             progress(done, edits.len());
             let row = self.track(track)?;
-            let result = match &row {
-                Some(row) if row.available => edit::write(&row.path, edit, false, None),
-                _ => Err(TagWriteError::Unavailable),
+            let result = match row
+                .as_ref()
+                .and_then(|row| row.file.as_ref().filter(|_| row.available))
+            {
+                Some(file) => edit::write(file, edit, false, None),
+                None => Err(TagWriteError::Unavailable),
             };
             match result {
                 Ok(()) => {
@@ -415,7 +425,7 @@ impl Library {
                 }
                 Err(error) => report.failed.push(FailedTagWrite {
                     track,
-                    path: row.map(|row| row.path),
+                    path: row.and_then(|row| row.file),
                     error,
                 }),
             }
@@ -433,7 +443,8 @@ impl Library {
         Ok(self
             .track(id)?
             .filter(|track| track.available)
-            .and_then(|track| tags::embedded_cover(&track.path)))
+            .and_then(|track| track.file)
+            .and_then(|file| tags::embedded_cover(&file)))
     }
 
     /// Prefix search over titles, artists and albums, ignoring case and diacritics.

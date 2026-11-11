@@ -15,6 +15,7 @@ pub enum PlaybackError {
     Output(String),
     /// A saved queue did not match its context.
     InvalidSnapshot,
+    NotReady,
 }
 
 impl fmt::Display for PlaybackError {
@@ -27,6 +28,7 @@ impl fmt::Display for PlaybackError {
             PlaybackError::InvalidSnapshot => {
                 f.write_str("the saved queue does not match its tracks")
             }
+            PlaybackError::NotReady => f.write_str("the track's audio is not there yet"),
         }
     }
 }

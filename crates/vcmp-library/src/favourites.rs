@@ -113,7 +113,7 @@ impl Library {
         ))?;
         Ok(statement
             .query_map([], |row| {
-                let liked: i64 = row.get(16)?;
+                let liked: i64 = row.get(crate::query::TRACK_COLUMN_COUNT)?;
                 Ok(Favourite {
                     track: track_from(row)?,
                     liked: UNIX_EPOCH + Duration::from_millis(liked.max(0) as u64),

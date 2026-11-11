@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use slint::ComponentHandle;
 use vcmp_app::agents::{self, AgentService};
@@ -12,16 +13,18 @@ use vcmp_app::library_service::{Delivery, LibraryPaths, LibraryService};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::navigation::History;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
+use vcmp_app::servers::ServerService;
 use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::themes::Themes;
 use vcmp_app::{Setup, updates};
+use vcmp_client::{KeyringTokens, ServerSource};
 use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_integrations::fanart::PhotoPicker;
 use vcmp_integrations::lastfm::Credentials;
 use vcmp_integrations::lrclib::LyricsFinder;
 use vcmp_integrations::musicbrainz::{CoverFinder, CoverPicker};
 use vcmp_library::Library;
-use vcmp_playback::{Player, PlayerOptions};
+use vcmp_playback::{Player, PlayerOptions, SourceKind, Sources};
 
 fn main() -> Result<(), slint::PlatformError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
@@ -76,7 +79,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     let library_service = LibraryService::connect(
                         &window,
                         library.clone(),
-                        paths,
+                        paths.clone(),
                         view.clone(),
                         Delivery::EventLoop,
                     );
@@ -99,7 +102,35 @@ fn main() -> Result<(), slint::PlatformError> {
                         })
                         .map(|picker| Box::new(picker) as Box<dyn PhotoSource>),
                     );
+                    let server_source = Library::open(&paths.database, &paths.cache)
+                        .map_err(|error| error.to_string())
+                        .and_then(|lookup| {
+                            ServerSource::new(
+                                paths.cache.join("streams"),
+                                lookup,
+                                vcmp_client::DEFAULT_CACHE_LIMIT,
+                            )
+                            .map_err(|error| error.to_string())
+                        })
+                        .inspect_err(|error| {
+                            log::error!("server tracks can't be played: {error}");
+                        })
+                        .ok();
+                    let servers = ServerService::connect(
+                        &window,
+                        library.clone(),
+                        paths.clone(),
+                        view.clone(),
+                        Arc::new(KeyringTokens),
+                        server_source.clone(),
+                        Delivery::EventLoop,
+                    );
+                    let mut sources = Sources::default();
+                    if let Some(source) = server_source {
+                        sources = sources.with(SourceKind::Server, Arc::new(source));
+                    }
                     let options = PlayerOptions {
+                        sources,
                         output_device: library
                             .setting(SETTING_OUTPUT_DEVICE)
                             .ok()
@@ -201,6 +232,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             artist_photos,
                             History::connect(&window, view.clone()),
                             agents,
+                            servers,
                         ),
                     ));
                 }

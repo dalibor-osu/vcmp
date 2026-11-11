@@ -13,6 +13,9 @@ repository = "https://github.com/dalibor-osu/vcmp"
 slint = "1.18.1"
 slint-build = "1.18.1"
 
+[profile.dev]
+debug = "line-tables-only"
+
 # Debug builds optimise the dependencies (Slint and its renderer, image decoding,
 # audio decoding), which are otherwise tens of times slower: the album grid took
 # 46 ms a frame and a cover 58 ms to decode. VCMP's own crates stay unoptimised, so

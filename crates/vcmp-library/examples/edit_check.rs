@@ -107,7 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // without atoms), the first
         // edit creates one, and its tags are listed from it from then on, some under
         // other names (RIFF INFO's encoder is ID3v2's encoder settings).
-        let has_own_tag = lofty::read_from_path(&track.path)
+        let Some(file) = &track.file else { continue };
+        let has_own_tag = lofty::read_from_path(file)
             .map(|file| match track.format {
                 Some(Format::Mp3 | Format::Wav | Format::Aiff) => {
                     file.tag(TagType::Id3v2).is_some()
@@ -318,8 +319,9 @@ fn check(library: &Library, before: &Track, step: &str) -> Result<(), vcmp_libra
 
 fn name(track: &Track) -> String {
     track
-        .path
-        .file_name()
+        .file
+        .as_deref()
+        .and_then(|file| file.file_name())
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()
 }
