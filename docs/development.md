@@ -33,6 +33,20 @@ through the SDK's `rc.exe` with MSVC, and `x86_64-w64-mingw32-windres` with MinG
 which the local release image has. The build stops if the manifest can't be
 compiled, since VCMP doesn't start without it ([ui.md](ui.md#known-limits)).
 
+### The VCMP server
+
+The server needs none of the Linux development packages above: it has no window,
+sound or fonts. To run it over a folder of music, with its data in `target/`:
+
+```bash
+VCMP_SERVER_DATA=target/server VCMP_SERVER_MUSIC=/path/to/music cargo run -p vcmp-server
+```
+
+`cargo run -p vcmp-server -- tokens` with the same variables prints the tokens. Its
+image is built with `docker build -f packaging/server/Dockerfile -t vcmp-server .`
+from the repository's root. [server.md](server.md) has the configuration, the API
+and how to put it behind nginx.
+
 ## Test
 
 ```bash

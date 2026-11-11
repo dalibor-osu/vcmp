@@ -613,6 +613,34 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Delete backups… asks first, in a dialog, then empties the list of finished
       changes.
 
+### VCMP server **(never seen working in Docker or behind nginx)**
+
+The app can't connect to a server yet; these check the server on its own
+([server.md](server.md)). Use a copy of some albums as its music.
+
+- [ ] `docker build -f packaging/server/Dockerfile -t vcmp-server .` builds, and
+      `docker buildx build --platform linux/amd64,linux/arm64 ...` builds both.
+- [ ] Run the compose file from server.md with the copy mounted at `/music`. The log
+      says it scans and listens; `docker compose exec vcmp-server vcmp-server tokens`
+      prints the server id and two tokens, and the log never shows a token.
+- [ ] `curl http://127.0.0.1:8268/health` says `ok`;
+      `curl -H "Authorization: Bearer <user token>" http://127.0.0.1:8268/api/v1/feed`
+      lists the tracks, and without the header it answers 401.
+- [ ] `curl -H "Authorization: Bearer <user token>" -o song http://127.0.0.1:8268/api/v1/tracks/<id>/audio`
+      saves a file identical to the original; a player plays it.
+- [ ] With `/music` mounted `:ro`, the handshake (`/api/v1/handshake` with the admin
+      token) says `"can_write_tags": false`; without `:ro`, true.
+- [ ] Copy another album into the music folder: within a few seconds of the copy
+      ending, the feed after the last cursor lists only its tracks.
+- [ ] `docker compose restart`: the same server id and tokens; `docker stop` stops
+      it within its grace period.
+- [ ] Behind nginx with the owner's Cloudflare-managed certificate: the feed and a
+      download work through `https://`, the answers carry
+      `Cache-Control: private, no-store`, and a download of a large FLAC streams
+      (nginx doesn't buffer it first).
+- [ ] On an ARM64 machine (a Raspberry Pi, an ARM NAS), the arm64 image runs and
+      scans.
+
 ## Linux
 
 - [ ] The pointer while a menu is open (docs/ui.md, "Menus over lists"). Do this
