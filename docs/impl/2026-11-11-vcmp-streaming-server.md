@@ -20,8 +20,10 @@ All seven workstreams, with the gaps listed under What is missing.
   rescans, tag writes and token replacement. `vcmp-protocol` holds the shared types.
 - **Mirror** (workstream 3, schema version 19, `vcmp-library/src/mirror.rs`): a
   server track is a `tracks` row plus a `remote_tracks` row, its `path` the key
-  `vcmp-server:<server>:<id>`; `Track::file` is None for it, so every place that
-  opens a file had to be looked at. Server albums group with the scanner's own
+  `vcmp-server:<server>:<id>`; `Track::file` is None for it, so every use of the
+  old path field had to be looked at. Code that turns a row's path string back into
+  a file path was checked by hand: the only "show in file manager" is the library
+  check's, which lists local tracks only, and lyrics skip server keys. Server albums group with the scanner's own
   functions under a `server:<id>:` prefix; artists stay shared. The scanner,
   re-linking, the artwork pass, the library check and M3U import leave server rows
   alone; M3U export leaves them out and the playlist page says how many.
@@ -32,7 +34,11 @@ All seven workstreams, with the gaps listed under What is missing.
   `TrackSource::prepare` and `Event::Buffering` in the engine (a not-ready track
   waits without failing; a not-ready next track ends the run and starts once it is
   there); `vcmp_client::ServerSource` downloads whole files on one thread into a
-  bounded cache (2 GB by default) and decodes them with `LocalSource`.
+  bounded cache (2 GB by default) and decodes them with `LocalSource`. A file changed
+  on the server since the last sync is kept under the name the sync knows (it used
+  to download again on every poll); a failed download is tried again after 30 s.
+  `examples/play_server.rs` plays a folder through an in-process server, the server
+  source and a real `Player`.
 - **App** (workstream 5): Settings' Music servers section (address and token, the
   plain http warning, each server's state, Sync now, Remove, the cache size and
   Empty), `ServerService` (tokens in the OS keyring, a sync at start and every 5
@@ -78,7 +84,13 @@ All seven workstreams, with the gaps listed under What is missing.
 - `crates/vcmp-app/tests/servers.rs`: the Settings section against an in-process
   server: Connect, the album card "Afar, Remote · VCMP server", Play sending server
   queue entries, a server that goes away (dimmed card), Remove, a wrong token, the
-  plain http warning. Breaking the album mark makes it fail.
+  plain http warning, a restart with the server already connected (the start page's
+  cards name it), and the admin path: Manage… lists the folders, a new admin token is
+  kept and the app stays connected, a title edit routed to the server shows in the
+  library. Breaking the album mark makes it fail. The tag editor's own window isn't
+  driven: the test calls the routing (`servers::write_tags`) directly.
+- `vcmp-client/tests/sync.rs` also plays a file changed on the server since the
+  sync, which used to loop.
 - `crates/vcmp-playback` engine tests (a slow fake source), `crates/vcmp-mcp/tests/server.rs`
   (agents and server tracks), `crates/vcmp-library/tests/feed.rs`.
 - Run all with `cargo test --workspace`.
@@ -142,6 +154,8 @@ the real one (it migrates to schema 19, which 26.11.0 refuses):
   token or on read-only music each file is reported as read-only only after Save.
 - **AI agents:** `next` and `previous` still reach server entries in the queue, and
   several tools read every track per call to drop server ones (docs/mcp.md).
+- **A server away:** each track of it not downloaded before waits for its download
+  to fail, then is skipped, one after another.
 - **Polling:** changes on a server show at the next sync, every 5 minutes or on Sync
   now; the cache sizes are fixed choices (1 to 20 GB).
 - **Docker Desktop** on Windows and macOS doesn't pass a mounted folder's file

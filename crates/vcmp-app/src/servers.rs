@@ -293,7 +293,9 @@ impl ServerService {
         for server in service.library.servers().unwrap_or_default() {
             service.open(&server);
         }
-        service.update_marks();
+        if service.update_marks() {
+            service.view.reload();
+        }
         service.show();
         service.sync_all();
         let weak = Rc::downgrade(&service);
@@ -910,7 +912,7 @@ fn run_sync(
     })
 }
 
-pub(crate) fn write_tags(paths: &LibraryPaths, edits: &[(Track, TagEdit)]) -> TagWriteReport {
+pub fn write_tags(paths: &LibraryPaths, edits: &[(Track, TagEdit)]) -> TagWriteReport {
     let mut report = TagWriteReport::default();
     let mut by_server: HashMap<ServerId, Vec<(&Track, &TagEdit)>> = HashMap::new();
     for (track, edit) in edits {

@@ -4,7 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use vcmp_library::{Library, RemoteFile, ServerId, parse_remote_key};
 use vcmp_playback::{LocalSource, PlaybackError, TrackSource, TrackStream};
@@ -18,10 +18,12 @@ const QUEUE_MAX: usize = 4;
 
 const RECENTLY_USED: Duration = Duration::from_secs(15 * 60);
 
+const RETRY_FAILED: Duration = Duration::from_secs(30);
+
 enum State {
     Queued,
     Downloading,
-    Failed(String),
+    Failed(String, Instant),
 }
 
 #[derive(Default)]
@@ -108,8 +110,13 @@ impl TrackSource for ServerSource {
             return LocalSource.open(text);
         }
         let mut jobs = self.inner.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(State::Failed(_, at)) = jobs.states.get(id)
+            && at.elapsed() >= RETRY_FAILED
+        {
+            jobs.states.remove(id);
+        }
         match jobs.states.get(id) {
-            Some(State::Failed(message)) => {
+            Some(State::Failed(message, _)) => {
                 let message = message.clone();
                 jobs.states.remove(id);
                 Err(PlaybackError::Io(io::ErrorKind::Other, message))
@@ -138,6 +145,10 @@ impl TrackSource for ServerSource {
             return;
         }
         let mut jobs = self.inner.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        let stale = matches!(jobs.states.get(id), Some(State::Failed(_, at)) if at.elapsed() >= RETRY_FAILED);
+        if stale {
+            jobs.states.remove(id);
+        }
         if jobs.states.contains_key(id) {
             return;
         }
@@ -214,7 +225,7 @@ impl Inner {
         let path = self.path(file);
         fs::metadata(&path)
             .ok()
-            .filter(|metadata| metadata.len() == file.size)
+            .filter(|metadata| metadata.is_file() && metadata.len() > 0)
             .map(|_| path)
     }
 
@@ -238,7 +249,8 @@ impl Inner {
                 }
                 Err(message) => {
                     log::warn!("{key} could not be downloaded: {message}");
-                    jobs.states.insert(key, State::Failed(message));
+                    jobs.states
+                        .insert(key, State::Failed(message, Instant::now()));
                 }
             }
         }
@@ -271,15 +283,6 @@ impl Inner {
             log::info!("{key} changed on its server since the last sync");
         }
         fs::rename(&partial, &path).map_err(|error| error.to_string())?;
-        let size = fs::metadata(&path).map_or(0, |metadata| metadata.len());
-        if size != file.size {
-            log::info!("{key} has {size} bytes, the sync said {}", file.size);
-            let fixed = self.path(&RemoteFile {
-                size,
-                ..file.clone()
-            });
-            let _ = fs::rename(&path, &fixed);
-        }
         self.evict(Some(&path));
         Ok(())
     }

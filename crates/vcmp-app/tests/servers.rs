@@ -29,6 +29,8 @@ impl PlayerControl for Recorder {
 struct App {
     server: Option<vcmp_server::Server>,
     user: String,
+    admin: String,
+    paths: LibraryPaths,
     window: AppWindow,
     library: Rc<Library>,
     servers: Rc<ServerService>,
@@ -75,6 +77,32 @@ fn start() -> App {
         database: base.join("app/library.sqlite3"),
         cache: base.join("app/cache"),
     };
+    let memory = MemoryTokens::default();
+    let (window, library, servers, player, sent) = open_app(&paths, &memory);
+    App {
+        user: tokens[0].token.clone(),
+        admin: tokens[1].token.clone(),
+        paths,
+        server: Some(server),
+        window,
+        library,
+        servers,
+        tokens: memory,
+        sent,
+        _player: player,
+        _dir: dir,
+    }
+}
+
+type Opened = (
+    AppWindow,
+    Rc<Library>,
+    Rc<ServerService>,
+    Rc<PlayerService>,
+    Recorder,
+);
+
+fn open_app(paths: &LibraryPaths, tokens: &MemoryTokens) -> Opened {
     let library = Rc::new(Library::open(&paths.database, &paths.cache).unwrap());
     let window = vcmp_app::create_window().unwrap();
     let view = LibraryView::connect(&window, library.clone()).unwrap();
@@ -86,29 +114,18 @@ fn start() -> App {
         Box::new(sent.clone()),
         None,
     );
-    let memory = MemoryTokens::default();
     let servers = ServerService::connect(
         &window,
         library.clone(),
-        paths,
+        paths.clone(),
         view,
-        Arc::new(memory.clone()),
+        Arc::new(tokens.clone()),
         None,
         Delivery::Manual,
     );
     window.show().unwrap();
     window.window().set_size(LogicalSize::new(1100.0, 2400.0));
-    App {
-        user: tokens[0].token.clone(),
-        server: Some(server),
-        window,
-        library,
-        servers,
-        tokens: memory,
-        sent,
-        _player: player,
-        _dir: dir,
-    }
+    (window, library, servers, player, sent)
 }
 
 impl App {
@@ -247,4 +264,86 @@ fn a_wrong_token_or_plain_http_to_the_internet_is_caught_before_anything_is_kept
     app.find(AccessibleRole::Button, "Cancel")
         .invoke_accessible_default_action();
     assert!(!app.state().get_insecure());
+}
+
+#[test]
+fn after_a_restart_its_albums_carry_the_server_name_at_once() {
+    let app = start();
+    app.connect(&app.address(), &app.user);
+    app.idle();
+
+    let (window, _library, _servers, _player, _sent) = open_app(&app.paths, &app.tokens);
+    window
+        .global::<vcmp_app::MusicServers>()
+        .get_servers()
+        .row_data(0)
+        .expect("the server is listed before any sync");
+    assert_eq!(
+        window.get_current_page(),
+        Page::Albums,
+        "the page VCMP starts on"
+    );
+    mock_elapsed_time(Duration::ZERO);
+    assert!(
+        ElementHandle::find_by_accessible_label(&window, "Afar, Remote · VCMP server")
+            .any(|element| element.accessible_role() == Some(AccessibleRole::Button)),
+        "the card names the server before the first sync of this start"
+    );
+}
+
+#[test]
+fn an_admin_manages_the_server_and_edits_its_tags() {
+    let app = start();
+    app.connect(&app.address(), &app.admin);
+    app.idle();
+    assert!(app.state().get_servers().row_data(0).unwrap().admin);
+    let id = app.library.servers().unwrap()[0].id;
+
+    app.find(AccessibleRole::Button, "Manage VCMP server")
+        .invoke_accessible_default_action();
+    app.idle();
+    let folders = app.state().get_admin_folders();
+    assert_eq!(folders.row_count(), 1);
+    let folder = folders.row_data(0).unwrap();
+    assert!(folder.configured && folder.reachable);
+    assert!(folder.path.ends_with("server-music"));
+    assert!(app.state().get_admin_scan().known);
+
+    app.find(AccessibleRole::Button, "New admin token")
+        .invoke_accessible_default_action();
+    app.idle();
+    let fresh = app.state().get_admin_new_token().to_string();
+    assert!(!fresh.is_empty() && fresh != app.admin);
+    assert!(app.state().get_admin_new_token_is_admin());
+    let server = app.library.servers().unwrap().remove(0);
+    assert_eq!(
+        app.tokens.load(&server.server_id).unwrap().as_deref(),
+        Some(fresh.as_str()),
+        "the new admin token replaces the kept one"
+    );
+    app.servers.start_sync(id);
+    app.idle();
+    let row = app.state().get_servers().row_data(0).unwrap();
+    assert_eq!(row.status, MusicServerStatus::Online, "still connected");
+    assert!(row.admin);
+
+    let first = app
+        .library
+        .tracks()
+        .unwrap()
+        .into_iter()
+        .find(|track| track.title == "First")
+        .unwrap();
+    let edit = vcmp_library::TagEdit {
+        title: vcmp_library::FieldEdit::Set("Premier".into()),
+        ..vcmp_library::TagEdit::default()
+    };
+    let report = vcmp_app::servers::write_tags(&app.paths, &[(first.clone(), edit)]);
+    assert_eq!(report.written, [first.id]);
+    assert!(report.failed.is_empty());
+    assert_eq!(
+        app.library.track(first.id).unwrap().unwrap().title,
+        "Premier",
+        "the server wrote it and the mirror has it"
+    );
 }

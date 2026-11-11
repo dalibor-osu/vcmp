@@ -371,3 +371,64 @@ fn a_server_track_plays_through_the_server_source_as_the_file_does() {
         }
     }
 }
+
+#[test]
+fn a_file_changed_on_the_server_since_the_sync_still_plays_once() {
+    use vcmp_playback::{PlaybackError, TrackSource};
+
+    let mut setup = setup();
+    let server = setup.connect();
+    setup.sync();
+    let one = setup
+        .library
+        .tracks()
+        .unwrap()
+        .into_iter()
+        .find(|track| track.title == "One")
+        .unwrap();
+    let remote = one.remote.clone().unwrap();
+    setup
+        .admin
+        .write_tags(&TagWriteRequest {
+            groups: vec![TagWriteGroup {
+                tracks: vec![remote.id],
+                edit: TagEdit {
+                    title: FieldEdit::Set(
+                        "A much longer title than before, to change the size".into(),
+                    ),
+                    ..TagEdit::default()
+                },
+            }],
+        })
+        .unwrap();
+
+    let lookup = Library::open(
+        &setup.base.join("app/library.sqlite3"),
+        &setup.base.join("app/cache"),
+    )
+    .unwrap();
+    let source = vcmp_client::ServerSource::new(
+        setup.base.join("app/cache/streams"),
+        lookup,
+        vcmp_client::DEFAULT_CACHE_LIMIT,
+    )
+    .unwrap();
+    source.set_connection(server.id, Some(setup.user.clone()));
+    let key = one.key();
+    let start = Instant::now();
+    let mut asked = 0;
+    loop {
+        asked += 1;
+        match source.open(&key) {
+            Ok(_) => break,
+            Err(PlaybackError::NotReady) => {
+                assert!(start.elapsed() < Duration::from_secs(30), "never played");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => panic!("{error}"),
+        }
+    }
+    assert!(asked > 1);
+    assert!(source.is_cached(&key), "kept under the name the sync knows");
+    assert!(source.open(&key).is_ok(), "and played from the cache again");
+}
