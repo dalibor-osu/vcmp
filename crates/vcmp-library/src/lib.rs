@@ -17,6 +17,7 @@ mod check;
 mod edit;
 mod error;
 mod favourites;
+mod feed;
 mod labels;
 mod lookups;
 mod loves;
@@ -47,6 +48,7 @@ pub use check::{AlbumGaps, DUPLICATE_WINDOW, DuplicateGroup, MissingFields, Trac
 pub use edit::{FieldEdit, InvalidTagEdit, TagEdit, TagField, TagWriteError};
 pub use error::{Error, Result};
 pub use favourites::{Favourite, FavouritesSummary};
+pub use feed::{FeedCursor, FeedTrack};
 pub use labels::{LABEL_NAME_MAX, LABEL_PALETTE, Label, LabelId, valid_label_colour};
 pub use lookups::{CoverArtId, CoverLookup};
 pub use loves::{Love, QueuedLove};

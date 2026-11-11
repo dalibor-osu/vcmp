@@ -26,7 +26,10 @@ const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
 /// Drops what the migrations after version 9 add, for tests that put a database back
 /// the way an older version left it.
-const TABLES_AFTER_VERSION_9: &str = "DROP TABLE love_queue; DROP TABLE lyrics_lookups;
+const TABLES_AFTER_VERSION_9: &str = "DROP TRIGGER tracks_revision_insert;
+    DROP TRIGGER tracks_revision_update; DROP TRIGGER albums_revision_artwork;
+    DROP INDEX tracks_revision; ALTER TABLE tracks DROP COLUMN revision;
+    DROP TABLE love_queue; DROP TABLE lyrics_lookups;
     DROP TABLE plays; DROP TABLE not_duplicates;
     DROP TABLE favourites;
     DROP TABLE change_labels; DROP TABLE track_labels;

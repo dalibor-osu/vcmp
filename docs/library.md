@@ -38,7 +38,7 @@ path (see [Writing tags](#writing-tags)), and `Library::accept_change_set` (see
 
 ## Schema
 
-Version 17, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
+Version 18, applied by `src/schema.rs`. `PRAGMA user_version` counts the applied
 migrations; a database from a newer build is refused instead of being altered.
 Migrations run with foreign keys off (`Library::open` turns them on afterwards), so
 a migration that rebuilds a table, as version 12 rebuilds `change_sets` to widen
@@ -46,9 +46,9 @@ the CHECK on its kind, doesn't delete the rows that refer to it.
 
 | Table | Holds |
 |---|---|
-| `settings` | Key/value preferences: `library.auto_update`, `library.added_backfilled` (the one-time backfill of added dates ran; see [Play history](#play-history)), `ui.theme` (the theme and accent as JSON; [ui.md](ui.md#themes)), `ui.reduced_motion` (`system`, `on` or `off`), `ui.setup_done` (the setup wizard was shown, or the library had folders when it came; [ui.md](ui.md#setup-wizard)), `ui.lyrics_shown` and `integrations.lyrics_online` (see [Lyrics](#lyrics)) |
+| `settings` | Key/value preferences: `library.auto_update`, `library.added_backfilled` (the one-time backfill of added dates ran; see [Play history](#play-history)), `ui.theme` (the theme and accent as JSON; [ui.md](ui.md#themes)), `ui.reduced_motion` (`system`, `on` or `off`), `ui.setup_done` (the setup wizard was shown, or the library had folders when it came; [ui.md](ui.md#setup-wizard)), `ui.lyrics_shown` and `integrations.lyrics_online` (see [Lyrics](#lyrics)); in a VCMP server's library also `server.id`, `server.user_token` and `server.admin_token` ([server.md](server.md)) |
 | `source_dirs` | Source directories (canonical path) and their `recursive` flag |
-| `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration, and `added_ms`, when VCMP first saw it (see [Play history](#play-history)) |
+| `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration, `added_ms`, when VCMP first saw it (see [Play history](#play-history)), and `revision`, its place in the change feed (version 18; see [Change feed](#change-feed)) |
 | `albums` | Album groups, their artist, year and artwork state, and whether the album is an artist's Unknown album (`unknown`, version 9) |
 | `artists` | Artist names (unique, case-insensitive) and MusicBrainz artist ID |
 | `cover_lookups` | What the online cover lookup found for an album (a release or release-group MBID, or nothing) and when, keyed by the album's group key so it survives rescans (version 2) |
@@ -490,6 +490,30 @@ the first frame; the original is kept beside it for the few places that play it
   that can't move, gives `None`. The checks read the header where the format has
   one (APNG's animation chunk, WebP's animation flag) and decode two frames of a
   GIF.
+
+## Change feed
+
+`src/feed.rs`. What a VCMP server gives the apps that mirror its library
+([server.md](server.md#the-change-feed)); the app's own library keeps the revisions
+too, unused.
+
+- **Revisions.** Every track has one. Three triggers of schema version 18 keep them:
+  a new track takes the next revision; an update that changes anything the feed
+  carries (path, folder, size, modification time, availability, format, the shown
+  fields, duration, recording ID, added date, album) does too; and an album whose
+  `artwork_hash` changes gives all its tracks the next revision, since new folder art
+  changes no track row. Triggers compare old and new values, so a rescan that
+  changes nothing leaves every revision alone. Migration 18 numbers the tracks
+  already there by id.
+- **Reading.** `Library::track_feed` gives up to a page of tracks after a
+  `FeedCursor` (a revision and a track id, since an album's tracks share one), in
+  that order, unavailable ones included. The MusicBrainz release, artist and album
+  artist IDs come from `track_tags`, the first non-blank value as the scan reads
+  them; a changed file always changes its size or modification time, so they never
+  change without a new revision. `Library::feed_head` is the newest cursor.
+- **Artwork by key.** `Library::artwork_by_key` gives the cached files of an
+  artwork key only when the key has a key's shape (hex, a dot, a lowercase
+  extension), since keys come from clients.
 
 ## Watching
 
