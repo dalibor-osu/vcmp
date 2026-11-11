@@ -3,182 +3,182 @@
 Spec: docs/specs/2026-11-11-vcmp-streaming-server.md
 Date: 2026-11-11
 Status: partially implemented
-Area: vcmp-library (schema version 18, change feed), new crates vcmp-protocol and
-vcmp-server, packaging/server, docs
+Area: vcmp-library (schema versions 18 and 19: change feed, server tracks), new crates
+vcmp-protocol, vcmp-server and vcmp-client, vcmp-playback (server source,
+buffering), vcmp-app (Music servers in Settings, album marks, Folders page, player
+bar, tag editor), vcmp-mcp (agents kept to local music), packaging/server, docs
 
 ## What was done
 
-The server side of the spec: workstreams 1 (server core) and 2 (protocol), plus the
-Dockerfile and documentation from workstream 7. The app can't connect yet.
+All seven workstreams, with the gaps listed under What is missing.
 
-- **Change feed in vcmp-library** (`src/feed.rs`, schema version 18): a `revision`
-  on every track, kept by triggers that fire only when a mirrored value really
-  changes (an unchanged rescan changes nothing), and that renumber an album's tracks
-  when its artwork changes. `Library::track_feed` pages by `(revision, id)`, and
-  every feed page carries the `head`, so an app ahead of a server restored from a
-  backup can tell and sync again; `Library::artwork_by_key` refuses anything that
-  isn't a key's shape. The scan report gives users file and folder names only.
-- **vcmp-protocol**: paths, request and answer types, error codes with an `Other`
-  fallback for codes a newer server adds, the protocol version, `audio_etag`. serde
-  only.
-- **vcmp-server**: the `vcmp-server` binary with `serve`, `tokens` and
-  `new-token user|admin`; configuration from a TOML file and `VCMP_SERVER_*`
-  variables, the environment winning, `_FILE` variants for Docker secrets; the
-  server id and both tokens made on first start, configured ones taking precedence
-  and refusing replacement; one writer thread (scans, folders, tag writes, watcher,
-  hourly rescan), pooled read connections; every API path of the spec, audio with
-  single-range requests and `If-Range`, `Cache-Control: private, no-store` on every
-  answer that needs a token.
-- **Packaging and docs**: `packaging/server/Dockerfile` (multi-stage, non-root,
-  `/data` and `/music`), `.dockerignore`, the new `docs/server.md`, and updates to
-  library.md, development.md, manual-testing.md and CLAUDE.md.
+- **Server** (workstreams 1 and 2): `vcmp-server` with `serve`, `tokens` and
+  `new-token`; configuration from a TOML file and `VCMP_SERVER_*` variables; a user
+  and an admin token, configured ones owning their value; one writer thread, pooled
+  readers; the change feed (`Library::track_feed`, revisions kept by triggers, the
+  feed's `head` on every page), artwork, audio with ranges and `If-Range`, folders,
+  rescans, tag writes and token replacement. `vcmp-protocol` holds the shared types.
+- **Mirror** (workstream 3, schema version 19, `vcmp-library/src/mirror.rs`): a
+  server track is a `tracks` row plus a `remote_tracks` row, its `path` the key
+  `vcmp-server:<server>:<id>`; `Track::file` is None for it, so every place that
+  opens a file had to be looked at. Server albums group with the scanner's own
+  functions under a `server:<id>:` prefix; artists stay shared. The scanner,
+  re-linking, the artwork pass, the library check and M3U import leave server rows
+  alone; M3U export leaves them out and the playlist page says how many.
+  `vcmp-client::sync` fetches a page, then writes it with the cursor in one
+  transaction, syncs again from the start when the app is ahead of the server, marks
+  unseen rows unavailable then, and fetches missing covers.
+- **Playback** (workstream 4): `SourceKind::Server`, `PlaybackError::NotReady`,
+  `TrackSource::prepare` and `Event::Buffering` in the engine (a not-ready track
+  waits without failing; a not-ready next track ends the run and starts once it is
+  there); `vcmp_client::ServerSource` downloads whole files on one thread into a
+  bounded cache (2 GB by default) and decodes them with `LocalSource`.
+- **App** (workstream 5): Settings' Music servers section (address and token, the
+  plain http warning, each server's state, Sync now, Remove, the cache size and
+  Empty), `ServerService` (tokens in the OS keyring, a sync at start and every 5
+  minutes), album cards with "Artist · server", muted titles while a server can't be
+  reached, servers' folders on the Folders page, "Loading" in the player bar while a
+  track downloads.
+- **Admin** (workstream 6): Manage… on a server connected with the admin token:
+  folders, Rescan with the report (polled while the server scans, synced after), new
+  user and admin tokens. The tag editor sends server tracks' edits to their server
+  and syncs before it reports.
+- **AI agents:** the MCP tools that search, list, read tags, propose changes or play
+  take local tracks only; playlists and the queue keep server entries in place as
+  `{"server_track": true, "title", "artist"}`.
+- **Packaging and docs:** the Dockerfile; docs/server.md, library.md ("Change feed",
+  "Server tracks"), ui.md ("Music servers"), playback.md, mcp.md, manual-testing.md,
+  development.md, the README's "Music servers" and CLAUDE.md's tables.
 - **Checks** (Windows 11): `cargo fmt --all --check` and `cargo clippy --workspace
-  --all-targets -- -D warnings` pass. `cargo test --workspace --no-fail-fast`: 735
-  passed, 1 failed. The failure is
-  `vcmp-mcp`'s `only_requests_with_the_token_and_without_a_browser_origin_get_in`:
-  a connection reset (OS error 10054) when the MCP server refuses a request before
-  reading its body. It fails about one run in three, also on its own, and passes
-  otherwise; this branch doesn't change `vcmp-mcp`, though the test was not run on
-  `main` to compare. After the code's comments were removed and the feed's `head`
-  and the users' scan report were added, the changed crates' tests and clippy
-  passed again.
-- **The binary, run for real** (Windows, port 18268, two fixture files): `--version`,
-  `--help`, `tokens`, `new-token` with a bad role (exit 2), a short configured token
-  (refused, exit 1), `new-token user` against a configured one (refused), then
-  `serve` and the How to test steps 1 to 8 below with curl, all as described; the log
-  held no token. Stopping by signal was not tried: the process was killed.
+  --all-targets -- -D warnings` pass. `cargo test --workspace --no-fail-fast`: 758
+  passed, 1 failed, the flaky `vcmp-mcp` token test below.
+- **Run for real:** the server binary (every command, then the How to test curl
+  steps) and the Docker image (amd64, see Follow-up changes 1). The app's side ran
+  in its tests only, not in the real window.
 
 ## Follow-up changes
 
 1. Build and try the Docker image. Built with Docker 29.9.2 (linux/amd64, Docker
-   Desktop on Windows) in about 2 minutes, 130 MB; run as in docs/server.md: it runs
-   as `vcmp`, `docker exec ... vcmp-server tokens` works, the API answered as in How
-   to test, a download was byte-identical, read-only music gave
-   `can_write_tags: false` and a clean `write` failure, writable music took a tag
-   edit, a restart kept the id and tokens, and `docker stop` stopped it by SIGTERM
-   in 0.8 s. No code changed; the notes, server.md and manual-testing.md record it.
+   Desktop on Windows) in about 2 minutes, 130 MB; tokens through `docker exec`, the
+   API, a byte-identical download, read-only and writable music, restart and stop
+   behaved as described. No code changed.
+2. Continue with the client side on the same branch and pull request. The M3U
+   question was put to the owner first (export skips server tracks and lists them,
+   import matches local tracks only) and recorded in the spec; then workstreams 3 to
+   6 were built as above, the engine and the MCP rules by parallel agents.
 
 ## How to test
 
-**Automated coverage.** `crates/vcmp-server/tests/api.rs` drives the server over
-real HTTP as the app's sync will; `crates/vcmp-library/tests/feed.rs` covers the
-revisions. Run them with `cargo test -p vcmp-server -p vcmp-library --test feed`.
-Breaking the `If-Range` check makes `an_app_mirrors_plays_and_edits_the_library`
-fail, which shows the test can fail. Nothing in the app is user-facing yet, so there
-is no UI test.
+**Automated coverage.**
+- `crates/vcmp-server/tests/api.rs`: the server over HTTP as the app uses it.
+- `crates/vcmp-client/tests/sync.rs`: an in-process server synced into a library
+  (albums, covers, search, removal and return, a restored server, a local scan that
+  leaves the mirror alone) and a server track decoded through `ServerSource`,
+  compared sample for sample with the original file.
+- `crates/vcmp-app/tests/servers.rs`: the Settings section against an in-process
+  server: Connect, the album card "Afar, Remote · VCMP server", Play sending server
+  queue entries, a server that goes away (dimmed card), Remove, a wrong token, the
+  plain http warning. Breaking the album mark makes it fail.
+- `crates/vcmp-playback` engine tests (a slow fake source), `crates/vcmp-mcp/tests/server.rs`
+  (agents and server tracks), `crates/vcmp-library/tests/feed.rs`.
+- Run all with `cargo test --workspace`.
 
-**Setup.** A folder with a copy of a few albums (tags may be edited), for example
-`target/server-music`. Then, from the repository's root:
-
-```bash
-VCMP_SERVER_DATA=target/server VCMP_SERVER_MUSIC=target/server-music cargo run -p vcmp-server
-```
-
-In a second shell, `VCMP_SERVER_DATA=target/server cargo run -p vcmp-server -- tokens`
-prints the server id, the user token (`<user>`) and the admin token (`<admin>`).
+**Setup.** A server over a copy of some albums: in Docker as in docs/server.md
+(`127.0.0.1:8268`), or `VCMP_SERVER_DATA=target/server VCMP_SERVER_MUSIC=target/server-music cargo run -p vcmp-server`.
+`vcmp-server tokens` (or `cargo run -p vcmp-server -- tokens` with the same
+variables) prints the user and admin tokens. The app on a scratch library, never
+the real one (it migrates to schema 19, which 26.11.0 refuses):
+`VCMP_HOME=target/try-server VCMP_SETUP=skip cargo run -p vcmp-app`.
 
 **Steps.**
 
-1. `curl http://127.0.0.1:8268/health` prints `ok`.
-2. `curl -i http://127.0.0.1:8268/api/v1/handshake` answers 401 with
-   `{"code":"unauthorized",...}`.
-3. `curl -H "Authorization: Bearer <user>" http://127.0.0.1:8268/api/v1/handshake`
-   shows the server id `tokens` printed, `"protocol":1`, `"role":"user"` and
-   `"can_write_tags":true`.
-4. `curl -H "Authorization: Bearer <user>" "http://127.0.0.1:8268/api/v1/feed?limit=2"`
-   lists two tracks with `path` relative to the music folder (`Album/01.flac`),
-   `artwork` keys, and `"more":true` when there are more tracks; repeat with
-   `after_revision` and `after_track` from `next` until `"more":false`, where
-   `next` equals `head`.
-5. `curl -H "Authorization: Bearer <user>" http://127.0.0.1:8268/api/v1/thumbnails/<artwork key> -o cover.jpg`
-   saves the album's cover as a JPEG.
-6. `curl -H "Authorization: Bearer <user>" -H "Range: bytes=0-99" -i http://127.0.0.1:8268/api/v1/tracks/<id>/audio`
-   answers 206 with `Content-Range: bytes 0-99/<size>` and an `ETag`.
-7. As the admin, rename a track:
-   `curl -H "Authorization: Bearer <admin>" -H "Content-Type: application/json" -d '{"groups":[{"tracks":[<id>],"edit":{"title":{"op":"set","value":"Renamed"}}}]}' http://127.0.0.1:8268/api/v1/tags`
-   answers `{"written":[<id>],"failed":[]}`.
-8. The feed after the last `next` cursor of step 4 lists only that track, titled
-   "Renamed", with a new `modified_ms`; its audio's `ETag` changed too.
+1. Settings, Music servers: type `127.0.0.1:8268` in Server address and the user
+   token in Token, press Connect. The row shows "Syncing: n tracks received", then
+   "Connected".
+2. Albums: the server's albums are there, their cards reading "Artist · VCMP server"
+   (or the configured name), with covers.
+3. Open one and press Play: the bar says "Loading" for a moment, then the track
+   plays; seeking works; the next track follows.
+4. Play the album again: it starts at once. Settings shows the downloaded size.
+5. Folders: "VCMP server · music" opens the server's folder tree.
+6. Stop the server and press Sync now: the row says it can't be reached and the
+   server's album titles are dimmed; the album played before still plays.
+7. Start the server, Sync now, then Remove: its albums leave the pages. Connect again
+   with the same token: they come back, and a playlist holding them is whole again.
+8. Connect with the admin token instead: Manage… lists the folders, Rescan runs and
+   reports, New user token shows a token to copy (the old one stops working), and a
+   title changed in the tag editor shows on the album page.
 
 **Also worth trying.**
-
-- The user token on step 7: 403 `admin_only`.
-- `"year":{"op":"set","value":0}` in step 7: 400 `invalid_tag_edit`, no file touched.
-- `DELETE /api/v1/folders/<id>` of the configured folder: 409 `configured_folder`.
-- `POST /api/v1/folders` with `{"path":"/no/such/folder"}`: 400 `not_a_folder`.
-- `cargo run -p vcmp-server -- new-token user` while the server runs: the old user
-  token gets 401 within 2 seconds, the new one works.
-- `VCMP_SERVER_USER_TOKEN=short`: the server refuses to start and says why.
-- Copy another album into the music folder: within about 5 seconds of the copy ending
-  the feed after the last cursor lists only its tracks.
+- A wrong token: "The server refused that token"; nothing is added.
+- `http://music.example.com` with any token: the plain http warning, with Connect
+  anyway and Cancel.
+- Export a playlist with server tracks: the page says how many were left out because
+  they play from a server.
+- An AI agent asked for that playlist: it lists the server entries as server tracks,
+  without tags, and can't play them.
+- The server alone, with curl: `/health`, a 401 without a token, the feed with
+  `limit=2`, a range request on `/api/v1/tracks/<id>/audio`, an admin tag write
+  (docs/server.md has the API).
 
 ## What is missing
 
-- Workstream 3, the mirror in the app (the app's tracks from servers, the list of
-  servers, the sync, grouping, the local-only guard and the agent rules): not
-  started.
-- Workstream 4, playback of server tracks (the `server` source, prepare hint,
-  buffering, the bounded audio cache): not started.
-- Workstream 5, the app's UI (Settings' server list and cache size, source marks and
-  filter, server folders on the Folders page, greyed music while a server is away,
-  the plain http warning): not started.
-- Workstream 6, admin in the app: the server side of every admin call exists; the
-  app's controls don't.
-- Workstream 7: the image is not published, the release workflow and
-  `packaging/release-local.sh` don't build the server, and the README has no
-  section, since the app can't use a server yet.
-- The open question on M3U for server tracks is still to be decided before
-  workstream 3. The other, reaching `main` together, is answered by building
-  everything on this one branch.
+- **A source filter** on Albums, Artists, Songs and Search (spec, workstream 5): only
+  album cards carry the server's name; song rows and search results don't, and no
+  page filters by source.
+- **Greyed song rows** while a server is away: only album cards are dimmed.
+- **Releases:** the image is not published, ARM64 was never built, and the release
+  workflow and `packaging/release-local.sh` don't build the server.
+- **The app was not run in its real window** against a server; its tests cover the
+  flows headless.
 
 ## Known problems
 
-- The image was built and run for amd64 only, under Docker Desktop on Windows; the
-  ARM64 image was never built, and no Linux host has run the server.
-- On Docker Desktop, file changes in a Windows (or macOS) folder mounted into the
-  container never reach the watcher: a new album showed only after an admin's rescan,
-  and otherwise would at the hourly rescan.
-- Schema version 18 is shared, so every app library gets the revision column and
-  triggers on its next start, though the app doesn't use them yet; older builds then
-  refuse that database. Running this branch's app on the real library makes the
-  released 26.11.0 refuse to open it: try the branch's app only with a `VCMP_HOME`
-  copy.
-- The feed's tracks and its `head` are two reads, not one transaction: a write
-  committed between them can make `head` newer than a last page's `next`, and the
-  app would then ask once more.
-- The triggers run on every scan's track write; their cost on a large library wasn't
-  measured.
-- Adding or removing a folder and writing tags wait behind a running scan on the one
-  writer thread: during a large library's first scan (40 s on the owner's 3,600
-  tracks from a cold disk) an admin's request waits that long.
-- Graceful shutdown waits for downloads in flight, so `docker stop` may kill a server
-  mid-download after its grace period.
-- A configured music folder missing at start is skipped with a warning and isn't
-  listed as unreachable.
-- Whether folders are writable is checked by making a hidden temporary file in each
-  music folder, at start and after folder changes.
-- Covers in tag edits travel base64 in JSON, a third larger than the image, with a
-  64 MB limit per request.
-- Wrong tokens are not rate-limited.
-- The new code carries no comments, following the owner's own rule to remove them,
-  unlike the rest of the repository; what they explained is in docs/server.md and
-  library.md's "Change feed".
-- `vcmp-mcp`'s token test is flaky on Windows (see the checks above). This branch
-  doesn't touch that crate, so it most likely fails on `main` too, but that wasn't
-  run.
+- **Whole files:** a server track starts only once its whole file is downloaded
+  (one download at a time), so the first track of a FLAC album waits for its file,
+  and a join into a track still downloading is not gapless. The wait was not
+  measured over a real link.
+- **Tag editor:** it can't show a server track's current cover, and without the admin
+  token or on read-only music each file is reported as read-only only after Save.
+- **AI agents:** `next` and `previous` still reach server entries in the queue, and
+  several tools read every track per call to drop server ones (docs/mcp.md).
+- **Polling:** changes on a server show at the next sync, every 5 minutes or on Sync
+  now; the cache sizes are fixed choices (1 to 20 GB).
+- **Docker Desktop** on Windows and macOS doesn't pass a mounted folder's file
+  changes into the container: the server sees them at its hourly rescan or an
+  admin's.
+- **Schema 19** is applied to every app library this build opens; 26.11.0 then
+  refuses it.
+- **Server side:** the feed's tracks and `head` are two reads; trigger cost on a
+  large scan unmeasured; admin calls wait behind a running scan; stopping waits for
+  downloads in flight; a configured folder missing at start is skipped; wrong tokens
+  aren't rate-limited; covers travel base64 in JSON (64 MB limit).
+- **No comments in the new code**, following the owner's rule, unlike the rest of
+  the repository; the docs carry what they would have said.
+- **Flaky test:** `vcmp-mcp`'s `only_requests_with_the_token_and_without_a_browser_origin_get_in`
+  fails about one run in three on Windows (connection reset, 10054). This branch
+  changed that crate, but not the code under that test; it was not run on `main`.
 
 ## Recommended follow-ups
 
-- Build and run the image on Linux (x64 and ARM64) and behind the owner's nginx,
-  following docs/manual-testing.md, before building the app's side on it.
-- Decide M3U for server tracks, then start workstream 3, the app's mirror.
-- Measure a scan of the owner's library with the triggers, against the numbers in
-  library.md.
-- Add the server to the release workflow and `packaging/release-local.sh`, and publish
-  the image, once the app can connect.
-- Make `vcmp-mcp`'s token test tolerate a reset connection on Windows (or have the
-  server read the body before refusing), so the workspace tests pass reliably there.
+- Run the app against a real server (Docker on Linux, behind the owner's nginx) with
+  docs/manual-testing.md's "Music servers in the app", and measure the first track's
+  wait.
+- Build the source filter and the marks on song rows and search results.
+- Stream while downloading (decode a growing file) so a track starts before its whole
+  file is there.
+- Add the server to the release workflow and publish the image for both
+  architectures.
+- Give vcmp-library local-only queries for the MCP tools, instead of filtering every
+  track per call.
 
 ## Changelog
 
-No user-visible changes.
+- Connect to VCMP servers in Settings and play their music next to your own: their
+  albums show with the server's name, stream when played, and stay on your computer
+  up to a size you choose
+- See a server's folders on the Folders page
+- Manage a server's music folders, rescans and tokens, and edit its tracks' tags,
+  when connected with its admin token
+- Run your own VCMP server in Docker or as a program, to share a library from a NAS,
+  a VPS or another computer

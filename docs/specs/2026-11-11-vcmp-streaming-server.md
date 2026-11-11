@@ -261,6 +261,16 @@ lossy stream in the future"**
 
 **Answer: DNS and certificates only**
 
+### The spec leaves one decision to you before the app's mirror (workstream 3) is built: how do M3U playlists treat server tracks? (asked during implementation)
+
+| Option | What it means |
+|---|---|
+| Export skips, import local (Recommended) | Export leaves server tracks out and lists them, as it lists paths a file can't hold; import matches only local tracks. Nothing new to design; a playlist with server tracks exports incomplete. |
+| Export as stream URLs | Export writes each server track as its http address, import matches those addresses back to server tracks. Round-trips in VCMP; other players can't play them, since the address needs the token. |
+| Import also matches by tags | Export skips server tracks as above, but import's artist/title matching may also pick server tracks when no local track matches. Imports find more; a playlist may silently depend on a server. |
+
+**Answer: Export skips, import local**
+
 ## High-level plan
 
 One release, as the owner decided. The workstreams are built in this order, and local
@@ -453,10 +463,8 @@ development.md, manual-testing.md and CLAUDE.md's tables. Starts after 1, ends l
 - The default cache size, rescan interval and poll interval: chosen during
   implementation, after measuring the owner's library over a real link.
 - Whether the workstreams reach `main` together through an integration branch (the
-  proposed rule in the risk table): the owner decides before implementation starts.
-- M3U and server tracks were not put to the owner. Proposed: export leaves server
-  tracks out and lists them, as it does paths a file can't hold, and import matches
-  local tracks only. The owner confirms or changes this before workstream 3.
+  proposed rule in the risk table): answered by building them all on one branch and
+  pull request.
 - The codec of the future lossy stream: symphonia has no Opus decoder today.
 - Whether covers found online for server albums should later be stored on the server
   for every client.
@@ -473,9 +481,9 @@ development.md, manual-testing.md and CLAUDE.md's tables. Starts after 1, ends l
 - TLS in the server and automatic certificates.
 - "Keep offline" downloads; the cache promises nothing offline.
 - For server tracks: lyrics from tags and `.lrc` files, AI agents (MCP) beyond
-  seeing them by position, and the library check (the owner's choices). M3U export
-  and import of server tracks too, though that is proposed and not yet decided
-  (see the open questions).
+  seeing them by position, the library check, and M3U export and import (the
+  owner's choices: export leaves server tracks out and lists them, import matches
+  local tracks only).
 - Merging the same album from two sources into one, and syncing between servers.
 - Service packages (.deb, a Windows service) and server builds for Windows and macOS.
 - A push channel for changes.
