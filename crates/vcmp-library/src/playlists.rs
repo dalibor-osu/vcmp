@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use image::codecs::jpeg::JpegEncoder;
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 
 use crate::animation;
 use crate::error::io_error;
@@ -118,7 +118,7 @@ impl Library {
         name: &str,
         tracks: &[TrackId],
     ) -> Result<(PlaylistId, String)> {
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let name = free_name(&tx, name.trim())?;
         let id = insert_playlist(&tx, &name)?;
         insert_entries(&tx, id, tracks)?;
@@ -246,7 +246,7 @@ impl Library {
     /// Rewrites the playlist's entries in order. Playlists are small, and a rewrite
     /// avoids shifting positions under the (playlist, position) key one by one.
     fn write_entries(&self, id: PlaylistId, tracks: &[TrackId]) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         tx.execute(
             "DELETE FROM playlist_entries WHERE playlist_id = ?1",
             [id.0],

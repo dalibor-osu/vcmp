@@ -285,7 +285,7 @@ fn a_new_cover_is_shown_in_the_review_and_written() {
         .write_to(&mut bytes, image::ImageFormat::Png)
         .unwrap();
     let edit = TagEdit {
-        cover: FieldEdit::Set(bytes.into_inner()),
+        cover: FieldEdit::Set(bytes.into_inner().into()),
         ..TagEdit::default()
     };
     app.agents
@@ -573,7 +573,7 @@ fn a_file_playback_holds_open_keeps_the_change_waiting_where_it_cannot_be_replac
 fn deleting_the_backups_asks_first() {
     let app = start();
     let cover = TagEdit {
-        cover: FieldEdit::Set(png()),
+        cover: FieldEdit::Set(png().into()),
         ..TagEdit::default()
     };
     app.agents
@@ -714,6 +714,33 @@ fn the_relay_reads_where_to_connect_or_says_why_it_cannot() {
         (connection.port, connection.token.as_str()),
         (9123, "secret")
     );
+
+    drop(library);
+    assert_eq!(
+        relay_connection(&paths).unwrap().token,
+        "secret",
+        "read with VCMP closed"
+    );
+    let other = dir.path().join("other.sqlite3");
+    let raw = rusqlite::Connection::open(&other).unwrap();
+    raw.execute_batch(
+        "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO settings VALUES ('mcp.enabled', 'true'), ('mcp.token', 'old');",
+    )
+    .unwrap();
+    let older = LibraryPaths {
+        database: other,
+        cache: dir.path().join("cache"),
+    };
+    assert_eq!(relay_connection(&older).unwrap().token, "old");
+    let tables: i64 = raw
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 1, "the relay migrated nothing");
 }
 
 fn png() -> Vec<u8> {

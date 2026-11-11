@@ -158,6 +158,16 @@ fn a_missing_folder_is_reported_not_added() {
     assert!(!app.state().get_error_detail().is_empty());
     assert!(!app.state().get_scanning());
     assert_eq!(app.state().get_folders().row_count(), 0);
+
+    let message = format!(
+        "That folder could not be added: {}",
+        app.state().get_error_detail()
+    );
+    assert!(
+        ElementHandle::find_by_accessible_label(&app.window, &message)
+            .any(|element| element.accessible_role() == Some(AccessibleRole::Text)),
+        "the error shows"
+    );
 }
 
 #[test]

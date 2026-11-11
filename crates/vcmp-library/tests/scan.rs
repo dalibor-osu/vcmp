@@ -459,6 +459,27 @@ fn removing_a_source_keeps_its_tracks_as_unavailable() {
     assert_eq!(setup.library.track_id_for_path(&path).unwrap(), Some(id));
 }
 
+#[cfg(unix)]
+#[test]
+fn a_folder_that_cannot_be_listed_is_reported_and_its_tracks_stay() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut setup = Setup::new();
+    let locked = setup.music().join("locked");
+    add_file(&locked, "a.mp3", "silence.mp3", song("A", "X", "Y"));
+    setup.add_music_source();
+    setup.scan();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let report = setup.library.scan(&AtomicBool::new(false), |_| {}).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(report.became_unavailable, 0);
+    assert!(
+        report.skipped.iter().any(|skipped| skipped.path == locked),
+        "{:?}",
+        report.skipped
+    );
+    assert!(setup.library.tracks().unwrap()[0].available);
+}
+
 #[test]
 fn unreachable_source_is_reported_and_its_tracks_go_unavailable() {
     let mut setup = Setup::new();
@@ -722,6 +743,33 @@ fn a_fetched_cover_stays_until_the_files_bring_their_own() {
     assert_eq!(album_artwork(&setup.library, "Bare"), Some(fetched));
 }
 
+#[test]
+fn a_cover_the_cache_could_not_take_is_tried_again() {
+    let mut setup = Setup::new();
+    add_file(
+        &setup.music().join("embedded"),
+        "a.mp3",
+        "silence.mp3",
+        Tags {
+            picture: Some(png()),
+            ..song("A", "X", "Embedded")
+        },
+    );
+    fs::create_dir_all(setup.cache()).unwrap();
+    let blocked = setup.cache().join("artwork");
+    fs::write(&blocked, b"not a folder").unwrap();
+    setup.add_music_source();
+    setup.scan();
+    assert!(album_artwork(&setup.library, "Embedded").is_none());
+
+    fs::remove_file(&blocked).unwrap();
+    setup.scan();
+    assert!(
+        album_artwork(&setup.library, "Embedded").is_some(),
+        "the next scan stores it"
+    );
+}
+
 fn album_artwork(library: &Library, title: &str) -> Option<Artwork> {
     library
         .albums()
@@ -822,6 +870,77 @@ fn cancelled_scan_stops_without_adding() {
     let report = setup.library.scan(&AtomicBool::new(true), |_| {}).unwrap();
     assert!(report.cancelled);
     assert!(setup.library.tracks().unwrap().is_empty());
+}
+
+#[test]
+fn albums_added_before_a_cancel_can_be_searched() {
+    let mut setup = Setup::new();
+    for n in 0..40 {
+        add_file(
+            &setup.music(),
+            &format!("{n:02}.mp3"),
+            "silence.mp3",
+            song("Song", "Band", &format!("Record {n:02}")),
+        );
+    }
+    setup.add_music_source();
+    let cancel = AtomicBool::new(false);
+    let report = setup
+        .library
+        .scan(&cancel, |progress| {
+            if progress.done >= 1 && progress.phase == vcmp_library::ScanPhase::Reading {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        })
+        .unwrap();
+    assert!(report.cancelled);
+    let albums = setup.library.albums().unwrap();
+    assert!(!albums.is_empty());
+    let found = setup.library.search("record", 100).unwrap();
+    assert_eq!(
+        found.albums.len(),
+        albums.len(),
+        "every album added is found"
+    );
+}
+
+#[test]
+fn a_database_error_mid_scan_ends_the_scan() {
+    let setup = Setup::new();
+    for n in 0..200 {
+        fs::copy(
+            Path::new(FIXTURES).join("silence.mp3"),
+            setup.music().join(format!("{n:03}.mp3")),
+        )
+        .unwrap();
+    }
+    setup.add_music_source();
+    rusqlite::Connection::open(setup.base.join("data/library.sqlite3"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER disk_full BEFORE INSERT ON tracks
+             WHEN (SELECT count(*) FROM tracks) >= 3
+             BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END;",
+        )
+        .unwrap();
+
+    let Setup {
+        mut library,
+        base: _,
+        _root,
+    } = setup;
+    let (done, finished) = mpsc::channel();
+    let scan = std::thread::spawn(move || {
+        let failed = library.scan(&AtomicBool::new(false), |_| {}).is_err();
+        done.send(failed).unwrap();
+        library
+    });
+    assert_eq!(
+        finished.recv_timeout(Duration::from_secs(60)),
+        Ok(true),
+        "the scan ended with the error"
+    );
+    drop(scan.join().unwrap());
 }
 
 #[test]

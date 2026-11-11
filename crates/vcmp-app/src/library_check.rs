@@ -30,7 +30,7 @@ const PATH_CHARS: usize = 90;
 
 /// Told to play tracks: the list, the queue panel's context (none, or an album) and
 /// the track to start from.
-type Play = Box<dyn Fn(&[Track], Option<String>, usize)>;
+type Play = Box<dyn Fn(&[Track], Option<crate::origin::Origin>, usize)>;
 
 pub struct CheckPage {
     window: slint::Weak<AppWindow>,
@@ -133,7 +133,7 @@ impl CheckPage {
     }
 
     /// Calls `play` with the tracks to play, the queue's context and where to start.
-    pub fn on_play(&self, play: impl Fn(&[Track], Option<String>, usize) + 'static) {
+    pub fn on_play(&self, play: impl Fn(&[Track], Option<crate::origin::Origin>, usize) + 'static) {
         *self.on_play.borrow_mut() = Some(Box::new(play));
     }
 
@@ -252,7 +252,7 @@ impl CheckPage {
             CheckList::MissingTags => {
                 let Some(album) = chosen.album_id else { return };
                 match self.library.album_tracks(album) {
-                    Ok(tracks) => (tracks, Some(format!("album:{}", album.0))),
+                    Ok(tracks) => (tracks, Some(crate::origin::Origin::Album(album))),
                     Err(error) => {
                         log::error!("could not read the tracks of album {}: {error}", album.0);
                         return;

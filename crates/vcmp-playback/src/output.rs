@@ -263,16 +263,22 @@ fn build<T: SizedSample + FromSample<f32>>(
             config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| renderer.render(data),
             move |error: cpal::Error| {
-                if matches!(
-                    error.kind(),
-                    cpal::ErrorKind::DeviceNotAvailable | cpal::ErrorKind::StreamInvalidated
-                ) {
+                if stops_the_stream(error.kind()) {
                     lost.store(true, Ordering::Relaxed);
                 }
             },
             None,
         )
         .map_err(output_error)
+}
+
+fn stops_the_stream(kind: cpal::ErrorKind) -> bool {
+    use cpal::ErrorKind::*;
+    if cfg!(windows) {
+        !matches!(kind, Xrun | RealtimeDenied | DeviceChanged)
+    } else {
+        matches!(kind, DeviceNotAvailable | StreamInvalidated)
+    }
 }
 
 impl Output for CpalOutput {
@@ -461,7 +467,27 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
-    use super::hidden_alsa_device;
+    use super::{hidden_alsa_device, stops_the_stream};
+
+    #[test]
+    fn a_lost_stream_reopens_the_output_and_a_glitch_does_not() {
+        use cpal::ErrorKind::*;
+        for kind in [Xrun, RealtimeDenied, DeviceChanged] {
+            assert!(!stops_the_stream(kind), "{kind:?}");
+        }
+        for kind in [DeviceNotAvailable, StreamInvalidated] {
+            assert!(stops_the_stream(kind), "{kind:?}");
+        }
+        for kind in [
+            BackendError,
+            HostUnavailable,
+            DeviceBusy,
+            ResourceExhausted,
+            Other,
+        ] {
+            assert_eq!(stops_the_stream(kind), cfg!(windows), "{kind:?}");
+        }
+    }
 
     #[test]
     fn alsa_plugins_are_hidden_and_cards_and_servers_stay() {

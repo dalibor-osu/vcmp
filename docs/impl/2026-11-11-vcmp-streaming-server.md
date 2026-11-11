@@ -172,6 +172,10 @@ the real one (it migrates to schema 19, which 26.11.0 refuses):
 - **Flaky test:** `vcmp-mcp`'s `only_requests_with_the_token_and_without_a_browser_origin_get_in`
   fails about one run in three on Windows (connection reset, 10054). This branch
   changed that crate, but not the code under that test; it was not run on `main`.
+- **Flaky on `main` too:** after merging `main` (#101),
+  `vcmp-playback`'s `stop_and_the_end_of_the_queue_clear_stop_after_the_current_track`
+  fails about one run in four, one buffer period (1,024 frames) longer than
+  expected. `main`'s own playback crate, run alone, fails it 2 times in 8.
 
 ## Recommended follow-ups
 

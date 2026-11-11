@@ -344,3 +344,18 @@ agree first.
   finding 1.
 - One named thread per background job is clear and cheap at this scale; a shared
   pool would add more than it saves.
+
+## Status: 2026-11-11
+
+Branch `feature/review-fixes`:
+
+- **4 (origin keys): done.** `crate::origin::Origin` builds and parses every key
+  (`key`, `from_key`), keeping the strings saved queues and play history hold.
+  `show_queue`, `agent_playback`'s `origin` and `context`, and the Library check
+  use it; a unit test pins each key's form.
+- **5 (`play_*`): done.** `PlayerService::play_context` takes the tracks, an
+  `Option<Origin>`, the start and shuffle, and is the one place for the empty
+  list, the start past the end, shuffle and moving the start past tracks the queue
+  leaves out. Album and artist pages no longer send an empty context.
+- **1 to 3 and 6 to 14: not started.** Each is a larger refactor best done on its
+  own branch.

@@ -505,6 +505,52 @@ fn tab_goes_round_the_dialog() {
     assert!(!app.state().get_open(), "Enter on Cancel closes the editor");
 }
 
+#[test]
+fn a_click_in_the_dialog_keeps_its_keys() {
+    let app = start();
+    app.open_album();
+    app.state().invoke_edit_album();
+    mock_elapsed_time(Duration::ZERO);
+    assert!(app.window.get_dialog_open());
+
+    let page = app.window.get_current_page();
+    let went_back = Rc::new(std::cell::Cell::new(false));
+    let record = went_back.clone();
+    app.window.on_go_back(move || record.set(true));
+    app.window.invoke_release_focus();
+    let holding = |modifier: Key, text: &str| {
+        let window = app.window.window();
+        let modifier: SharedString = modifier.into();
+        window.dispatch_event(WindowEvent::KeyPressed {
+            text: modifier.clone(),
+        });
+        key_text(&app.window, text);
+        window.dispatch_event(WindowEvent::KeyReleased { text: modifier });
+    };
+    holding(Key::Control, "f");
+    holding(Key::Alt, &SharedString::from(Key::LeftArrow));
+    assert_eq!(
+        app.window.get_current_page(),
+        page,
+        "the page behind stayed"
+    );
+    assert!(!went_back.get(), "the history stayed");
+    assert!(app.state().get_open());
+
+    key(&app.window, Key::Escape);
+    assert!(!app.state().get_open(), "Escape closes the editor");
+}
+
+fn key_text(window: &AppWindow, text: &str) {
+    let text: SharedString = text.into();
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text });
+}
+
 /// The title the file itself holds.
 fn title_in_file(path: &std::path::Path) -> Option<String> {
     use lofty::file::TaggedFileExt;

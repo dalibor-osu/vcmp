@@ -373,6 +373,24 @@ fn turning_repeat_off_drops_a_cycle_shown_ahead() {
 }
 
 #[test]
+fn turning_repeat_off_after_a_wrap_ends_the_cycle_playing() {
+    for shuffle in [ShuffleMode::Off, ShuffleMode::LessRepeats] {
+        let mut queue = Queue::with_seed(3);
+        queue.set_shuffle(shuffle);
+        queue.set_repeat(RepeatMode::All);
+        queue.set_context(album(3), None, None);
+        for _ in 0..4 {
+            queue.view();
+            queue.advance(Advance::Ended);
+        }
+        assert_eq!(queue.view().upcoming.len(), QueueView::LIMIT);
+        queue.set_repeat(RepeatMode::Off);
+        assert_eq!(queue.view().upcoming.len(), 1, "{shuffle:?}");
+        assert_eq!(play_out(&mut queue, 10).len(), 2, "{shuffle:?}");
+    }
+}
+
+#[test]
 fn shuffle_off_continues_after_the_current_track() {
     let mut queue = Queue::with_seed(3);
     queue.set_shuffle(ShuffleMode::LessRepeats);
@@ -467,6 +485,10 @@ fn invalid_snapshots_are_rejected() {
         },
         QueueSnapshot {
             history: vec![QueueSlot::Context(7)],
+            ..good.clone()
+        },
+        QueueSnapshot {
+            history: vec![QueueSlot::Context(2)],
             ..good.clone()
         },
     ];

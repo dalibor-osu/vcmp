@@ -478,7 +478,8 @@ fn tag_edit(edit: vcmp_protocol::TagEdit) -> Result<TagEdit, Failure> {
                 .decode(text.trim())
                 .map_err(|_| {
                     Failure::new(ErrorCode::InvalidTagEdit, "the cover is not valid base64")
-                })?,
+                })?
+                .into(),
         ),
     };
     Ok(TagEdit {

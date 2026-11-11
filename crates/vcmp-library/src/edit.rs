@@ -77,8 +77,9 @@ pub struct TagEdit {
     pub disc_number: FieldEdit<u32>,
     pub year: FieldEdit<i32>,
     pub genre: FieldEdit<String>,
-    /// The embedded front cover, as JPEG or PNG bytes.
-    pub cover: FieldEdit<Vec<u8>>,
+    /// The embedded front cover, as JPEG or PNG bytes, shared by every track it goes
+    /// into rather than copied.
+    pub cover: FieldEdit<std::sync::Arc<[u8]>>,
     /// Every other tag, by the key [`crate::Library::track_tags`] lists it under:
     /// replaced by the values given, in order, or removed. Values are written exactly
     /// as given, untrimmed; an empty list removes the tag. The keys of the fields
@@ -306,15 +307,17 @@ pub(crate) fn write(
     }
     let other = other_tags::resolve(&edit.other, current.format, raw)
         .map_err(TagWriteError::UnsupportedKey)?;
-    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+    let Some(dir) = path.parent() else {
         return Err(TagWriteError::Unavailable);
     };
 
     // The copy starts with a dot and doesn't end in a music extension, so neither a
-    // scan nor a file manager's default view picks it up. Dropping it deletes it.
+    // scan nor a file manager's default view picks it up. Dropping it deletes it. Its
+    // name is short whatever the file's, so a file named near the length limit can
+    // still be tagged.
     let mut copy = tempfile::Builder::new()
-        .prefix(&format!(".{}.", name.to_string_lossy()))
-        .suffix(".vcmp-tmp")
+        .prefix(".vcmp-")
+        .suffix(".tmp")
         .tempfile_in(dir)
         .map_err(|error| TagWriteError::Write(format!("creating a copy: {error}")))?;
     let write_error = |step: &str| {
@@ -962,7 +965,7 @@ pub(crate) fn is_album_artist_key(key: &str) -> bool {
 
 fn edit_pictures(
     storage: &mut impl OggPictureStorage,
-    cover: &FieldEdit<Vec<u8>>,
+    cover: &FieldEdit<std::sync::Arc<[u8]>>,
 ) -> Result<(), String> {
     if cover.is_keep() {
         return Ok(());

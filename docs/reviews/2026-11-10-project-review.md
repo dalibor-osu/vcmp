@@ -759,3 +759,38 @@ raises its cost. It should go first.
 - **By hand:** everything `manual-testing.md` marks "never seen working" for
   Windows is still unseen; this review ran the tests and the screenshots there, not
   the app.
+
+## Status: fixes of 2026-11-11
+
+Branch `feature/review-fixes`, in the order above (most severe first), in two
+batches. `fmt`, `clippy` and all 741 tests pass on Windows. The tests for U1, U2,
+U3, L1, L2, L3, B2, B3 and M4 were seen failing with their fix taken out; the others
+fail without it by reading. The app itself was not run.
+
+| # | Status | What changed |
+|---|---|---|
+| U1 | Fixed | A click on a track list's or the songs table's row gives the list the focus; a click inside an open dialog leaves the focus where it is (`release-focus`). Tests: `selection.rs`, `songs.rs`, `tag_editor.rs` (through `invoke_release_focus`, not the real winit hook: a manual step is in `manual-testing.md`) |
+| U2 | Fixed | Ctrl+F, Alt+Left/Right and the mouse's back and forward buttons do nothing while a dialog is open (`dialog-open`) |
+| U3 | Fixed | The sidebar and pages are hidden once the now playing view has faded in; the sidebar stays beside the queue covering a narrow window. Test: `ui_behaviour.rs` |
+| U4 | Fixed | With no folder yet, the add-folder error shows under the button on the empty pages, in Settings and in the setup wizard |
+| L1 | Fixed | The scan's receiver is dropped as soon as writing stops, so the reader ends. Test: a write error with 200 files queued |
+| B1 | Fixed on Windows, unit test only | On Windows every stream error but `Xrun`, `RealtimeDenied` and `DeviceChanged` marks the stream lost and reopens it. ALSA's worker reports other errors and keeps running, so Linux and macOS keep the old rule. Restarting Windows Audio is a manual step |
+| A4 | Fixed | The scan, tag writing and an agent's change writing catch a panic and report it as their error (`src/worker.rs`). An engine whose event channel closes while the window runs stops playback and says so in the bar. After a panic the tag editor reports every file of the batch as failed, those already written included. Not tested: a real panic inside `write_files` |
+| M1 | Fixed | Cover files: absolute paths on a local disk only (UNC and device paths refused before any file system call), regular files only, read through `take`, one answer for missing, unreadable and unsuitable paths |
+| M2 | Fixed | Cover downloads go through a resolver that keeps only public addresses, for the first address and every redirect, and connect to what it returned. No proxy, so a network that requires one can't fetch covers by address. Uses ureq's `unversioned` resolver API, which may change in a minor ureq release |
+| M5 | Fixed | Only a refused connection is retried; a timeout, a cut answer or an answer without a reply gets an error answer that says the request may have run. A client's reply to a request of VCMP's gets no answer from the relay. Found on the way: the server answered 401 and rmcp's Origin 403 before reading the body, which on Windows reset the connection (the token test failed 1 run in 3 here). The gate now reads the body (4 MiB cap, else 413) first |
+| L2 | Fixed | Each written file records its values as it is written; at start, a pending set with written files becomes `partly_written` and can be undone |
+| B2 | Fixed | The queue keeps every repeat cycle's start; Repeat off ends the context with the cycle playing |
+| B3 | Fixed | Only audio resets the failure count; a track that gives no audio from its start is reported and counts as unplayable, and when it would only follow itself the queue ends |
+| M3 | Partly | A cover is shared between the tracks it goes into (`Arc<[u8]>` in `TagEdit`), each distinct cover is hashed and kept once, and one call takes at most 10 covers. Still on the UI thread: reading each changed file's cover for undo; a set still being recorded after the agent's 30 s is recorded anyway (both in `mcp.md`'s known limits) |
+| M4 | Fixed | Stopping the server gives requests in flight 500 ms, then shuts the runtime down without waiting for blocking tasks. Test: a request held inside the app |
+| M6 | Fixed, one documented | The relay reads the settings read-only and migrates nothing; label changes are checked as they are read (500 tracks, 100 labels per track); playlist tools refuse an unknown playlist, positions past the end and removing every entry. The token reaching whoever holds the port is a known limit in `mcp.md` |
+| L3 | Fixed | A cover the cache couldn't save leaves the album to be tried again; only an undecodable image marks it as having none |
+| L4 | Fixed, two documented | Write transactions are `IMMEDIATE`; a folder that can't be listed is reported and its tracks stay; a cancelled or failed scan finishes album groups; a playlist deletion checks the playlist's name; the cover queue is bounded; the watcher reports at the latest 30 quiet periods after a change; the temporary copy has a short name; LRC times can't overflow; M3U writes `./#…` and doesn't look up network paths outside the music folders. Links not followed and the read-back not checking audio are known limits in `library.md`. The folder test is Unix only |
+| B4 | Fixed, one left | A failed seek plays from the start; `Player::snapshot` waits at most 500 ms; a NaN volume is ignored; a saved history position past the cursor is refused. Left: the stream running while paused (needs `powercfg /requests`), queue commands by index racing a track change, a queue edit just after a boundary, and "Fewer repeats" with one dominant artist |
+| A7 (start index) | Fixed | All `play_*` methods go through one `play_context`, which moves the start past tracks the queue leaves out and applies one rule for empty lists and starts past the end |
+
+Left for later: A1 to A3, A5, A6, the rest of A7, U5 to U8, the accessibility list,
+P1 and P2. The usability and feature lists, and the DESIGN.md opinions, are the
+owner's to decide. From the 2026-11-04 review, findings 4 and 5 are done (see its
+status); 1 to 3 and 6 to 14 are not started.

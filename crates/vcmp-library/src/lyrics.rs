@@ -360,7 +360,7 @@ pub fn parse_lrc(text: &str) -> Option<Vec<LyricLine>> {
     let mut lines: Vec<LyricLine> = stamped
         .into_iter()
         .map(|(ms, text)| LyricLine {
-            start: Duration::from_millis((ms - offset_ms).max(0) as u64),
+            start: Duration::from_millis(ms.saturating_sub(offset_ms).max(0) as u64),
             text,
         })
         .collect();
@@ -395,7 +395,11 @@ fn parse_stamp(tag: &str) -> Option<i64> {
     };
     let minutes: i64 = minutes.parse().ok()?;
     let seconds: i64 = seconds.parse().ok()?;
-    Some((minutes * 60 + seconds) * 1000 + fraction_ms)
+    minutes
+        .checked_mul(60)?
+        .checked_add(seconds)?
+        .checked_mul(1000)?
+        .checked_add(fraction_ms)
 }
 
 /// The line without its `<mm:ss.xx>` word stamps, trimmed.
@@ -554,6 +558,18 @@ impl Library {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_stamp_too_large_to_hold_is_left_out() {
+        let lines = super::parse_lrc(
+            "[offset:-9223372036854775807]
+[999999999999999999:00]Never
+[00:01]One",
+        )
+        .unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text, "One");
+    }
+
     use super::*;
 
     fn line(ms: u64, text: &str) -> LyricLine {

@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 
-use rusqlite::params;
+use rusqlite::{Transaction, TransactionBehavior, params};
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
@@ -86,7 +86,7 @@ impl Library {
     /// Marks the tracks as not duplicates of each other. A group found later hides
     /// while all its tracks are among these.
     pub fn mark_not_duplicates(&self, tracks: &[TrackId]) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let group: i64 = tx.query_row(
             "SELECT IFNULL(MAX(group_id), 0) + 1 FROM not_duplicates",
             [],
@@ -105,7 +105,7 @@ impl Library {
     /// Undoes "Not duplicates" for the tracks: forgets every marked group that holds
     /// all of them, so a group they form shows again.
     pub fn unmark_not_duplicates(&self, tracks: &[TrackId]) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         for (group, members) in self.marked_groups()? {
             if tracks.iter().all(|track| members.contains(track)) {
                 tx.prepare_cached("DELETE FROM not_duplicates WHERE group_id = ?1")?

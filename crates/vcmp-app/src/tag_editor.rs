@@ -81,7 +81,7 @@ pub struct TagEditor {
     view: Rc<LibraryView>,
     // The tracks the editor writes to, and the cover it writes.
     tracks: RefCell<Vec<Track>>,
-    cover: RefCell<FieldEdit<Vec<u8>>>,
+    cover: RefCell<FieldEdit<Arc<[u8]>>>,
     // The animation the chosen cover's still stands in for, kept once it is written.
     animated_cover: RefCell<Option<AnimatedCover>>,
     // A save to several files, until the user confirms it or goes back.
@@ -374,7 +374,7 @@ impl TagEditor {
             .iter()
             .map(
                 |track| match carried.get(&track.id).map(|edit| &edit.cover) {
-                    Some(FieldEdit::Set(data)) => Some(data.clone()),
+                    Some(FieldEdit::Set(data)) => Some(data.to_vec()),
                     Some(FieldEdit::Clear) => None,
                     _ => self.library.embedded_cover(track.id).ok().flatten(),
                 },
@@ -519,7 +519,7 @@ impl TagEditor {
                 still: cover.clone(),
                 animation,
             });
-            self.set_cover(FieldEdit::Set(cover));
+            self.set_cover(FieldEdit::Set(cover.into()));
             *self.animated_cover.borrow_mut() = animated;
         } else if let Some(window) = self.window.upgrade() {
             window
@@ -528,7 +528,7 @@ impl TagEditor {
         }
     }
 
-    fn set_cover(&self, cover: FieldEdit<Vec<u8>>) {
+    fn set_cover(&self, cover: FieldEdit<Arc<[u8]>>) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
@@ -672,7 +672,10 @@ impl TagEditor {
                     let _ = sender.send(message);
                     notify();
                 };
-                let report = write_files(&paths, &now, |done| send(Message::Progress(done)));
+                let report = crate::worker::catch_panic(|| {
+                    write_files(&paths, &now, |done| send(Message::Progress(done)))
+                })
+                .unwrap_or_else(|error| all_failed(&now, error));
                 send(Message::Finished(report));
             })
             .expect("spawning the tag writing thread");
@@ -687,7 +690,7 @@ impl TagEditor {
         };
         let writes_still = edits
             .iter()
-            .any(|change| matches!(&change.edit.cover, FieldEdit::Set(cover) if *cover == animated.still));
+            .any(|change| matches!(&change.edit.cover, FieldEdit::Set(cover) if cover[..] == animated.still[..]));
         if !writes_still {
             return;
         }
@@ -735,7 +738,8 @@ impl TagEditor {
         thread::Builder::new()
             .name("vcmp-tags".into())
             .spawn(move || {
-                let report = write_files(&paths, &released, |_| {});
+                let report = crate::worker::catch_panic(|| write_files(&paths, &released, |_| {}))
+                    .unwrap_or_else(|error| all_failed(&released, error));
                 let _ = sender.send(Message::Released(released, report));
                 notify();
             })
@@ -930,18 +934,22 @@ fn write_local(
     });
     result.unwrap_or_else(|error| {
         log::error!("could not write tags: {error}");
-        TagWriteReport {
-            failed: edits
-                .iter()
-                .map(|change| FailedTagWrite {
-                    track: change.track.id,
-                    path: change.track.file.clone(),
-                    error: TagWriteError::Write(error.to_string()),
-                })
-                .collect(),
-            ..TagWriteReport::default()
-        }
+        all_failed(edits, error.to_string())
     })
+}
+
+fn all_failed(edits: &[TrackEdit], error: String) -> TagWriteReport {
+    TagWriteReport {
+        failed: edits
+            .iter()
+            .map(|change| FailedTagWrite {
+                track: change.track.id,
+                path: change.track.file.clone(),
+                error: TagWriteError::Write(error.clone()),
+            })
+            .collect(),
+        ..TagWriteReport::default()
+    }
 }
 
 fn log_failures(report: &TagWriteReport) {
@@ -1093,7 +1101,7 @@ fn changes(edit: &TagEdit) -> Vec<TagChange> {
 fn edit(
     before: &TagValues,
     after: &TagValues,
-    cover: FieldEdit<Vec<u8>>,
+    cover: FieldEdit<Arc<[u8]>>,
 ) -> Result<TagEdit, TagProblem> {
     fn text(before: &str, after: &str) -> FieldEdit<String> {
         if after.trim() == before.trim() {
@@ -1258,7 +1266,7 @@ mod tests {
             genre: FieldEdit::Set("Rock".into()),
             year: FieldEdit::Set(1999),
             album_artist: FieldEdit::Clear,
-            cover: FieldEdit::Set(vec![1, 2, 3]),
+            cover: FieldEdit::Set(vec![1, 2, 3].into()),
             ..TagEdit::default()
         })
         .into_iter()
@@ -1285,7 +1293,12 @@ mod tests {
         assert_eq!(problem(values("Band", "-5", "3")), TagProblem::Year);
         assert_eq!(problem(values("A\tB", "1999", "3")), TagProblem::LineBreak);
         assert_eq!(
-            edit(&before, &before, FieldEdit::Set(b"not an image".to_vec())).unwrap_err(),
+            edit(
+                &before,
+                &before,
+                FieldEdit::Set(b"not an image".to_vec().into())
+            )
+            .unwrap_err(),
             TagProblem::Cover
         );
     }

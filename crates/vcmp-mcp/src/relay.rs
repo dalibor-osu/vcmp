@@ -77,6 +77,28 @@ enum Failure {
     SessionGone,
     Status(u16, String),
     Settings(String),
+    Lost(String),
+}
+
+impl Failure {
+    fn of(error: ureq::Error) -> Self {
+        use std::io::ErrorKind;
+        use ureq::Timeout;
+        match &error {
+            ureq::Error::ConnectionFailed
+            | ureq::Error::HostNotFound
+            | ureq::Error::Timeout(Timeout::Resolve | Timeout::Connect) => Self::Unreachable,
+            ureq::Error::Io(io)
+                if matches!(
+                    io.kind(),
+                    ErrorKind::ConnectionRefused | ErrorKind::AddrNotAvailable
+                ) =>
+            {
+                Self::Unreachable
+            }
+            _ => Self::Lost(error.to_string()),
+        }
+    }
 }
 
 /// A request's answer.
@@ -95,7 +117,10 @@ impl Relay {
                 return vec![error_answer(&Value::Null, &format!("not JSON: {error}"))];
             }
         };
-        let id = message.get("id").cloned();
+        let id = message
+            .get("id")
+            .filter(|_| message.get("method").is_some())
+            .cloned();
         let initialize = message.get("method").and_then(Value::as_str) == Some("initialize");
         if initialize {
             self.session = None;
@@ -108,7 +133,8 @@ impl Relay {
                 log::warn!("not relayed: {reason}");
                 return match id {
                     Some(id) => vec![error_answer(&id, &reason)],
-                    // A notification has no answer to carry the reason.
+                    // A notification has no answer to carry the reason, nor has a
+                    // reply to one of VCMP's requests.
                     None => Vec::new(),
                 };
             }
@@ -116,7 +142,16 @@ impl Relay {
         if initialize {
             self.session = answer.session.clone();
         }
-        let messages = messages(&answer.content_type, &answer.body);
+        let mut messages = messages(&answer.content_type, &answer.body);
+        if let Some(id) = &id
+            && !answers(&messages, id)
+        {
+            log::warn!("VCMP's answer held no reply to request {id}");
+            messages.push(error_answer(
+                id,
+                &reason(&Failure::Lost("no reply in it".into())),
+            ));
+        }
         if initialize {
             self.protocol = messages
                 .iter()
@@ -159,7 +194,7 @@ impl Relay {
         if let Some(protocol) = &self.protocol {
             request = request.header("MCP-Protocol-Version", protocol);
         }
-        let mut response = request.send(body).map_err(|_| Failure::Unreachable)?;
+        let mut response = request.send(body).map_err(Failure::of)?;
         let status = response.status().as_u16();
         let header = |name: &str| {
             response
@@ -175,7 +210,7 @@ impl Relay {
             .with_config()
             .limit(ANSWER_LIMIT)
             .read_to_string()
-            .unwrap_or_default();
+            .map_err(|error| Failure::Lost(error.to_string()))?;
         match status {
             200..=299 => Ok(Answer {
                 content_type,
@@ -217,7 +252,19 @@ fn reason(failure: &Failure) -> String {
         }
         Failure::Status(status, body) => format!("VCMP answered {status}: {}", body.trim()),
         Failure::Settings(reason) => reason.clone(),
+        Failure::Lost(error) => format!(
+            "VCMP's answer didn't come back whole ({error}). The request may have been carried out; check before asking again."
+        ),
     }
+}
+
+fn answers(messages: &[String], id: &Value) -> bool {
+    messages.iter().any(|message| {
+        serde_json::from_str::<Value>(message).is_ok_and(|message| {
+            message.get("id") == Some(id)
+                && (message.get("result").is_some() || message.get("error").is_some())
+        })
+    })
 }
 
 fn error_answer(id: &Value, reason: &str) -> String {

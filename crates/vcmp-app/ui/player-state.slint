@@ -18,7 +18,7 @@ export enum SleepTimer { off, end-of-track, timed }
 
 // The last playback problem; the UI words the sentence so it can be translated.
 // `tags-not-written`: tags that waited for the player to let go of a file failed.
-export enum PlayerProblem { none, no-output, track-failed, tags-not-written }
+export enum PlayerProblem { none, no-output, track-failed, tags-not-written, engine-stopped }
 
 // The playing track and Last.fm: it will not be scrobbled (too short, no artist, or
 // nothing playing), it will be once enough of it has played, or it has been.

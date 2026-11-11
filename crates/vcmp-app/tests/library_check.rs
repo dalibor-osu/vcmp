@@ -60,7 +60,9 @@ fn open() -> App {
     view.check()
         .on_play(move |tracks: &[Track], origin, start| {
             let titles = tracks.iter().map(|track| track.title.clone()).collect();
-            record.borrow_mut().push((titles, origin, start));
+            record
+                .borrow_mut()
+                .push((titles, origin.map(|origin| origin.key()), start));
         });
     window.show().unwrap();
     App {

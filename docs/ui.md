@@ -678,7 +678,9 @@ table can select several tracks for the track menu.
 
 `src/navigation.rs` keeps a history like a browser's: the mouse's back and forward
 buttons (caught in the winit hook, `src/shortcuts.rs`) and Alt+Left and Alt+Right
-(the window's shortcut scope, not while typing) move through it.
+(the window's shortcut scope, not while typing) move through it. None of them, nor
+Ctrl+F, acts while a dialog is open (`dialog-open` in `ui/app-window.slint`): they
+would change the page behind the scrim.
 
 - **A place** is a section on its grid, or the album, artist (or an artist's
   album) or playlist page open in it, or the Library check open in place of
@@ -927,7 +929,8 @@ The Albums page tells apart why it is empty:
 - the library could not be opened;
 - a scan is running;
 - there are no folders yet, with the one primary button in the UI, "Add music
-  folder…";
+  folder…", and under it why the last folder chosen could not be added (Settings
+  and the setup wizard show the same until a folder is listed);
 - the folders hold no tagged albums.
 
 ## Playback
@@ -991,8 +994,14 @@ The Albums page tells apart why it is empty:
   a text field has the focus comes from Slint's `TextInputInterface`.
 - **A click takes the focus off** whatever has it first (the same hook), so focus
   rings go away and Space works again after clicking anywhere. A click on a text
-  field gives it the focus straight back, as fields take the focus when pressed;
-  the app's other controls never take focus on a click.
+  field gives it the focus straight back, as fields take the focus when pressed,
+  and a click on a row of a track list or the songs table gives it to the list, so
+  Shift+Down, Ctrl+A, Delete, Enter and Escape carry on from the row clicked. The
+  app's other controls never take focus on a click. While a dialog is open a click
+  leaves the focus where it is in the dialog, so Escape still closes it and Tab
+  stays inside it.
+- **The now playing view** hides the sidebar and pages under it once it has faded
+  in, as the covering queue does, so Tab can't reach controls nobody sees.
 - **The queue panel** slides in from the window's edge and back out when it closes
   (at once with reduced motion): the window animates how far out it is
   (`queue-out`) and keeps the panel until it is out. It opens from the queue button in the player bar, and stays open
@@ -1037,8 +1046,12 @@ The Albums page tells apart why it is empty:
 - **`PlayerService`** sends `Command`s to the engine. A thread forwards the engine's
   `Event`s to the UI thread. Tests replace the engine with a recorder through the
   `PlayerControl` trait.
-- **Problems:** a missing sound output, skipped tracks and tags that waited for the
-  player but could not be written are shown in the bar.
+- **Problems:** a missing sound output, skipped tracks, tags that waited for the
+  player but could not be written, and an engine that ended on an internal error
+  (its event channel closed while the window runs) are shown in the bar.
+- **Background jobs** (the scan, writing tags, writing an agent's change) catch a
+  panic in the libraries they call (`src/worker.rs`) and report it as their error,
+  so a malformed file can't leave the window waiting for good.
 - **Discord Rich Presence** (`vcmp-integrations::discord`, on by default, switch
   under Settings → Playback):
   - shows "Listening to VCMP" with the track, artist and a progress bar while a track
