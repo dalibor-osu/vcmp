@@ -16,6 +16,10 @@ Read it before changing anything structural.
   pre-release box ticked.
 - All work happens on `feature/<topic>` branches that merge into `main` through a PR.
 - Never commit directly to `main`.
+- After a PR is merged, clean up: remove its worktree (`git worktree remove <path>`,
+  then `git worktree prune`), delete the local branch (`git branch -d <branch>`) and
+  the remote one (`git push origin --delete <branch>`). Check the PR really is
+  merged first, and that the branch has no commits pushed after the merge.
 
 ## Technology stack
 
