@@ -22,6 +22,7 @@ use std::net::{Ipv4Addr, TcpListener};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use axum::extract::{Request, State};
 use axum::http::{StatusCode, header};
@@ -132,6 +133,7 @@ impl Server {
         let cancel = CancellationToken::new();
         let token: Arc<str> = config.token.into();
         let stop = cancel.clone();
+        let stopped = cancel.clone();
         let thread = thread::Builder::new()
             .name("vcmp-mcp".into())
             .spawn(move || {
@@ -145,11 +147,20 @@ impl Server {
                         return;
                     }
                 };
-                if let Err(error) =
-                    runtime.block_on(serve(listener, token, library, changes, playback, stop))
-                {
+                let served = runtime.block_on(async {
+                    let server = serve(listener, token, library, changes, playback, stop);
+                    tokio::select! {
+                        result = server => result,
+                        () = async {
+                            stopped.cancelled().await;
+                            tokio::time::sleep(STOP_GRACE).await;
+                        } => Ok(()),
+                    }
+                });
+                if let Err(error) = served {
                     log::error!("the MCP server stopped: {error}");
                 }
+                runtime.shutdown_timeout(Duration::ZERO);
             })
             .map_err(StartError::Thread)?;
         Ok(Self {
@@ -168,6 +179,8 @@ impl Server {
         address(self.port)
     }
 }
+
+const STOP_GRACE: Duration = Duration::from_millis(500);
 
 impl Drop for Server {
     fn drop(&mut self) {

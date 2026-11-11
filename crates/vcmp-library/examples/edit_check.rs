@@ -171,7 +171,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             track_number: FieldEdit::Set(track.track_number.unwrap_or(0) + 1),
             year: FieldEdit::Set(2001),
             genre: FieldEdit::Set("Edit check".into()),
-            cover: FieldEdit::Set(cover.clone()),
+            cover: FieldEdit::Set(cover.clone().into()),
             other: set_other,
             ..TagEdit::default()
         };

@@ -9,17 +9,16 @@ use std::time::Duration;
 
 use slint::ComponentHandle;
 use vcmp_integrations::media_controls::Control as MediaControl;
-use vcmp_library::{AlbumId, ArtistId, LabelId, PlaylistId, Track};
+use vcmp_library::Track;
 use vcmp_mcp::{Context, Control, Options, OutputDevices, Play, Playback, Status};
 use vcmp_playback::{Command, PlaybackError, QueueEntry};
 
-use super::{PlayerService, SEARCH_ORIGIN, SLEEP_END_OF_TRACK, SONGS_ORIGIN, entry};
+use super::{PlayerService, SLEEP_END_OF_TRACK, entry};
 use crate::agents::{BRIDGE_TIMEOUT, SETTING_PLAYBACK};
 use crate::library_view::format_duration;
+use crate::origin::Origin;
 use crate::{PlayState, PlayerState, Repeat, Shuffle, ShuffleKind, SleepTimer};
 
-/// The context origin of tracks an agent chose to play, before the agent's name.
-const AGENT_ORIGIN: &str = "agent";
 /// How long a request that the engine acts on waits for the window to show the
 /// result. A skip waits for the next file to open, which a disk that sleeps may take
 /// seconds for.
@@ -374,33 +373,29 @@ impl PlayerService {
 /// The queue's origin key for a context, as the window's own play buttons set it.
 fn origin(context: &Context) -> String {
     match context {
-        Context::Agent(name) => format!("{AGENT_ORIGIN}:{name}"),
-        Context::Album(id) => format!("album:{}", id.0),
-        Context::Artist(id) => format!("artist:{}", id.0),
-        Context::Playlist(id) => format!("playlist:{}", id.0),
-        Context::Label(id) => format!("label:{}", id.0),
-        Context::Folder(path) => format!("folder:{}", path.to_string_lossy()),
-        Context::Search => SEARCH_ORIGIN.to_owned(),
-        Context::Songs => SONGS_ORIGIN.to_owned(),
+        Context::Agent(name) => Origin::Agent(name.clone()),
+        Context::Album(id) => Origin::Album(*id),
+        Context::Artist(id) => Origin::Artist(*id),
+        Context::Playlist(id) => Origin::Playlist(*id),
+        Context::Label(id) => Origin::Label(*id),
+        Context::Folder(path) => Origin::Folder(path.clone()),
+        Context::Search => Origin::Search,
+        Context::Songs => Origin::Songs,
     }
+    .key()
 }
 
 /// The context an origin key names.
 fn context(origin: &str) -> Option<Context> {
-    match origin {
-        SEARCH_ORIGIN => return Some(Context::Search),
-        SONGS_ORIGIN => return Some(Context::Songs),
-        _ => {}
-    }
-    let (kind, key) = origin.split_once(':')?;
-    let id = || key.parse::<i64>().ok();
-    Some(match kind {
-        "album" => Context::Album(AlbumId(id()?)),
-        "artist" => Context::Artist(ArtistId(id()?)),
-        "playlist" => Context::Playlist(PlaylistId(id()?)),
-        "label" => Context::Label(LabelId(id()?)),
-        "folder" => Context::Folder(PathBuf::from(key)),
-        AGENT_ORIGIN => Context::Agent(key.to_owned()),
-        _ => return None,
+    Some(match Origin::from_key(origin)? {
+        Origin::Agent(name) => Context::Agent(name),
+        Origin::Album(id) => Context::Album(id),
+        Origin::Artist(id) => Context::Artist(id),
+        Origin::Playlist(id) => Context::Playlist(id),
+        Origin::Label(id) => Context::Label(id),
+        Origin::Folder(path) => Context::Folder(path),
+        Origin::Search => Context::Search,
+        Origin::Songs => Context::Songs,
+        Origin::Favourites => return None,
     })
 }

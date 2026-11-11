@@ -487,6 +487,10 @@ fn invalid_snapshots_are_rejected() {
             history: vec![QueueSlot::Context(7)],
             ..good.clone()
         },
+        QueueSnapshot {
+            history: vec![QueueSlot::Context(2)],
+            ..good.clone()
+        },
     ];
     for snapshot in broken {
         assert_eq!(Queue::from_snapshot(snapshot).unwrap_err(), InvalidSnapshot);

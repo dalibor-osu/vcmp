@@ -26,8 +26,7 @@ use slint::{
     TimerMode, VecModel,
 };
 use vcmp_library::{
-    Album, AlbumId, ArtistId, Artwork, CoverArtId, CoverLookup, LabelId, Library, PlaylistId,
-    Track, TrackId,
+    Album, AlbumId, ArtistId, Artwork, CoverArtId, CoverLookup, Library, Track, TrackId,
 };
 use vcmp_playback::{
     Command, Event, NowPlaying, PlaybackError, PlaybackSnapshot, PlaybackState, Player, QueueEntry,
@@ -51,6 +50,7 @@ use crate::albums::initial;
 use crate::favourites;
 use crate::library_view::{LibraryView, format_duration};
 use crate::moving_pictures::{self, Picture};
+use crate::origin::Origin;
 use crate::playlists::PlaylistKey;
 use crate::saved_queue;
 use crate::selection::{self, Selectable};
@@ -63,11 +63,6 @@ pub const SETTING_VOLUME: &str = "playback.volume";
 pub const SETTING_SHUFFLE: &str = "playback.shuffle";
 pub const SETTING_SHUFFLE_KIND: &str = "playback.shuffle_kind";
 pub const SETTING_REPEAT: &str = "playback.repeat";
-/// The context origins of tracks played from search results, from the Songs page and
-/// from the favourites.
-const SEARCH_ORIGIN: &str = "search";
-const SONGS_ORIGIN: &str = "songs";
-const FAVOURITES_ORIGIN: &str = "favourites";
 
 /// The output device by name; absent or empty for the system default.
 pub const SETTING_OUTPUT_DEVICE: &str = "playback.output_device";
@@ -755,25 +750,18 @@ impl PlayerService {
             return;
         };
         let start = from.map(|index| artist.appearances_from + index);
-        let entries: Vec<QueueEntry> = artist.tracks.iter().filter_map(entry).collect();
-        if shuffle {
-            self.set_shuffle(Shuffle::On);
-        }
-        self.player.send(Command::PlayContext {
-            entries,
-            origin: Some(format!("artist:{}", artist.artist.id.0)),
-            start: if shuffle { None } else { start },
-        });
+        self.play_context(
+            &artist.tracks,
+            Some(Origin::Artist(artist.artist.id)),
+            start,
+            shuffle,
+        );
     }
 
     /// Plays the tracks the search found, from track `start`.
     pub fn play_found(&self, start: usize) {
-        let entries: Vec<QueueEntry> = self.view.found_tracks().iter().filter_map(entry).collect();
-        self.player.send(Command::PlayContext {
-            entries,
-            origin: Some(SEARCH_ORIGIN.to_string()),
-            start: Some(start),
-        });
+        let tracks = self.view.found_tracks();
+        self.play_context(&tracks, Some(Origin::Search), Some(start), false);
     }
 
     /// Plays the files of the folder shown in the folder browser, from file `start`.
@@ -782,12 +770,12 @@ impl PlayerService {
         let Some(folder) = folders.folder() else {
             return;
         };
-        let entries: Vec<QueueEntry> = folders.files().iter().filter_map(entry).collect();
-        self.player.send(Command::PlayContext {
-            entries,
-            origin: Some(format!("folder:{}", folder.to_string_lossy())),
-            start: Some(start),
-        });
+        self.play_context(
+            &folders.files(),
+            Some(Origin::Folder(folder.to_path_buf())),
+            Some(start),
+            false,
+        );
     }
 
     /// Plays the open playlist from entry `start` (-1: from its beginning), or
@@ -804,27 +792,17 @@ impl PlayerService {
                 .filter(|item| item.track.available)
                 .count()
         });
-        let entries: Vec<QueueEntry> = playlist
+        let tracks: Vec<Track> = playlist
             .entries
             .iter()
             .filter(|item| item.track.available)
-            .filter_map(|item| entry(&item.track))
+            .map(|item| item.track.clone())
             .collect();
-        if first.is_some_and(|first| first >= entries.len()) {
-            return;
-        }
-        if shuffle {
-            self.set_shuffle(Shuffle::On);
-        }
         let origin = match playlist.key {
-            PlaylistKey::Favourites => FAVOURITES_ORIGIN.to_owned(),
-            PlaylistKey::Playlist(id) => format!("playlist:{}", id.0),
+            PlaylistKey::Favourites => Origin::Favourites,
+            PlaylistKey::Playlist(id) => Origin::Playlist(id),
         };
-        self.player.send(Command::PlayContext {
-            entries,
-            origin: Some(origin),
-            start: if shuffle { None } else { first },
-        });
+        self.play_context(&tracks, Some(origin), first, shuffle);
     }
 
     /// Puts entry `index` of the open playlist (or the selected entries, when it is one
@@ -848,19 +826,8 @@ impl PlayerService {
         let Some(label) = self.view.labels().shown() else {
             return;
         };
-        let entries: Vec<QueueEntry> = label.tracks.iter().filter_map(entry).collect();
         let start = usize::try_from(start).ok();
-        if entries.is_empty() || start.is_some_and(|start| start >= entries.len()) {
-            return;
-        }
-        if shuffle {
-            self.set_shuffle(Shuffle::On);
-        }
-        self.player.send(Command::PlayContext {
-            entries,
-            origin: Some(format!("label:{}", label.id.0)),
-            start: if shuffle { None } else { start },
-        });
+        self.play_context(&label.tracks, Some(Origin::Label(label.id)), start, shuffle);
     }
 
     /// Puts track `index` of the open label (or the selected tracks, when it is one
@@ -927,12 +894,8 @@ impl PlayerService {
 
     /// Plays every song in the Songs page's order, from song `start`.
     pub fn play_songs(&self, start: usize) {
-        let entries: Vec<QueueEntry> = self.view.songs().iter().filter_map(entry).collect();
-        self.player.send(Command::PlayContext {
-            entries,
-            origin: Some(SONGS_ORIGIN.to_string()),
-            start: Some(start),
-        });
+        let songs = self.view.songs();
+        self.play_context(&songs, Some(Origin::Songs), Some(start), false);
     }
 
     /// Puts appearance `index` of the open artist (or the selected appearances) into
@@ -1105,48 +1068,44 @@ impl PlayerService {
                 .unwrap_or_default(),
         );
         state.set_next_artist(next.map(|row| row.artist).unwrap_or_default());
-        let origin = view
-            .origin
-            .as_deref()
-            .and_then(|origin| origin.split_once(':'))
-            .and_then(|(kind, key)| match kind {
-                "album" => self
-                    .library
-                    .album(AlbumId(key.parse().ok()?))
-                    .ok()
-                    .flatten()
-                    .map(|album| album.title),
-                "artist" => self
-                    .library
-                    .artist(ArtistId(key.parse().ok()?))
-                    .ok()
-                    .flatten()
-                    .map(|artist| artist.name),
-                "folder" => Path::new(key)
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned()),
-                // Tracks an agent chose, named after the agent.
-                "agent" => Some(key.to_owned()),
-                "playlist" => self
-                    .library
-                    .playlist(PlaylistId(key.parse().ok()?))
-                    .ok()
-                    .flatten()
-                    .map(|playlist| playlist.name),
-                "label" => self
-                    .library
-                    .label(LabelId(key.parse().ok()?))
-                    .ok()
-                    .flatten()
-                    .map(|label| label.name),
-                _ => None,
-            })
-            .unwrap_or_default();
-        state.set_queue_origin(origin.into());
-        state.set_queue_source(match view.origin.as_deref() {
-            Some(SEARCH_ORIGIN) => QueueSource::Search,
-            Some(SONGS_ORIGIN) => QueueSource::Songs,
-            Some(FAVOURITES_ORIGIN) => QueueSource::Favourites,
+        let origin = view.origin.as_deref().and_then(Origin::from_key);
+        let name = match &origin {
+            Some(Origin::Album(id)) => self
+                .library
+                .album(*id)
+                .ok()
+                .flatten()
+                .map(|album| album.title),
+            Some(Origin::Artist(id)) => self
+                .library
+                .artist(*id)
+                .ok()
+                .flatten()
+                .map(|artist| artist.name),
+            Some(Origin::Folder(path)) => path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()),
+            // Tracks an agent chose, named after the agent.
+            Some(Origin::Agent(name)) => Some(name.clone()),
+            Some(Origin::Playlist(id)) => self
+                .library
+                .playlist(*id)
+                .ok()
+                .flatten()
+                .map(|playlist| playlist.name),
+            Some(Origin::Label(id)) => self
+                .library
+                .label(*id)
+                .ok()
+                .flatten()
+                .map(|label| label.name),
+            Some(Origin::Search | Origin::Songs | Origin::Favourites) | None => None,
+        };
+        state.set_queue_origin(name.unwrap_or_default().into());
+        state.set_queue_source(match origin {
+            Some(Origin::Search) => QueueSource::Search,
+            Some(Origin::Songs) => QueueSource::Songs,
+            Some(Origin::Favourites) => QueueSource::Favourites,
             _ => QueueSource::Named,
         });
     }
@@ -1405,39 +1364,39 @@ impl PlayerService {
                 return;
             }
         };
-        let entries: Vec<QueueEntry> = tracks.iter().filter_map(entry).collect();
-        if shuffle {
-            self.set_shuffle(Shuffle::On);
-        }
-        let start = if shuffle {
-            None
-        } else {
-            usize::try_from(start).ok()
-        };
-        self.player.send(Command::PlayContext {
-            entries,
-            origin: Some(format!("album:{}", album.id.0)),
-            start,
-        });
+        let start = usize::try_from(start).ok();
+        self.play_context(&tracks, Some(Origin::Album(album.id)), start, shuffle);
     }
 
     /// Plays `tracks` from track `start`, as the context `origin` names (the queue
     /// panel's "Next from ..."), or none. For lists the library view doesn't keep,
     /// such as the Library check's.
-    pub fn play_tracks(&self, tracks: &[Track], origin: Option<String>, start: usize) {
-        if start >= tracks.len() {
+    pub fn play_tracks(&self, tracks: &[Track], origin: Option<Origin>, start: usize) {
+        self.play_context(tracks, origin, Some(start), false);
+    }
+
+    fn play_context(
+        &self,
+        tracks: &[Track],
+        origin: Option<Origin>,
+        start: Option<usize>,
+        shuffle: bool,
+    ) {
+        if start.is_some_and(|start| start >= tracks.len()) {
             return;
         }
-        // Tracks left out of the queue move the start back.
-        let start = tracks[..start].iter().filter_map(entry).count();
         let entries: Vec<QueueEntry> = tracks.iter().filter_map(entry).collect();
-        if start >= entries.len() {
+        let start = start.map(|start| tracks[..start].iter().filter_map(entry).count());
+        if entries.is_empty() || start.is_some_and(|start| start >= entries.len()) {
             return;
+        }
+        if shuffle {
+            self.set_shuffle(Shuffle::On);
         }
         self.player.send(Command::PlayContext {
             entries,
-            origin,
-            start: Some(start),
+            origin: origin.map(|origin| origin.key()),
+            start: if shuffle { None } else { start },
         });
     }
 

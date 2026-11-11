@@ -46,7 +46,7 @@ player.send(Command::PlayContext { entries, origin: Some("album:42".into()), sta
 
 | Thread | Runs | May block |
 |---|---|---|
-| Caller (UI) | `Player::send`, `Player::snapshot` | Briefly, in `snapshot` only |
+| Caller (UI) | `Player::send`, `Player::snapshot` | Briefly, in `snapshot` only: at most 500 ms, after which it gets `None` rather than wait for an engine opening a file on a disk that spins up |
 | `vcmp-playback` | Owns the queue, decoder, converter and output stream. Writes the ring and sends events | Yes: file I/O, decoding |
 | Audio callback (cpal) | `Renderer::render`: reads the ring, applies gain, writes the device buffer | **Never** |
 | `vcmp-output-watch` (PulseAudio only) | Checks twice a second that the stream plays on the device it should (see [Output](#output)) | Yes: requests to the sound server |
@@ -146,7 +146,7 @@ The engine keeps one file open at a time: the track it decodes.
 |---|---|
 | A track starts, or is restored paused | Its file is opened |
 | Playing or paused | Stays open |
-| Seeking | Closed and opened again at once; not reported |
+| Seeking | Closed and opened again at once; not reported. A file that can't seek (a broken index) plays from its start rather than being skipped, also when restoring a saved position |
 | The track is decoded to its end, about a ring's length (2 s) before it ends | Closed. The next track's file opens to follow gaplessly |
 | Skipping, a new context, Stop, the end of the queue | Closed (and the new track's opened) |
 
@@ -165,7 +165,7 @@ resume) would let tag edits through sooner, but isn't built.
 | Format | The device's default config, switched to stereo when the device offers it. Any cpal sample format (`f32`, `i16`, `i24`, `u8`...) is converted in the callback |
 | Unplugged device or invalidated stream, and on Windows any other stream error | The engine reopens the output and resumes at the same position (`stops_the_stream` in `src/output.rs`). On Windows only an underrun, a refused real-time priority and a route cpal followed by itself leave the stream as it is: WASAPI's worker ends on every other error, a stopped audio service included. ALSA's worker reports other errors and carries on, so elsewhere only a lost device or an invalidated stream reopens |
 | No device at all | `OutputFailed`; playback pauses, the queue keeps working, and Play retries |
-| Volume | `SetVolume(0.0..=1.0)` is a slider position. The amplitude is its cube, which is close to how loudness is heard. Changes ramp over 10 ms |
+| Volume | `SetVolume(0.0..=1.0)` is a slider position. The amplitude is its cube, which is close to how loudness is heard. Changes ramp over 10 ms. A NaN is ignored |
 
 ### Linux: PulseAudio, then ALSA
 
@@ -292,7 +292,8 @@ paused.
   The app stores it as versioned JSON in the library's settings
   (`crates/vcmp-app/src/saved_queue.rs`) whenever a track starts and on exit.
 - **Restoring.** `Command::Restore(snapshot)` loads it paused at the saved position.
-  - A snapshot whose indices do not fit is rejected with `RestoreFailed`.
+  - A snapshot whose indices do not fit is rejected with `RestoreFailed`; history
+    positions must lie before the cursor, as play leaves them.
   - A saved track whose file has gone is skipped like any unplayable track.
 
 ## Files

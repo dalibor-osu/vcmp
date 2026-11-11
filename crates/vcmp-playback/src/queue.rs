@@ -474,7 +474,7 @@ impl Queue {
         let valid = order.iter().all(|&i| i < context.len())
             && cursor <= order.len()
             && current.as_ref().is_none_or(|slot| valid_slot(slot, cursor))
-            && history.iter().all(|slot| valid_slot(slot, order.len()));
+            && history.iter().all(|slot| valid_slot(slot, cursor));
         if !valid {
             return Err(InvalidSnapshot);
         }

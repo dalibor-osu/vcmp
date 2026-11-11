@@ -167,6 +167,9 @@ impl Library {
         let Some(path) = local_path(folder, location) else {
             return Ok(None);
         };
+        if !on_this_computer(&path) && !self.under_a_source(&path)? {
+            return Ok(None);
+        }
         if let Some(track) = self.track_id_for_path(&path)? {
             return Ok(Some(track));
         }
@@ -176,6 +179,27 @@ impl Library {
             Ok(real) if real != path => self.track_id_for_path(&real),
             _ => Ok(None),
         }
+    }
+}
+
+impl Library {
+    fn under_a_source(&self, path: &Path) -> Result<bool> {
+        let path = path.to_string_lossy().to_lowercase();
+        Ok(self.sources()?.iter().any(|source| {
+            let source = source.path.to_string_lossy().to_lowercase();
+            path.strip_prefix(&source)
+                .is_some_and(|rest| rest.starts_with(['\\', '/']))
+        }))
+    }
+}
+
+fn on_this_computer(path: &Path) -> bool {
+    use std::path::Prefix;
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => {
+            matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+        }
+        _ => true,
     }
 }
 
@@ -453,7 +477,12 @@ fn relative(folder: &Path, track: &Path) -> Option<String> {
     for part in &track[shared..] {
         parts.push(part.as_os_str().to_str()?);
     }
-    Some(parts.join("/"))
+    let joined = parts.join("/");
+    Some(if joined.starts_with('#') {
+        format!("./{joined}")
+    } else {
+        joined
+    })
 }
 
 /// Whether `track` is on the same filesystem as `folder`. A missing file counts
@@ -545,6 +574,29 @@ mod tests {
             "#EXTM3U\n\
              #EXTINF:1,Band - One\n../Band/01.flac\n\
              #EXTINF:1,Band - Two\nD:\\Music\\02.flac\n"
+        );
+    }
+
+    #[test]
+    fn a_relative_path_starting_with_a_hash_is_not_a_comment() {
+        let folder = std::env::temp_dir();
+        let path = folder.join("#1 Hits").join("a.flac");
+        let tracks = [track(path.to_str().unwrap(), None, "A", 1.0)];
+        let (text, _) = contents(&folder, &tracks, |_| true);
+        assert_eq!(text, "#EXTM3U\n#EXTINF:1,A\n./#1 Hits/a.flac\n");
+        assert_eq!(local_path(&folder, "./#1 Hits/a.flac"), Some(path));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn network_and_device_paths_are_not_this_computers() {
+        assert!(on_this_computer(Path::new(r"C:\Music\a.flac")));
+        assert!(!on_this_computer(Path::new(r"\\host\share\a.flac")));
+        assert!(!on_this_computer(Path::new(r"\\.\PhysicalDrive0")));
+        let folder = Path::new(r"C:\Music");
+        assert!(
+            local_path(folder, "file://host/share/a.flac")
+                .is_none_or(|path| !on_this_computer(&path))
         );
     }
 

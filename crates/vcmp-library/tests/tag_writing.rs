@@ -276,7 +276,7 @@ fn round_trip_every_format_with_unicode_values() {
             disc_number: FieldEdit::Set(2),
             year: FieldEdit::Set(2024),
             genre: set("Klasická"),
-            cover: FieldEdit::Set(cover.clone()),
+            cover: FieldEdit::Set(cover.clone().into()),
             ..TagEdit::default()
         };
         let report = setup.write(&[(id, &edit)]);
@@ -463,6 +463,22 @@ fn clearing_fields_and_the_cover() {
 }
 
 #[test]
+fn a_file_named_near_the_length_limit_is_tagged() {
+    let mut setup = Setup::new();
+    let name = format!("{}.flac", "n".repeat(245));
+    let path = add_file(&setup.music(), &name, "silence.flac", "Title", "Album");
+    setup.scan();
+    let id = setup.id(&path);
+    let edit = TagEdit {
+        genre: set("Blues"),
+        ..TagEdit::default()
+    };
+    let report = setup.write(&[(id, &edit)]);
+    assert_eq!(report.written, [id], "{:?}", report.failed);
+    assert_eq!(read_tag(&path).0.genre().as_deref(), Some("Blues"));
+}
+
+#[test]
 fn fields_left_at_keep_are_not_touched() {
     for (fixture, extension) in FORMATS {
         let mut setup = Setup::new();
@@ -621,7 +637,7 @@ fn an_invalid_edit_touches_no_file() {
         ),
         (
             TagEdit {
-                cover: FieldEdit::Set(b"GIF89a not a cover".to_vec()),
+                cover: FieldEdit::Set(b"GIF89a not a cover".to_vec().into()),
                 ..TagEdit::default()
             },
             InvalidTagEdit::CoverFormat,
@@ -797,7 +813,7 @@ fn an_untyped_picture_counts_as_the_cover() {
 
     let cover = png([7, 7, 7]);
     let edit = TagEdit {
-        cover: FieldEdit::Set(cover.clone()),
+        cover: FieldEdit::Set(cover.clone().into()),
         ..TagEdit::default()
     };
     assert_eq!(setup.write(&[(id, &edit)]).written, [id]);
@@ -1265,7 +1281,7 @@ fn an_m4a_cover_replaces_its_first_picture() {
             disc_number: FieldEdit::Set(2),
             year: FieldEdit::Set(2024),
             genre: set("Klasická"),
-            cover: FieldEdit::Set(cover.clone()),
+            cover: FieldEdit::Set(cover.clone().into()),
             ..TagEdit::default()
         };
         let report = setup.write(&[(id, &edit)]);

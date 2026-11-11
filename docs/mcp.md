@@ -53,12 +53,12 @@ Answers are JSON text; an error is a tool error with a reason the agent can act 
 | `list_labels` | The owner's labels with their colour (a palette name or `#rrggbb`) and how many available tracks hold each |
 | `find_tracks_by_labels` | Available tracks holding every label named (ignoring case) |
 | `list_playlists`, `get_playlist` | Playlists and their entries with positions |
-| `propose_tag_changes` | Records a change set of up to 500 tracks: the nine fields by name (`remove` clears them), the cover among them as `{"file": "<absolute path>"}` or `{"url": "<http or https address>"}`, and any other tag by key (an empty list removes it). Each image is read or downloaded once, however many tracks it goes into |
-| `propose_label_changes` | Records a label set: groups of tracks with labels to add and remove (a track in several groups gets them all), and new labels with a colour (a palette name or `#rrggbb`); at most 500 tracks. Every new label is created on accepting, whether a track gets it or not, so a call with only `new_labels` sets up the owner's labels; the answer names them |
+| `propose_tag_changes` | Records a change set of up to 500 tracks: the nine fields by name (`remove` clears them), the cover among them as `{"file": "<absolute path>"}` or `{"url": "<http or https address>"}`, and any other tag by key (an empty list removes it). Each image is read or downloaded once, however many tracks it goes into, and shared between them rather than copied; one call takes at most 10 different covers |
+| `propose_label_changes` | Records a label set: groups of tracks with labels to add and remove (a track in several groups gets them all), and new labels with a colour (a palette name or `#rrggbb`); at most 500 tracks, and at most 100 labels put on or taken off per track, checked as the call is read. Every new label is created on accepting, whether a track gets it or not, so a call with only `new_labels` sets up the owner's labels; the answer names them |
 | `get_change_set`, `list_change_sets` | Status, and per file the values before, asked for and after, and whether the cover is replaced or removed; for a label set, per track each label held before, asked, and held after |
 | `propose_undo` | Records the undo of an accepted change of tags or labels; the labels a change created go with it unless a track holds them |
 | `propose_playlist_deletion` | Records a deletion for review |
-| `create_playlist`, `rename_playlist`, `add_to_playlist`, `remove_from_playlist`, `move_in_playlist` | Done at once |
+| `create_playlist`, `rename_playlist`, `add_to_playlist`, `remove_from_playlist`, `move_in_playlist` | Done at once. An unknown playlist or a position past its end is refused, not answered as done, and removing every entry is refused: emptying a playlist is a deletion, which waits for review |
 | `play_tracks` | Plays tracks by id (at most 500) in place of what plays: a queue context of its own, named after the agent in the queue panel ("Next from Claude"). Optional `start_track_id` and `shuffle` (true or false; left out, it stays as it is) |
 | `play_album`, `play_playlist`, `play_label`, `play_artist` | Play these as their pages' play buttons do, with the same queue context and order (an artist: their albums, then their appearances elsewhere). A label by name; a playlist's start by entry position |
 | `queue_tracks` | Puts tracks into Up next, `next` or at the `end` |
@@ -142,7 +142,9 @@ ends the session.
   gets an error answer that says it may have been carried out. It is never sent
   again: only a connection that was refused, before anything was sent, is retried.
 - It never opens a window, creates no library where there is none, and writes
-  nothing but its output.
+  nothing but its output. It reads the settings through a read-only connection,
+  so it neither sets the journal mode nor migrates the schema under a running VCMP
+  of another version (`Library::read_settings`).
 
 ## Testing
 
@@ -176,7 +178,16 @@ client is in [manual-testing.md](manual-testing.md).
   client on an older version gets 404 for its session and has to connect again;
   through the relay, the error says that VCMP was restarted.
 - A cover by web address is downloaded on the server's thread pool while the agent
-  waits; a slow site holds that request up to 30 seconds.
+  waits; a slow site holds that request up to 30 seconds. Stopping the server
+  (the switch, New token, another port) gives requests in flight half a second and
+  then leaves them, so the window doesn't wait for a download.
+- Recording an agent's tag change reads each changed file's cover on the window's
+  thread, to keep it for undo; a change of 500 files with a new cover can hold the
+  window for a moment. A change still being recorded when the agent's 30 seconds
+  are up is recorded anyway, so asking again makes a second one.
+- While VCMP is closed and the switch stays on, another program on the computer
+  can listen on the port and receive the token in the relay's first request. It
+  follows from the HTTP transport on a fixed port; a new token in Settings ends it.
 - A playback request answers once the window shows the result, but waits for that
   at most 5 seconds (a disk spinning up to open the next file); past that it
   answers anyway, and `get_now_playing` may still show the track before for a

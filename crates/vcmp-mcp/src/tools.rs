@@ -132,6 +132,17 @@ impl VcmpServer {
         .map_err(|error| error.to_string())?
     }
 
+    async fn entry_count(&self, playlist: i64) -> Result<u32, String> {
+        self.read_raw(move |library| {
+            library
+                .playlist(PlaylistId(playlist))
+                .map_err(failed)?
+                .map(|found| found.track_count)
+                .ok_or_else(|| format!("there is no playlist {playlist}"))
+        })
+        .await
+    }
+
     /// Hands a change to the app, off the server's thread.
     async fn change<T: Serialize + Send + 'static>(
         &self,
@@ -603,7 +614,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Ask to change tags of up to 500 tracks. Nothing is written until the owner reviews and accepts the change in VCMP; the answer is the change set's id, to follow with get_change_set. A file whose tags change before the owner accepts is left alone."
+        description = "Ask to change tags of up to 500 tracks, with at most 10 different covers. Nothing is written until the owner reviews and accepts the change in VCMP; the answer is the change set's id, to follow with get_change_set. A file whose tags change before the owner accepts is left alone."
     )]
     async fn propose_tag_changes(
         &self,
@@ -626,6 +637,11 @@ impl VcmpServer {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
+        if sources.len() > MAX_COVERS {
+            return Err(format!(
+                "one change takes at most {MAX_COVERS} different covers; split it"
+            ));
+        }
         let covers = if sources.is_empty() {
             BTreeMap::new()
         } else {
@@ -653,7 +669,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Ask to put labels on tracks and take them off for up to 500 tracks, and to create new labels: ones the tracks get, or ones for no track yet (such as setting up the owner's labels before tagging anything, with changes left empty). Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
+        description = "Ask to put labels on tracks and take them off for up to 500 tracks (at most 100 labels per track), and to create new labels: ones the tracks get, or ones for no track yet (such as setting up the owner's labels before tagging anything, with changes left empty). Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
     )]
     async fn propose_label_changes(
         &self,
@@ -671,17 +687,24 @@ impl VcmpServer {
                     order.push(TrackId(id));
                     LabelEdit::default()
                 });
+                if order.len() > MAX_FILES {
+                    return Err(format!(
+                        "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
+                    ));
+                }
+                if edit.add.len() + edit.remove.len() + change.add.len() + change.remove.len()
+                    > MAX_LABELS_PER_TRACK
+                {
+                    return Err(format!(
+                        "track {id}: one change puts on or takes off at most {MAX_LABELS_PER_TRACK} labels"
+                    ));
+                }
                 edit.add.extend(change.add.iter().cloned());
                 edit.remove.extend(change.remove.iter().cloned());
             }
         }
         if order.is_empty() && args.new_labels.is_empty() {
             return Err("name tracks to change or labels to create".into());
-        }
-        if order.len() > MAX_FILES {
-            return Err(format!(
-                "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
-            ));
         }
         let new_labels = args
             .new_labels
@@ -814,6 +837,7 @@ impl VcmpServer {
         if args.name.trim().is_empty() {
             return Err("a playlist needs a name".into());
         }
+        self.entry_count(args.playlist_id).await?;
         self.change(move |changes| {
             changes.edit_playlist(PlaylistEdit::Rename(
                 PlaylistId(args.playlist_id),
@@ -834,6 +858,7 @@ impl VcmpServer {
         if args.track_ids.len() > MAX_FILES {
             return Err(format!("add at most {MAX_FILES} tracks at a time"));
         }
+        self.entry_count(args.playlist_id).await?;
         self.change(move |changes| {
             let tracks = args.track_ids.into_iter().map(TrackId).collect();
             changes.edit_playlist(PlaylistEdit::Add(PlaylistId(args.playlist_id), tracks))?;
@@ -849,6 +874,20 @@ impl VcmpServer {
         &self,
         Parameters(args): Parameters<RemoveArgs>,
     ) -> Result<String, String> {
+        let count = self.entry_count(args.playlist_id).await?;
+        if let Some(position) = args.positions.iter().find(|&&position| position >= count) {
+            return Err(format!(
+                "playlist {} has {count} entries, counted from 0, so there is no position {position}",
+                args.playlist_id
+            ));
+        }
+        let removing: std::collections::HashSet<u32> = args.positions.iter().copied().collect();
+        if count > 0 && removing.len() as u32 == count {
+            return Err(
+                "that removes every entry: ask for the playlist's deletion instead, which the owner reviews"
+                    .into(),
+            );
+        }
         self.change(move |changes| {
             changes.edit_playlist(PlaylistEdit::Remove(
                 PlaylistId(args.playlist_id),
@@ -864,6 +903,16 @@ impl VcmpServer {
         &self,
         Parameters(args): Parameters<MoveArgs>,
     ) -> Result<String, String> {
+        let count = self.entry_count(args.playlist_id).await?;
+        if let Some(position) = [args.from, args.to]
+            .into_iter()
+            .find(|&position| position >= count)
+        {
+            return Err(format!(
+                "playlist {} has {count} entries, counted from 0, so there is no position {position}",
+                args.playlist_id
+            ));
+        }
         self.change(move |changes| {
             changes.edit_playlist(PlaylistEdit::Move(
                 PlaylistId(args.playlist_id),
@@ -889,9 +938,13 @@ impl ServerHandler for VcmpServer {
 
 /// The largest cover an agent may give, as a file or a download.
 const MAX_COVER_BYTES: u64 = 10 * 1000 * 1000;
+const MAX_COVERS: usize = 10;
+const MAX_LABELS_PER_TRACK: usize = 100;
 
 /// Reads or downloads every cover, each checked to be a JPEG or PNG image.
-fn load_covers(sources: Vec<CoverSource>) -> Result<BTreeMap<CoverSource, Vec<u8>>, String> {
+fn load_covers(
+    sources: Vec<CoverSource>,
+) -> Result<BTreeMap<CoverSource, std::sync::Arc<[u8]>>, String> {
     let config = ureq::Agent::config_builder()
         .user_agent(concat!("VCMP/", env!("CARGO_PKG_VERSION")))
         .max_redirects(5)
@@ -913,7 +966,7 @@ fn load_covers(sources: Vec<CoverSource>) -> Result<BTreeMap<CoverSource, Vec<u8
             if !is_jpeg_or_png(&data) {
                 return Err(format!("{}: not a JPEG or PNG image", source_name(&source)));
             }
-            Ok((source, data))
+            Ok((source, data.into()))
         })
         .collect()
 }
@@ -1066,7 +1119,7 @@ fn source_name(source: &CoverSource) -> &str {
 /// removed is refused.
 fn edit(
     change: TrackChange,
-    covers: &BTreeMap<CoverSource, Vec<u8>>,
+    covers: &BTreeMap<CoverSource, std::sync::Arc<[u8]>>,
 ) -> Result<(TrackId, TagEdit), String> {
     let track = change.track_id;
     let removes = |field: Field| change.remove.contains(&field);

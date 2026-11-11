@@ -801,9 +801,9 @@ pub fn relay_connection(paths: &LibraryPaths) -> Result<vcmp_mcp::relay::Connect
             paths.database.display()
         ));
     }
-    let library = Library::open(&paths.database, &paths.cache)
+    let mut settings = Library::read_settings(&paths.database)
         .map_err(|error| format!("VCMP's library can't be read: {error}"))?;
-    let setting = |key| library.setting(key).ok().flatten();
+    let mut setting = |key: &str| settings.remove(key);
     if setting(SETTING_ENABLED).as_deref() != Some("true") {
         return Err(
             "VCMP's AI agents switch is off: turn on \"Let AI agents use your library\" in VCMP's Settings, under AI agents."

@@ -33,10 +33,11 @@ mod scrobbles;
 mod tags;
 mod watch;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 pub use artwork::{Artwork, THUMBNAIL_SIZE};
 pub use changes::{
@@ -132,6 +133,14 @@ impl Library {
             artwork: ArtworkStore::new(cache_dir),
             images: db_path.with_file_name("images"),
         })
+    }
+
+    pub fn read_settings(db_path: &Path) -> Result<HashMap<String, String>> {
+        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        let mut statement = conn.prepare("SELECT key, value FROM settings")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn setting(&self, key: &str) -> Result<Option<String>> {

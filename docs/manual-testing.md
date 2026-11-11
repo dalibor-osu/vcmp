@@ -201,6 +201,11 @@ but the `.lrc` files below are yours to add and remove.
 - [ ] Open the now playing view and press Tab and Shift+Tab many times: the focus
       stays in the view, never on the hidden sidebar or page.
       **(never seen working)**
+- [ ] Take away read access to a subfolder of a music folder (Linux: `chmod 000`;
+      Windows: deny "List folder contents" for your user) and rescan: the folder is
+      listed under "could not be read", and its tracks stay in the library. The
+      automated test of this is Unix only and has never run (CI is off).
+      **(never seen working)**
 - [ ] With no music folder, choose a folder that can't be added (a removed USB
       stick's folder, or one without read access): the empty Albums page and the
       setup wizard say why under the button. **(never seen working)**
@@ -620,6 +625,12 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       bar's timer shows each, and playback stops after the track.
 - [ ] Close VCMP with a change waiting, start it again: the change shows as not
       reviewed before VCMP closed.
+- [ ] Ask for a cover from a slow site and turn the AI agents switch off while it
+      downloads: the switch answers at once and the window doesn't freeze.
+      **(never seen working)**
+- [ ] Import an M3U whose entries name `\\somehost\share\a.flac`: the entries are
+      unmatched, and a capture (Wireshark) shows no SMB connection to that host.
+      **(never seen working)**
 - [ ] Accept a change of a few hundred files and kill VCMP while it writes: after
       a restart the change shows as partly written, and its Undo puts back the
       files it wrote. **(never seen working)**

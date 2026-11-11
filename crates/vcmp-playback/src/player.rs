@@ -206,14 +206,17 @@ impl Player {
         let _ = self.messages.send(Message::Command(command));
     }
 
-    /// The queue and position now, for saving on exit. Waits for the engine (a few
-    /// milliseconds at most).
+    /// The queue and position now, for saving. Waits for the engine, which answers
+    /// between two steps (a few milliseconds); `None` when it is busy for longer,
+    /// opening a file on a disk that spins up, so the window never waits on it.
     pub fn snapshot(&self) -> Option<PlaybackSnapshot> {
         let (reply, answer) = mpsc::channel();
         self.messages.send(Message::Snapshot(reply)).ok()?;
-        answer.recv().ok()
+        answer.recv_timeout(SNAPSHOT_WAIT).ok()
     }
 }
+
+const SNAPSHOT_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 
 impl Drop for Player {
     fn drop(&mut self) {

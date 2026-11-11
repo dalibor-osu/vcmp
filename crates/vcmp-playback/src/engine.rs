@@ -59,6 +59,9 @@ struct Segment {
 /// Amplitude for a volume slider position: a cubic curve, close to how loudness is
 /// heard.
 fn gain(volume: f32) -> f32 {
+    if volume.is_nan() {
+        return 0.0;
+    }
     volume.clamp(0.0, 1.0).powi(3)
 }
 
@@ -124,7 +127,11 @@ impl Engine {
             end_at: None,
             state: PlaybackState::Stopped,
             stop_after_current: false,
-            volume: options.volume,
+            volume: if options.volume.is_nan() {
+                0.0
+            } else {
+                options.volume.clamp(0.0, 1.0)
+            },
             failures: 0,
             decoded_audio: false,
             last_position: Instant::now(),
@@ -265,10 +272,11 @@ impl Engine {
                 }
             }
             Command::Seek(position) => self.seek(position),
-            Command::SetVolume(volume) => {
+            Command::SetVolume(volume) if !volume.is_nan() => {
                 self.volume = volume.clamp(0.0, 1.0);
                 self.feed.set_gain(gain(self.volume));
             }
+            Command::SetVolume(_) => {}
             Command::SetOutputDevice(device) => {
                 self.device = device;
                 self.reopen();
@@ -498,13 +506,15 @@ impl Engine {
         entry: &QueueEntry,
         position: Duration,
     ) -> Result<(Box<dyn TrackStream>, Duration), PlaybackError> {
-        let mut stream = self.sources.get(entry.track.source).open(&entry.track.id)?;
-        let reached = if position.is_zero() {
-            Duration::ZERO
-        } else {
-            stream.seek(position)?
-        };
-        Ok((stream, reached))
+        let source = self.sources.get(entry.track.source);
+        let mut stream = source.open(&entry.track.id)?;
+        if position.is_zero() {
+            return Ok((stream, Duration::ZERO));
+        }
+        match stream.seek(position) {
+            Ok(reached) => Ok((stream, reached)),
+            Err(_) => Ok((source.open(&entry.track.id)?, Duration::ZERO)),
+        }
     }
 
     /// Starts the queue's current track at `position`, skipping tracks that cannot
