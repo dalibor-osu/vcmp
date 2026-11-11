@@ -132,6 +132,17 @@ impl VcmpServer {
         .map_err(|error| error.to_string())?
     }
 
+    async fn entry_count(&self, playlist: i64) -> Result<u32, String> {
+        self.read_raw(move |library| {
+            library
+                .playlist(PlaylistId(playlist))
+                .map_err(failed)?
+                .map(|found| found.track_count)
+                .ok_or_else(|| format!("there is no playlist {playlist}"))
+        })
+        .await
+    }
+
     /// Hands a change to the app, off the server's thread.
     async fn change<T: Serialize + Send + 'static>(
         &self,
@@ -603,7 +614,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Ask to change tags of up to 500 tracks. Nothing is written until the owner reviews and accepts the change in VCMP; the answer is the change set's id, to follow with get_change_set. A file whose tags change before the owner accepts is left alone."
+        description = "Ask to change tags of up to 500 tracks, with at most 10 different covers. Nothing is written until the owner reviews and accepts the change in VCMP; the answer is the change set's id, to follow with get_change_set. A file whose tags change before the owner accepts is left alone."
     )]
     async fn propose_tag_changes(
         &self,
@@ -626,6 +637,11 @@ impl VcmpServer {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
+        if sources.len() > MAX_COVERS {
+            return Err(format!(
+                "one change takes at most {MAX_COVERS} different covers; split it"
+            ));
+        }
         let covers = if sources.is_empty() {
             BTreeMap::new()
         } else {
@@ -653,7 +669,7 @@ impl VcmpServer {
     }
 
     #[tool(
-        description = "Ask to put labels on tracks and take them off for up to 500 tracks, and to create new labels: ones the tracks get, or ones for no track yet (such as setting up the owner's labels before tagging anything, with changes left empty). Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
+        description = "Ask to put labels on tracks and take them off for up to 500 tracks (at most 100 labels per track), and to create new labels: ones the tracks get, or ones for no track yet (such as setting up the owner's labels before tagging anything, with changes left empty). Nothing changes until the owner reviews and accepts it in VCMP; the answer is the change set's id, to follow with get_change_set. A track whose labels change before the owner accepts is left alone."
     )]
     async fn propose_label_changes(
         &self,
@@ -671,17 +687,24 @@ impl VcmpServer {
                     order.push(TrackId(id));
                     LabelEdit::default()
                 });
+                if order.len() > MAX_FILES {
+                    return Err(format!(
+                        "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
+                    ));
+                }
+                if edit.add.len() + edit.remove.len() + change.add.len() + change.remove.len()
+                    > MAX_LABELS_PER_TRACK
+                {
+                    return Err(format!(
+                        "track {id}: one change puts on or takes off at most {MAX_LABELS_PER_TRACK} labels"
+                    ));
+                }
                 edit.add.extend(change.add.iter().cloned());
                 edit.remove.extend(change.remove.iter().cloned());
             }
         }
         if order.is_empty() && args.new_labels.is_empty() {
             return Err("name tracks to change or labels to create".into());
-        }
-        if order.len() > MAX_FILES {
-            return Err(format!(
-                "one change covers at most {MAX_FILES} tracks, so the owner can review it; split it"
-            ));
         }
         let new_labels = args
             .new_labels
@@ -814,6 +837,7 @@ impl VcmpServer {
         if args.name.trim().is_empty() {
             return Err("a playlist needs a name".into());
         }
+        self.entry_count(args.playlist_id).await?;
         self.change(move |changes| {
             changes.edit_playlist(PlaylistEdit::Rename(
                 PlaylistId(args.playlist_id),
@@ -834,6 +858,7 @@ impl VcmpServer {
         if args.track_ids.len() > MAX_FILES {
             return Err(format!("add at most {MAX_FILES} tracks at a time"));
         }
+        self.entry_count(args.playlist_id).await?;
         self.change(move |changes| {
             let tracks = args.track_ids.into_iter().map(TrackId).collect();
             changes.edit_playlist(PlaylistEdit::Add(PlaylistId(args.playlist_id), tracks))?;
@@ -849,6 +874,20 @@ impl VcmpServer {
         &self,
         Parameters(args): Parameters<RemoveArgs>,
     ) -> Result<String, String> {
+        let count = self.entry_count(args.playlist_id).await?;
+        if let Some(position) = args.positions.iter().find(|&&position| position >= count) {
+            return Err(format!(
+                "playlist {} has {count} entries, counted from 0, so there is no position {position}",
+                args.playlist_id
+            ));
+        }
+        let removing: std::collections::HashSet<u32> = args.positions.iter().copied().collect();
+        if count > 0 && removing.len() as u32 == count {
+            return Err(
+                "that removes every entry: ask for the playlist's deletion instead, which the owner reviews"
+                    .into(),
+            );
+        }
         self.change(move |changes| {
             changes.edit_playlist(PlaylistEdit::Remove(
                 PlaylistId(args.playlist_id),
@@ -864,6 +903,16 @@ impl VcmpServer {
         &self,
         Parameters(args): Parameters<MoveArgs>,
     ) -> Result<String, String> {
+        let count = self.entry_count(args.playlist_id).await?;
+        if let Some(position) = [args.from, args.to]
+            .into_iter()
+            .find(|&position| position >= count)
+        {
+            return Err(format!(
+                "playlist {} has {count} entries, counted from 0, so there is no position {position}",
+                args.playlist_id
+            ));
+        }
         self.change(move |changes| {
             changes.edit_playlist(PlaylistEdit::Move(
                 PlaylistId(args.playlist_id),
@@ -889,15 +938,24 @@ impl ServerHandler for VcmpServer {
 
 /// The largest cover an agent may give, as a file or a download.
 const MAX_COVER_BYTES: u64 = 10 * 1000 * 1000;
+const MAX_COVERS: usize = 10;
+const MAX_LABELS_PER_TRACK: usize = 100;
 
 /// Reads or downloads every cover, each checked to be a JPEG or PNG image.
-fn load_covers(sources: Vec<CoverSource>) -> Result<BTreeMap<CoverSource, Vec<u8>>, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+fn load_covers(
+    sources: Vec<CoverSource>,
+) -> Result<BTreeMap<CoverSource, std::sync::Arc<[u8]>>, String> {
+    let config = ureq::Agent::config_builder()
         .user_agent(concat!("VCMP/", env!("CARGO_PKG_VERSION")))
         .max_redirects(5)
         .timeout_global(Some(std::time::Duration::from_secs(30)))
-        .build()
-        .into();
+        .proxy(None)
+        .build();
+    let agent = ureq::Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::new(),
+        PublicOnly,
+    );
     sources
         .into_iter()
         .map(|source| {
@@ -908,12 +966,13 @@ fn load_covers(sources: Vec<CoverSource>) -> Result<BTreeMap<CoverSource, Vec<u8
             if !is_jpeg_or_png(&data) {
                 return Err(format!("{}: not a JPEG or PNG image", source_name(&source)));
             }
-            Ok((source, data))
+            Ok((source, data.into()))
         })
         .collect()
 }
 
 fn read_cover(path: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
     let path = std::path::Path::new(path);
     if !path.is_absolute() {
         return Err(format!(
@@ -921,16 +980,111 @@ fn read_cover(path: &str) -> Result<Vec<u8>, String> {
             path.display()
         ));
     }
-    let size = std::fs::metadata(path)
-        .map_err(|error| format!("{}: {error}", path.display()))?
-        .len();
-    if size > MAX_COVER_BYTES {
+    if !on_local_disk(path) {
         return Err(format!(
-            "{}: a cover may take at most 10 MB",
+            "{}: only files on this computer's own disks can be read",
             path.display()
         ));
     }
-    std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))
+    let unreadable = || format!("{}: no readable image file there", path.display());
+    let too_large = || format!("{}: a cover may take at most 10 MB", path.display());
+    let metadata = std::fs::metadata(path).map_err(|_| unreadable())?;
+    if !metadata.is_file() {
+        return Err(unreadable());
+    }
+    if metadata.len() > MAX_COVER_BYTES {
+        return Err(too_large());
+    }
+    let mut data = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(MAX_COVER_BYTES + 1).read_to_end(&mut data))
+        .map_err(|_| unreadable())?;
+    if data.len() as u64 > MAX_COVER_BYTES {
+        return Err(too_large());
+    }
+    Ok(data)
+}
+
+fn on_local_disk(path: &std::path::Path) -> bool {
+    use std::path::{Component, Prefix};
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => {
+            matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+        }
+        _ => cfg!(not(windows)),
+    }
+}
+
+#[derive(Debug)]
+struct PublicOnly;
+
+impl ureq::unversioned::resolver::Resolver for PublicOnly {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let all = ureq::unversioned::resolver::DefaultResolver::default()
+            .resolve(uri, config, timeout)?;
+        let mut public = self.empty();
+        for address in all.iter().filter(|address| is_public(address.ip())) {
+            public.push(*address);
+        }
+        if public.is_empty() {
+            return Err(ureq::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the address is not on the public internet, so nothing is downloaded from it",
+            )));
+        }
+        Ok(public)
+    }
+}
+
+fn is_public(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
+            !(ip.is_unspecified()
+                || ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_broadcast()
+                || ip.is_documentation()
+                || ip.is_multicast()
+                || a == 0
+                || a >= 240
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 198 && (18..20).contains(&b)))
+        }
+        IpAddr::V6(ip) => {
+            if let Some(v4) = ip.to_ipv4_mapped() {
+                return is_public(IpAddr::V4(v4));
+            }
+            let segments = ip.segments();
+            let embedded = |high: u16, low: u16| {
+                IpAddr::V4(std::net::Ipv4Addr::from(
+                    (u32::from(high) << 16) | u32::from(low),
+                ))
+            };
+            if segments[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                return is_public(embedded(segments[6], segments[7]));
+            }
+            if segments[0] == 0x2002 {
+                return is_public(embedded(segments[1], segments[2]));
+            }
+            !(ip.is_unspecified()
+                || ip.is_loopback()
+                || ip.is_multicast()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+                || segments[..6] == [0, 0, 0, 0, 0, 0]
+                || (segments[0] & 0xffc0) == 0xfec0
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+        }
+    }
 }
 
 fn download_cover(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, String> {
@@ -965,7 +1119,7 @@ fn source_name(source: &CoverSource) -> &str {
 /// removed is refused.
 fn edit(
     change: TrackChange,
-    covers: &BTreeMap<CoverSource, Vec<u8>>,
+    covers: &BTreeMap<CoverSource, std::sync::Arc<[u8]>>,
 ) -> Result<(TrackId, TagEdit), String> {
     let track = change.track_id;
     let removes = |field: Field| change.remove.contains(&field);
@@ -1267,5 +1421,37 @@ fn status(status: ChangeStatus) -> &'static str {
         ChangeStatus::Rejected => "rejected",
         ChangeStatus::Discarded => "discarded",
         ChangeStatus::Undone => "undone",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_public;
+
+    #[test]
+    fn only_public_addresses_are_downloaded_from() {
+        for public in ["93.184.216.34", "2606:4700::1111", "::ffff:93.184.216.34"] {
+            assert!(is_public(public.parse().unwrap()), "{public}");
+        }
+        for private in [
+            "127.0.0.1",
+            "0.0.0.0",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "::",
+            "::1",
+            "fe80::1",
+            "fd00::1",
+            "::ffff:192.168.1.1",
+            "64:ff9b::a00:1",
+            "2002:c0a8:101::1",
+        ] {
+            assert!(!is_public(private.parse().unwrap()), "{private}");
+        }
     }
 }

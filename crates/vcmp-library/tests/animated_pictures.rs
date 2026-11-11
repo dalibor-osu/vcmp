@@ -203,7 +203,7 @@ fn an_album_plays_the_animation_kept_for_its_cover() {
     let still = first_frame_png(&data).unwrap();
     assert!(setup.library.keep_cover_animation(&still, &data).unwrap());
     let edit = TagEdit {
-        cover: FieldEdit::Set(still.clone()),
+        cover: FieldEdit::Set(still.clone().into()),
         ..TagEdit::default()
     };
     let edits: Vec<_> = ids.iter().map(|&id| (id, &edit)).collect();
@@ -224,7 +224,7 @@ fn an_album_plays_the_animation_kept_for_its_cover() {
 
     // Another cover ends it.
     let edit = TagEdit {
-        cover: FieldEdit::Set(jpeg(BLUE)),
+        cover: FieldEdit::Set(jpeg(BLUE).into()),
         ..TagEdit::default()
     };
     let edits: Vec<_> = ids.iter().map(|&id| (id, &edit)).collect();

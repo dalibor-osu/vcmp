@@ -277,7 +277,9 @@ export component AppWindow inherits Window {
     // Takes the focus off whatever has it, back to the window: a click does this
     // first (src/shortcuts.rs), so the focus ring goes and Space plays and pauses.
     public function release-focus() {
-        shortcuts.focus();
+        if !root.dialog-open {
+            shortcuts.focus();
+        }
         Theme.keyboard-navigation = false;
     }
 
@@ -364,7 +366,9 @@ export component AppWindow inherits Window {
     changed system-scheme-known => {
         Theme.system-scheme-changed();
     }
-    private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.now-playing-open || CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open || Setup.open || PlaylistImport.open || Confirmation.open;
+    out property <bool> dialog-open: CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open || Setup.open || PlaylistImport.open || Confirmation.open;
+    private property <bool> now-playing-covers: PlayerState.now-playing-open && root.now-playing-shown == 1 && !(root.queue-covers && root.queue-settled);
+    private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.now-playing-open || root.dialog-open;
     out property <length> frame-sidebar-width: sidebar.width;
     out property <length> frame-sidebar-drag-height: root.sidebar-covered ? 0px : max(0px, sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y - Theme.space-s);
     changed frame-sidebar-drag-height => {
@@ -387,11 +391,11 @@ export component AppWindow inherits Window {
         focus-on-tab-navigation: false;
         capture-key-pressed(event) => {
             Theme.keyboard-navigation = true;
-            if event.modifiers.alt && !root.typing && event.text == Key.LeftArrow {
+            if event.modifiers.alt && !root.typing && !root.dialog-open && event.text == Key.LeftArrow {
                 root.go-back();
                 return accept;
             }
-            if event.modifiers.alt && !root.typing && event.text == Key.RightArrow {
+            if event.modifiers.alt && !root.typing && !root.dialog-open && event.text == Key.RightArrow {
                 root.go-forward();
                 return accept;
             }
@@ -401,7 +405,7 @@ export component AppWindow inherits Window {
             }
             // Ctrl+F (Cmd+F on macOS) filters the page shown, where it has a
             // filter, and searches from anywhere else.
-            if (event.modifiers.control || event.modifiers.meta) && (event.text == "f" || event.text == "F") {
+            if (event.modifiers.control || event.modifiers.meta) && !root.dialog-open && (event.text == "f" || event.text == "F") {
                 if root.current-page == Page.albums && !root.album-open {
                     albums-page.focus-filter();
                 } else if root.current-page == Page.artists && !root.artist-open && !root.artist-album-open {
@@ -455,6 +459,7 @@ export component AppWindow inherits Window {
 
                     sidebar := Rectangle {
                         width: 220px;
+                        visible: !root.now-playing-covers;
                         background: Theme.colors.mantle;
 
                         // The wordmark, the sections and the playlists scroll together
@@ -645,7 +650,7 @@ export component AppWindow inherits Window {
 
                     pages := Rectangle {
                         accessible-role: tab-panel;
-                        visible: !(root.queue-covers && root.queue-settled);
+                        visible: !(root.queue-covers && root.queue-settled) && !root.now-playing-covers;
 
                         search-page := SearchPage {
                             x: 0;

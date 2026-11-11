@@ -893,6 +893,7 @@ export component SongTable {
                             labels-column: root.labels-column;
                             clicked(toggle, range) => {
                                 root.current = self.index;
+                                list.focus();
                                 if range {
                                     root.select(self.index, SelectionChange.range);
                                 } else if toggle {

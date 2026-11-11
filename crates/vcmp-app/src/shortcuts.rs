@@ -94,13 +94,15 @@ pub fn install(window: &AppWindow) {
                 return EventResult::PreventDefault;
             }
             // The mouse's back and forward buttons go through the history
-            // (src/navigation.rs).
+            // (src/navigation.rs), but not behind an open dialog.
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Back,
                 ..
             } => {
-                window.invoke_go_back();
+                if !window.get_dialog_open() {
+                    window.invoke_go_back();
+                }
                 return EventResult::PreventDefault;
             }
             WindowEvent::MouseInput {
@@ -108,13 +110,17 @@ pub fn install(window: &AppWindow) {
                 button: MouseButton::Forward,
                 ..
             } => {
-                window.invoke_go_forward();
+                if !window.get_dialog_open() {
+                    window.invoke_go_forward();
+                }
                 return EventResult::PreventDefault;
             }
             // A click first takes the focus off whatever has it, so the focus
             // ring goes and Space plays and pauses again. A click on a text
             // field gives it the focus straight back, as the field takes it when
-            // pressed; the app's other controls do not take focus on a click.
+            // pressed, and a click on a track list's row gives it to the list;
+            // the app's other controls do not take focus on a click. An open
+            // dialog keeps the focus, so its Escape and Tab still work.
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 ..

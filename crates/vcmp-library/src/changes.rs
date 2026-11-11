@@ -15,7 +15,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 use crate::edit::{self, Expected, FieldEdit, TagEdit, TagWriteError};
 use crate::error::io_error;
@@ -187,6 +187,7 @@ impl Library {
         }
         let mut seen = HashSet::new();
         let mut files = Vec::new();
+        let mut kept = HashMap::new();
         for (id, edit) in edits {
             if !seen.insert(*id) {
                 return Err(Error::RepeatedTrack(*id));
@@ -226,7 +227,7 @@ impl Library {
             files.push(NewFile {
                 track: *id,
                 path: track.path,
-                edits: self.targets(edit)?,
+                edits: self.targets(edit, &mut kept)?,
                 values,
                 cover_before,
             });
@@ -442,7 +443,14 @@ impl Library {
         mut progress: impl FnMut(usize, usize),
     ) -> Result<ChangeSet> {
         let set = self.pending_set(id)?;
-        if let ChangeKind::PlaylistDeletion { playlist, .. } = set.summary.kind {
+        if let ChangeKind::PlaylistDeletion { playlist, name } = &set.summary.kind {
+            let playlist = *playlist;
+            if self
+                .playlist(playlist)?
+                .is_none_or(|found| found.name != *name)
+            {
+                return Err(Error::UnknownPlaylist(playlist));
+            }
             self.delete_playlist(playlist)?;
             self.finish(id, ChangeStatus::Accepted)?;
             return self.change_set(id)?.ok_or(Error::UnknownChangeSet(id));
@@ -469,7 +477,10 @@ impl Library {
                 params![id.0, file.track.0, result, detail],
             )?;
             match outcome {
-                Ok(edit) => written.push((file.track.0, spelling(edit))),
+                Ok(edit) => {
+                    self.record_written(id, file.track)?;
+                    written.push((file.track.0, spelling(edit)));
+                }
                 Err(_) => all_written = false,
             }
         }
@@ -503,12 +514,22 @@ impl Library {
     }
 
     /// Marks every set still pending as discarded: VCMP keeps no set waiting across a
-    /// restart. Called when the library opens for the app. Returns how many there were.
+    /// restart. Called when the library opens for the app. A set VCMP stopped in the
+    /// middle of writing becomes partly written instead, so the files it did write
+    /// can be undone. Returns how many were discarded.
     pub fn discard_pending_change_sets(&self) -> Result<usize> {
+        let now = now_ms();
+        self.conn.execute(
+            "UPDATE change_sets SET status = 'partly_written', finished_ms = ?1
+             WHERE status = 'pending' AND EXISTS (
+                 SELECT 1 FROM change_files f
+                 WHERE f.set_id = change_sets.id AND f.result = 'written')",
+            [now],
+        )?;
         Ok(self.conn.execute(
             "UPDATE change_sets SET status = 'discarded', finished_ms = ?1
              WHERE status = 'pending'",
-            [now_ms()],
+            [now],
         )?)
     }
 
@@ -654,7 +675,11 @@ impl Library {
     }
 
     /// The edit's changes by target, its new cover kept as a file.
-    fn targets(&self, edit: &TagEdit) -> Result<Vec<(String, Option<Vec<String>>)>> {
+    fn targets(
+        &self,
+        edit: &TagEdit,
+        kept: &mut HashMap<*const u8, String>,
+    ) -> Result<Vec<(String, Option<Vec<String>>)>> {
         fn target<T: ToString>(
             targets: &mut Vec<(String, Option<Vec<String>>)>,
             name: &str,
@@ -678,7 +703,15 @@ impl Library {
         match &edit.cover {
             FieldEdit::Keep => {}
             FieldEdit::Set(data) => {
-                targets.push(("cover".into(), Some(vec![self.keep_cover(data)?])))
+                let name = match kept.get(&data.as_ptr()) {
+                    Some(name) => name.clone(),
+                    None => {
+                        let name = self.keep_cover(data)?;
+                        kept.insert(data.as_ptr(), name.clone());
+                        name
+                    }
+                };
+                targets.push(("cover".into(), Some(vec![name])))
             }
             FieldEdit::Clear => targets.push(("cover".into(), None)),
         }
@@ -705,7 +738,7 @@ impl Library {
     ) -> Result<ChangeSetId> {
         // Unchecked: &self keeps the app's shared connection usable; nothing else
         // runs a transaction on this connection meanwhile.
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT INTO change_sets (agent, kind, playlist_id, playlist_name, status, created_ms)
              VALUES (?1, ?2, ?3, ?4, 'pending', ?5)",
@@ -813,7 +846,7 @@ impl Library {
         let id = set.summary.id;
         // Unchecked: &self keeps the app's shared connection usable; nothing else
         // runs a transaction on this connection meanwhile.
-        let tx = self.conn.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         for label in &set.new_labels {
             let created = match self.label_named(&label.name)? {
                 Some(_) => false,
@@ -927,12 +960,37 @@ impl Library {
 
     /// Stores what a written file's tags read back as.
     fn record_after(&self, id: ChangeSetId, track: TrackId) -> Result<()> {
+        let entries = self.track_tags(track)?;
+        self.record_after_from(id, track, &entries)
+    }
+
+    fn record_written(&self, id: ChangeSetId, track: TrackId) -> Result<()> {
+        let Some(found) = self.track(track)? else {
+            return Ok(());
+        };
+        match tags::read(&found.path, false) {
+            Ok(read) => self.record_after_from(id, track, &read.entries),
+            Err(reason) => {
+                log::warn!(
+                    "{}: not read back after writing: {reason}",
+                    found.path.display()
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn record_after_from(
+        &self,
+        id: ChangeSetId,
+        track: TrackId,
+        entries: &[tags::TagEntry],
+    ) -> Result<()> {
         let file_id: i64 = self.conn.query_row(
             "SELECT id FROM change_files WHERE set_id = ?1 AND track_id = ?2",
             params![id.0, track.0],
             |row| row.get(0),
         )?;
-        let entries = self.track_tags(track)?;
         for value in self.file_values(file_id)? {
             let after: Vec<String> = entries
                 .iter()
@@ -1155,7 +1213,9 @@ fn edit_from(targets: &[(String, Option<Vec<String>>)]) -> std::result::Result<T
             "cover" => {
                 edit.cover = match values.as_ref().and_then(|values| values.first()) {
                     Some(path) => FieldEdit::Set(
-                        fs::read(path).map_err(|error| format!("the kept cover: {error}"))?,
+                        fs::read(path)
+                            .map_err(|error| format!("the kept cover: {error}"))?
+                            .into(),
                     ),
                     None => FieldEdit::Clear,
                 }

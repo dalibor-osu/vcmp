@@ -666,11 +666,14 @@ impl AgentService {
                     let _ = sender.send(message);
                     notify();
                 };
-                let result = Library::open(&paths.database, &paths.cache)
-                    .and_then(|mut library| {
-                        library.accept_change_set(id, |done, _| send(Message::Progress(done)))
-                    })
-                    .map_err(|error| error.to_string());
+                let result = crate::worker::catch_panic(|| {
+                    Library::open(&paths.database, &paths.cache)
+                        .and_then(|mut library| {
+                            library.accept_change_set(id, |done, _| send(Message::Progress(done)))
+                        })
+                        .map_err(|error| error.to_string())
+                })
+                .and_then(|result| result);
                 send(Message::Finished(result));
             })
             .expect("spawning the change writing thread");
@@ -798,9 +801,9 @@ pub fn relay_connection(paths: &LibraryPaths) -> Result<vcmp_mcp::relay::Connect
             paths.database.display()
         ));
     }
-    let library = Library::open(&paths.database, &paths.cache)
+    let mut settings = Library::read_settings(&paths.database)
         .map_err(|error| format!("VCMP's library can't be read: {error}"))?;
-    let setting = |key| library.setting(key).ok().flatten();
+    let mut setting = |key: &str| settings.remove(key);
     if setting(SETTING_ENABLED).as_deref() != Some("true") {
         return Err(
             "VCMP's AI agents switch is off: turn on \"Let AI agents use your library\" in VCMP's Settings, under AI agents."

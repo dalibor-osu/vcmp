@@ -17,6 +17,7 @@ pub mod library_view;
 pub mod media_keys;
 pub mod moving_pictures;
 pub mod navigation;
+pub mod origin;
 pub mod player_service;
 pub mod playlists;
 pub mod preferences;
@@ -30,6 +31,7 @@ pub mod themes;
 pub mod title_bar;
 pub mod updates;
 pub mod wheel;
+pub mod worker;
 pub mod zoom;
 
 slint::include_modules!();

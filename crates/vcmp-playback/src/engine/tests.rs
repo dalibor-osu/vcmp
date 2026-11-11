@@ -37,7 +37,11 @@ struct TestSource;
 
 impl TrackSource for TestSource {
     fn open(&self, id: &str) -> Result<Box<dyn TrackStream>, PlaybackError> {
-        let Some(spec) = id.strip_prefix("synth:") else {
+        let (spec, seekable) = match id.strip_prefix("unseekable:") {
+            Some(spec) => (Some(spec), false),
+            None => (id.strip_prefix("synth:"), true),
+        };
+        let Some(spec) = spec else {
             return LocalSource.open(id);
         };
         let parts: Vec<f64> = spec.split(':').map(|p| p.parse().unwrap()).collect();
@@ -50,6 +54,7 @@ impl TrackSource for TestSource {
             total: (parts[0] * parts[2]) as usize,
             at: 0,
             samples: Vec::new(),
+            seekable,
         }))
     }
 }
@@ -59,6 +64,7 @@ struct Constant {
     total: usize,
     at: usize,
     samples: Vec<f32>,
+    seekable: bool,
 }
 
 impl TrackStream for Constant {
@@ -82,6 +88,10 @@ impl TrackStream for Constant {
     }
 
     fn seek(&mut self, position: Duration) -> Result<Duration, PlaybackError> {
+        if !self.seekable {
+            self.at = self.total / 2;
+            return Err(PlaybackError::Decode("no seek index".into()));
+        }
         let rate = f64::from(self.format.sample_rate);
         self.at = ((position.as_secs_f64() * rate).round() as usize).min(self.total);
         Ok(Duration::from_secs_f64(self.at as f64 / rate))
@@ -459,6 +469,19 @@ fn a_track_added_after_the_end_was_decoded_still_follows_gaplessly() {
 }
 
 #[test]
+fn a_track_that_cannot_seek_plays_from_its_start() {
+    let mut h = Harness::new(CD);
+    let track = QueueEntry::new(TrackRef::local("unseekable:44100:2:1"));
+    h.play_context(vec![track.clone()]);
+    h.play(1000);
+    h.send(Command::Seek(Duration::from_millis(500)));
+    h.wait_for("position", |e| *e == Event::Position(Duration::ZERO));
+    let out = h.play_to_end();
+    assert!(out.len() / 2 > 40_000, "{} frames", out.len() / 2);
+    assert_eq!(h.count(|e| matches!(e, Event::TrackFailed { .. })), 0);
+}
+
+#[test]
 fn seeking_continues_from_the_exact_sample() {
     let mut h = Harness::new(CD);
     h.play_context(vec![file("a", "flac")]);
@@ -585,6 +608,32 @@ fn unplayable_tracks_are_reported_and_skipped() {
         .collect();
     assert_eq!(failed.len(), 2);
     assert!(failed[0].ends_with("first.flac") && failed[1].ends_with("between.flac"));
+}
+
+#[test]
+fn a_track_without_audio_does_not_repeat_for_ever() {
+    for repeat in [RepeatMode::One, RepeatMode::All] {
+        let mut h = Harness::new(CD);
+        h.send(Command::SetRepeat(repeat));
+        h.play_context(vec![synth(RATE, 2, 0.0)]);
+        h.wait_for_track(None);
+        h.wait_for_state(PlaybackState::Stopped);
+        let rounds = h.count(|event| matches!(event, Event::TrackChanged(Some(_))));
+        assert!(rounds <= 2, "{repeat:?}: {rounds} rounds");
+        assert!(h.count(|event| matches!(event, Event::TrackFailed { .. })) >= 1);
+    }
+}
+
+#[test]
+fn a_track_without_audio_is_skipped_in_a_repeating_context() {
+    let mut h = Harness::new(CD);
+    let a = file("a", "flac");
+    h.send(Command::SetRepeat(RepeatMode::All));
+    h.play_context(vec![synth(RATE, 2, 0.0), a.clone()]);
+    h.play(3 * SPLIT);
+    for _ in 0..2 {
+        h.wait_for_track(Some(&a));
+    }
 }
 
 #[test]
@@ -830,6 +879,7 @@ fn without_a_device_commands_still_work_and_play_retries() {
 fn volume_follows_a_cubic_curve() {
     let mut h = Harness::new(CD);
     h.send(Command::SetVolume(0.5));
+    h.send(Command::SetVolume(f32::NAN));
     h.play_context(vec![synth(44_100, 2, 1.0)]);
     let out = h.play(5_000);
     assert!(

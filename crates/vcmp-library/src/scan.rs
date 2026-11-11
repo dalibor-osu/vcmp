@@ -13,7 +13,7 @@ use std::sync::{Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use walkdir::WalkDir;
 
 use crate::artwork::{self, ArtworkStore};
@@ -96,6 +96,7 @@ struct ReadJob<'a> {
 struct Discovered {
     files: HashMap<Vec<u8>, Found>,
     folder_images: HashMap<PathBuf, Vec<String>>,
+    unlisted: Vec<PathBuf>,
 }
 
 struct Known {
@@ -116,6 +117,7 @@ pub(crate) fn scan(
     let Discovered {
         files: found,
         folder_images,
+        unlisted,
     } = discover(conn, &mut report, cancel, progress)?;
     if cancel.load(Ordering::Relaxed) {
         report.cancelled = true;
@@ -129,7 +131,7 @@ pub(crate) fn scan(
     let known = known_tracks(conn)?;
 
     let mut to_read = Vec::new();
-    let tx = conn.transaction()?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     backfill_added_dates(&tx, &found, &known)?;
     for file in found.values() {
         match known.get(&path_codec::encode(&file.path)) {
@@ -153,7 +155,12 @@ pub(crate) fn scan(
     }
     let found_keys: HashSet<Vec<u8>> = found.keys().cloned().collect();
     for (key, row) in &known {
-        if row.available && !found_keys.contains(key) {
+        if row.available
+            && !found_keys.contains(key)
+            && !unlisted
+                .iter()
+                .any(|folder| path_codec::decode(key).starts_with(folder))
+        {
             tx.execute("UPDATE tracks SET available = 0 WHERE id = ?1", [row.id])?;
             report.became_unavailable += 1;
         }
@@ -181,9 +188,10 @@ pub(crate) fn scan(
     // One thread reads the files in order, ahead of the database writes. Eight
     // reader threads measured no faster on a hard disk, and one keeps disk access in
     // path order.
-    let ((), stored_covers) = with_cover_pool(artwork, |covers| {
+    let read = with_cover_pool(artwork, |covers| {
         let (read_sender, read_receiver) = mpsc::sync_channel(64);
         thread::scope(|scope| {
+            let read_receiver = read_receiver;
             let jobs = &jobs;
             scope.spawn(move || {
                 for job in jobs {
@@ -224,9 +232,9 @@ pub(crate) fn scan(
                             && album >= first_new_album
                             && !cover_sent.contains(&album)
                             && album_needs_artwork(tx, album)?
+                            && covers.try_send((album, cover)).is_ok()
                         {
                             cover_sent.insert(album);
-                            let _ = covers.send((album, cover));
                         }
                     }
                     Err(reason) => report.skipped.push(SkippedFile {
@@ -237,9 +245,19 @@ pub(crate) fn scan(
                 Ok(())
             })
         })
-    })?;
+    });
+    let ((), stored_covers) = match read {
+        Ok(read) => read,
+        Err(error) => {
+            if let Err(also) = finish_groups(conn) {
+                log::warn!("albums not finished after the scan failed: {also}");
+            }
+            return Err(error);
+        }
+    };
     save_artwork(conn, &stored_covers)?;
     if cancel.load(Ordering::Relaxed) {
+        finish_groups(conn)?;
         report.cancelled = true;
         return Ok(report);
     }
@@ -312,7 +330,7 @@ fn recheck_changed_folder_art(
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
 
-    let tx = conn.transaction()?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     for (folder, files) in &files_by_folder {
         let mut images = folder_images.get(*folder).cloned().unwrap_or_default();
         images.sort();
@@ -400,7 +418,7 @@ pub(crate) fn reread_edited(
         read.push((id, edit, file, track, old_album));
     }
 
-    let tx = conn.transaction()?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut albums = HashSet::new();
     for (id, edit, file, track, old_album) in read {
         let new_album = apply(
@@ -482,17 +500,32 @@ fn discover(
 
     let mut found = HashMap::new();
     let mut folder_images: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    let mut unlisted = Vec::new();
     for (source_id, root, recursive) in sources {
         if !root.is_dir() {
             report.unreachable_sources.push(root);
             continue;
         }
         let walker = WalkDir::new(&root).max_depth(if recursive { usize::MAX } else { 1 });
-        for entry in walker.into_iter().filter_map(|entry| entry.ok()) {
+        for entry in walker {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    if let Some(path) = error.path() {
+                        report.skipped.push(SkippedFile {
+                            path: path.to_path_buf(),
+                            reason: format!("could not be listed: {error}"),
+                        });
+                        unlisted.push(path.to_path_buf());
+                    }
+                    continue;
+                }
+            };
             if cancel.load(Ordering::Relaxed) {
                 return Ok(Discovered {
                     files: found,
                     folder_images,
+                    unlisted,
                 });
             }
             if !entry.file_type().is_file() {
@@ -548,6 +581,7 @@ fn discover(
     Ok(Discovered {
         files: found,
         folder_images,
+        unlisted,
     })
 }
 
@@ -789,7 +823,7 @@ fn upsert_unknown_album(tx: &Transaction, owner_id: Option<i64>) -> Result<i64> 
 /// Removes albums and artists nothing refers to any more, refreshes album years and
 /// rebuilds the artist and album search indexes.
 fn finish_groups(conn: &mut Connection) -> Result<()> {
-    let tx = conn.transaction()?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     tx.execute_batch(
         "DELETE FROM albums WHERE id NOT IN (SELECT album_id FROM tracks WHERE album_id IS NOT NULL);
          DELETE FROM artists
@@ -875,9 +909,9 @@ fn find_artwork(
     // cover shows instead.
     let failed = found
         .iter()
-        .filter(|(_, key)| key.is_none())
+        .filter(|(_, stored)| matches!(stored, Stored::NotAnImage))
         .map(|(id, _)| *id);
-    let tx = conn.transaction()?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     for album_id in without_artwork.iter().copied().chain(failed) {
         tx.execute(
             "UPDATE albums SET artwork_state = 2, artwork_hash = NULL WHERE id = ?1",
@@ -901,10 +935,10 @@ fn album_needs_artwork(tx: &Transaction, album: i64) -> Result<bool> {
 }
 
 /// Records found artwork; albums without a key are left for the artwork pass.
-fn save_artwork(conn: &mut Connection, found: &[(i64, Option<String>)]) -> Result<()> {
-    let tx = conn.transaction()?;
-    for (album_id, key) in found {
-        if let Some(key) = key {
+fn save_artwork(conn: &mut Connection, found: &[(i64, Stored)]) -> Result<()> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    for (album_id, stored) in found {
+        if let Stored::Key(key) = stored {
             tx.execute(
                 "UPDATE albums SET artwork_hash = ?2, artwork_state = 1 WHERE id = ?1",
                 params![album_id, key],
@@ -916,11 +950,21 @@ fn save_artwork(conn: &mut Connection, found: &[(i64, Option<String>)]) -> Resul
 }
 
 /// Stores an image; a cache write failure costs the album its artwork, not the scan.
-fn store_artwork(store: &ArtworkStore, data: &[u8]) -> Option<String> {
-    store.store(data).unwrap_or_else(|error| {
-        log::warn!("could not cache artwork: {error}");
-        None
-    })
+fn store_artwork(store: &ArtworkStore, data: &[u8]) -> Stored {
+    match store.store(data) {
+        Ok(Some(key)) => Stored::Key(key),
+        Ok(None) => Stored::NotAnImage,
+        Err(error) => {
+            log::warn!("could not cache artwork: {error}");
+            Stored::NotSaved
+        }
+    }
+}
+
+enum Stored {
+    Key(String),
+    NotAnImage,
+    NotSaved,
 }
 
 /// The image bytes to use for an album: a picture embedded in one of its first two
@@ -979,7 +1023,7 @@ fn write_as_received<T>(
         let tx = match open.take() {
             Some(tx) => tx,
             // Unchecked: no other transaction is open on this connection meanwhile.
-            None => conn.unchecked_transaction()?,
+            None => Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?,
         };
         write(&tx, index, next)?;
         index += 1;
@@ -1000,21 +1044,22 @@ fn worker_count() -> usize {
     thread::available_parallelism().map_or(4, |n| n.get().clamp(2, 8))
 }
 
-type StoredCovers = Vec<(i64, Option<String>)>;
+type StoredCovers = Vec<(i64, Stored)>;
 
 /// Runs `produce` on this thread while a pool of threads decodes, shrinks and caches
 /// the covers it sends as `(album, image bytes)`. Disk reads stay with `produce`, in
 /// order; only CPU work is spread out. Returns `produce`'s result and every album's
-/// artwork key (`None` when the image could not be used).
+/// artwork key, or why there is none.
 fn with_cover_pool<R>(
     store: &ArtworkStore,
-    produce: impl FnOnce(&mpsc::Sender<(i64, Vec<u8>)>) -> Result<R>,
+    produce: impl FnOnce(&mpsc::SyncSender<(i64, Vec<u8>)>) -> Result<R>,
 ) -> Result<(R, StoredCovers)> {
-    let (sender, receiver) = mpsc::channel::<(i64, Vec<u8>)>();
+    let workers = worker_count();
+    let (sender, receiver) = mpsc::sync_channel::<(i64, Vec<u8>)>(2 * workers);
     let receiver = Mutex::new(receiver);
     thread::scope(|scope| {
         let (stored_sender, stored_receiver) = mpsc::channel();
-        for _ in 0..worker_count() {
+        for _ in 0..workers {
             let (queue, stored) = (&receiver, stored_sender.clone());
             scope.spawn(move || {
                 loop {

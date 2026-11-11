@@ -145,13 +145,22 @@ aren't valid UTF-8 keep working.
    cover preferred), otherwise `cover`, `folder`, `front` or `album` with a `.jpg`,
    `.jpeg`, `.png`, `.webp` or `.gif` extension in the tracks' folders, matched
    case-insensitively. Files are read in order on one thread; the same cover pool
-   does the image work. An album found without art loses the artwork key it had,
-   so a fetched cover shows instead of stale art.
+   does the image work, through a queue of twice its threads, so image bytes don't
+   pile up when reading outruns decoding. An album found without art loses the
+   artwork key it had, so a fetched cover shows instead of stale art. A cover the
+   cache couldn't take (a full disk) leaves the album to be looked at again at the
+   next scan, rather than marked as having none.
 
 `Library::scan` takes a cancel flag and a progress callback, and returns a
 `ScanReport` with counts, skipped files and unreachable sources. Removing a source
 marks its tracks unavailable; adding it back and scanning restores them with the same
-IDs.
+IDs. A folder that can't be listed is reported among the skipped files, and its
+tracks keep their state rather than going unavailable. A scan that is cancelled or
+fails still brings album years and search up to date with what it added.
+
+Writes that read first take the write lock as they begin (`BEGIN IMMEDIATE`): a
+deferred transaction that another connection's commit overtakes fails at once with
+"database is locked", where an immediate one waits out the busy timeout.
 
 A file without tags gets its file name (without the extension) as its title; its
 artist and album stay empty, and it lands in the Unknown album without an artist.
@@ -216,7 +225,7 @@ Each file is written through a verified copy:
 
 1. Follow a symlink to the real file. Refuse a read-only file, and read the tags the
    way a scan does.
-2. Copy the file next to itself as `.<name>.<random>.vcmp-tmp`, with the same
+2. Copy the file next to itself as `.vcmp-<random>.tmp`, with the same
    permissions. The name hides it from scans and file managers. A failure at any
    later step deletes the copy.
 3. Edit the tag VCMP reads in the copy: ID3v2 in MP3, WAV and AIFF, Vorbis
@@ -354,7 +363,8 @@ accepted.
   can't overwrite what changed since it looked. Each file's result is `written`,
   `conflict` or `failed`; the set is `accepted` when every file was written,
   otherwise `partly_written`. What each written file reads back as is recorded
-  (`change_values.after`).
+  (`change_values.after`) as soon as it is written, read from the file itself, and
+  again from the library once the set is done.
 - **Undo** (`Library::submit_undo`) is a new pending set, reviewed like any other. It
   writes back the `before` values of every written file, raw: all values of a key
   and in their form, so two `ARTIST` fields or a full `DATE` come back as they were
@@ -383,10 +393,14 @@ accepted.
   one of them still exists; its undo has no tracks and only deletes them. Sets
   never mix tags and labels.
 - **Playlist deletions** (`Library::submit_playlist_deletion`) wait for review too, and
-  can't be undone.
+  can't be undone. Playlist ids are reused, so accepting checks that the id still
+  names a playlist of the name asked about; when it doesn't, nothing is deleted and
+  the set stays pending for the owner to reject.
 - **Rejected and discarded.** `Library::reject_change_set` finishes a set unwritten.
   `Library::discard_pending_change_sets` marks every set still pending as discarded,
   for the app to call when it starts: VCMP keeps no set waiting across a restart.
+  A pending set with written files was cut off while it was written (VCMP quit or
+  crashed): it becomes `partly_written` instead, so the files it wrote can be undone.
 - **Retention.** A finished set is kept for 30 days (`CHANGE_SETS_KEPT`), with the
   covers only it refers to: `Library::expire_change_sets` deletes older ones.
   `Library::delete_finished_change_sets` deletes every finished set at once and
@@ -495,7 +509,8 @@ the first frame; the original is kept beside it for the few places that play it
 
 `LibraryWatcher` watches the reachable sources and calls back once no change has
 arrived for a quiet period, so copying an album produces one notification. It never
-scans by itself. The app's `LibraryService` (see [ui.md](ui.md#music-folders-and-scanning))
+scans by itself. Changes that never pause (a sync tool busy in a folder) are reported
+at the latest 30 quiet periods after the first one. The app's `LibraryService` (see [ui.md](ui.md#music-folders-and-scanning))
 starts it, and scans at startup, while `library.auto_update` is on (the default).
 
 ## Search
@@ -555,7 +570,9 @@ tracks are searched separately.
     letter or network share on Windows. They are written with `/` on every
     platform, which Windows accepts too, so the file also works on a phone or
     another system. Otherwise the path is absolute, in the platform's own form. The
-    folder is resolved (symlinks, `..`) first, as track paths are.
+    folder is resolved (symlinks, `..`) first, as track paths are. A relative path
+    that would start with `#` (a folder "#1 Hits" beside the playlist) is written
+    as `./#1 Hits/…`, so it isn't read back as a comment.
   - **Missing files:** an entry whose file is gone is written with the path the
     library last saw, so the playlist is whole again when the drive is back; other
     players skip it meanwhile. `M3uExport::missing` counts them for the page.
@@ -579,7 +596,9 @@ tracks are searched separately.
     the playlist file's folder when relative, and has `.` and `..` resolved
     without the filesystem. It matches the track stored at that path, available or
     not, like `track_id_for_path`; failing that, a file that exists is looked up
-    again by its real path (letter case on Windows, links).
+    again by its real path (letter case on Windows, links). A Windows network or
+    device path is never looked up unless it lies in a music folder: a downloaded
+    playlist naming `\\host\share\…` would make Windows contact that host.
   - **Then by tags:** an entry whose path gives no library track (gone, outside the
     music folders, a URL) and that has an `#EXTINF` text is matched by it. The text
     is split at the first " - " into artist and title, compared with every track's
@@ -777,6 +796,11 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   "Update automatically" off the backfill waits for the next rescan.
 - CUE sheets aren't read: an album ripped as one file plus a `.cue` shows up as a
   single long track.
+- Links inside a music folder aren't followed: a linked file or folder
+  (`~/Music/classical -> /mnt/nas/classical`) adds nothing, and the scan doesn't
+  say so. Add the link's target as a music folder of its own.
+- The tag writer's read-back compares tags, format and duration, not the audio: a
+  writer that damaged the audio data but kept the headers would pass.
 - A folder image is noticed by its name, size and modification time. An image
   replaced by another of the same size with its old modification time restored
   goes unnoticed until a track of the album changes.
@@ -837,7 +861,7 @@ cargo run --release -p vcmp-library --example scan_profile -- /path/to/music
   `docs/ui.md`, "Tag editor").
 - Replacing a file gives it a new inode (Unix) or file ID (Windows). Hard links keep
   the old content, and on Unix the file's owner becomes the user running VCMP.
-- A crash between the copy and the rename can leave a `.<name>.<random>.vcmp-tmp`
+- A crash between the copy and the rename can leave a `.vcmp-<random>.tmp`
   file next to the music file. Scans ignore it, and it can be deleted.
 - Setting the cover of one track doesn't change the album's other tracks. The album
   artwork comes from its first two tracks, so to change it, edit the whole album.

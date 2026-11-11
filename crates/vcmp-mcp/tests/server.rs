@@ -571,6 +571,43 @@ fn a_cover_from_a_file_waits_for_review_like_any_tag() {
         .unwrap_err();
     assert!(page.contains("only http and https"), "{page}");
 
+    let mut cover_error = |cover: Value| {
+        session
+            .call(
+                "propose_tag_changes",
+                json!({ "changes": [{ "track_id": a.0, "cover": cover }] }),
+            )
+            .unwrap_err()
+    };
+    let missing = setup._dir.path().join("nowhere.png");
+    let folder = setup._dir.path().to_path_buf();
+    for path in [missing, folder] {
+        let refused = cover_error(json!({ "file": path.to_str().unwrap() }));
+        assert!(refused.contains("no readable image file"), "{refused}");
+    }
+    #[cfg(windows)]
+    for path in [r"\\host\share\cover.png", r"\\.\PhysicalDrive0"] {
+        let refused = cover_error(json!({ "file": path }));
+        assert!(refused.contains("own disks"), "{refused}");
+    }
+    for url in [
+        "http://127.0.0.1:9/cover.png",
+        "http://localhost:9/cover.png",
+        "http://192.168.1.1/cover.png",
+        "http://[::1]:9/cover.png",
+    ] {
+        let refused = cover_error(json!({ "url": url }));
+        assert!(refused.contains("not on the public internet"), "{refused}");
+    }
+
+    let many: Vec<Value> = (0..11)
+        .map(|n| json!({ "track_id": a.0, "cover": { "file": format!("{}{n}", image.display()) } }))
+        .collect();
+    let refused = session
+        .call("propose_tag_changes", json!({ "changes": many }))
+        .unwrap_err();
+    assert!(refused.contains("at most 10 different covers"), "{refused}");
+
     let removed = session
         .call(
             "propose_tag_changes",
@@ -758,6 +795,43 @@ fn playlists_change_at_once_but_deleting_waits() {
     assert_eq!(playlist["playlist"]["name"], "Better mix");
     assert_eq!(playlist["entries"][0]["track"]["title"], "B");
 
+    let refused = |session: &mut Session<'_>, tool: &str, arguments: Value| {
+        session.call(tool, arguments).unwrap_err()
+    };
+    let unknown = refused(
+        &mut session,
+        "rename_playlist",
+        json!({ "playlist_id": 999, "name": "X" }),
+    );
+    assert!(unknown.contains("no playlist 999"), "{unknown}");
+    let past = refused(
+        &mut session,
+        "move_in_playlist",
+        json!({ "playlist_id": id, "from": 0, "to": 5 }),
+    );
+    assert!(past.contains("no position 5"), "{past}");
+    let past = refused(
+        &mut session,
+        "remove_from_playlist",
+        json!({ "playlist_id": id, "positions": [2] }),
+    );
+    assert!(past.contains("no position 2"), "{past}");
+    let all = refused(
+        &mut session,
+        "remove_from_playlist",
+        json!({ "playlist_id": id, "positions": [0, 1] }),
+    );
+    assert!(all.contains("removes every entry"), "{all}");
+    assert_eq!(
+        setup
+            .library
+            .playlist(PlaylistId(id))
+            .unwrap()
+            .unwrap()
+            .track_count,
+        2
+    );
+
     let asked = session
         .call("propose_playlist_deletion", json!({ "playlist_id": id }))
         .unwrap();
@@ -883,6 +957,67 @@ fn the_relay_reads_the_settings_again_for_a_new_token() {
         "{answers:?}"
     );
     assert_eq!(reads.get(), 2);
+}
+
+fn cut_short_server(answer: &'static str) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let taken = std::sync::Arc::new(AtomicUsize::new(0));
+    let count = taken.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            count.fetch_add(1, Ordering::SeqCst);
+            let mut request = [0; 4096];
+            let _ = stream.read(&mut request);
+            let _ = stream.write_all(answer.as_bytes());
+        }
+    });
+    (port, taken)
+}
+
+#[test]
+fn the_relay_reports_an_answer_cut_short_and_does_not_send_again() {
+    let answers_from = |answer: &'static str| {
+        let (port, taken) = cut_short_server(answer);
+        let settings = || {
+            Ok(relay::Connection {
+                port,
+                token: TOKEN.into(),
+            })
+        };
+        let answers = relay(
+            &settings,
+            &[json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list" })],
+        );
+        (answers, taken.load(std::sync::atomic::Ordering::SeqCst))
+    };
+    for answer in [
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 400\r\n\r\n{\"jsonrpc\":",
+    ] {
+        let (answers, taken) = answers_from(answer);
+        assert_eq!(taken, 1, "sent once");
+        assert_eq!(answers.len(), 1, "{answers:?}");
+        assert_eq!(answers[0]["id"], 7);
+        let message = answers[0]["error"]["message"].as_str().unwrap();
+        assert!(message.contains("didn't come back whole"), "{message}");
+    }
+
+    let (port, _) = cut_short_server("HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n");
+    let settings = || {
+        Ok(relay::Connection {
+            port,
+            token: TOKEN.into(),
+        })
+    };
+    let answers = relay(
+        &settings,
+        &[json!({ "jsonrpc": "2.0", "id": 4, "result": {} })],
+    );
+    assert!(answers.is_empty(), "a reply to VCMP gets none: {answers:?}");
 }
 
 /// Removes `b.flac` from the disk, as if its drive were unplugged; the library still
@@ -1280,4 +1415,52 @@ fn a_repeating_context_is_listed_once() {
     let off = now(status(Repeat::Off, ShuffleKind::FewerRepeats, 0));
     assert_eq!(off["upcoming"], json!([]));
     assert_eq!(off["repeats"], false);
+}
+
+#[test]
+fn stopping_the_server_does_not_wait_for_a_request_in_flight() {
+    let setup = start();
+    let session = setup.session().id;
+    let a = id_of(&setup.library, "a.flac");
+    let player = setup.player.clone();
+    let held = player.asked.lock().unwrap();
+    let address = setup.server.address();
+    let request = std::thread::spawn(move || {
+        let http: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let body = json!({
+            "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+            "params": { "name": "play_tracks", "arguments": { "track_ids": [a.0] } }
+        });
+        let _ = http
+            .post(&address)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .header("Authorization", &format!("Bearer {TOKEN}"))
+            .header("Mcp-Session-Id", &session)
+            .send(body.to_string());
+    });
+    std::thread::sleep(Duration::from_millis(500));
+
+    let Setup {
+        server,
+        library,
+        player: _,
+        http: _,
+        _dir,
+    } = setup;
+    let (done, dropped) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        drop(server);
+        let _ = done.send(());
+    });
+    assert!(
+        dropped.recv_timeout(Duration::from_secs(5)).is_ok(),
+        "the server stopped while the app still held the request"
+    );
+    drop(held);
+    request.join().unwrap();
+    drop(library);
 }

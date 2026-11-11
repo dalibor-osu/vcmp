@@ -560,6 +560,10 @@ fn playback_problems_are_shown_and_cleared() {
         PlayerProblem::None,
         "a new track clears a skipped one"
     );
+
+    app.service.engine_stopped();
+    assert_eq!(app.state().get_problem(), PlayerProblem::EngineStopped);
+    assert_eq!(app.state().get_state(), PlayState::Stopped);
 }
 
 #[test]

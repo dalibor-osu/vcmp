@@ -225,6 +225,32 @@ fn the_table_works_from_the_keyboard() {
 }
 
 #[test]
+fn the_keyboard_carries_on_from_a_click() {
+    let app = start();
+    app.show();
+    app.window.invoke_release_focus();
+    let row = find(&app.window, AccessibleRole::ListItem, "Mango, Bravo");
+    let (position, size) = (row.absolute_position(), row.size());
+    let position = LogicalPosition::new(position.x + 80.0, position.y + size.height / 2.0);
+    let window = app.window.window();
+    let button = slint::platform::PointerEventButton::Left;
+    window.dispatch_event(WindowEvent::PointerMoved { position });
+    window.dispatch_event(WindowEvent::PointerPressed { position, button });
+    window.dispatch_event(WindowEvent::PointerReleased { position, button });
+    let selected = || -> Vec<String> {
+        app.window
+            .get_songs()
+            .iter()
+            .filter(|row| row.selected)
+            .map(|row| row.title.to_string())
+            .collect()
+    };
+    assert_eq!(selected(), ["Mango"]);
+    key(&app.window, Key::Escape);
+    assert!(selected().is_empty(), "Escape clears the selection");
+}
+
+#[test]
 fn only_the_rows_in_view_are_created() {
     let app = start();
     app.show();

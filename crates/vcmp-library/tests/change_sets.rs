@@ -275,7 +275,7 @@ fn undo_puts_back_every_value_as_it_was() {
             title: set("New title"),
             artist: set("New artist"),
             year: FieldEdit::Set(2001),
-            cover: FieldEdit::Set(png([200, 0, 0])),
+            cover: FieldEdit::Set(png([200, 0, 0]).into()),
             other: [
                 ("Composer".to_owned(), FieldEdit::Clear),
                 ("Label".to_owned(), values(&["New label"])),
@@ -468,6 +468,37 @@ fn sets_left_pending_are_discarded() {
 }
 
 #[test]
+fn a_set_cut_off_while_written_can_be_undone() {
+    let mut setup = Setup::new();
+    let a = add_file(&setup.music(), "a.flac", "silence.flac", "A");
+    let b = add_file(&setup.music(), "b.flac", "silence.flac", "B");
+    setup.scan();
+    let (a_id, b_id) = (setup.id(&a), setup.id(&b));
+    let set_id = setup.submit(&[(a_id, title("New A")), (b_id, title("New B"))]);
+
+    let library = &mut setup.library;
+    let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        library.accept_change_set(set_id, |done, _| {
+            assert!(done < 1, "VCMP stops here");
+        })
+    }));
+    assert!(interrupted.is_err());
+    assert_eq!(setup.status(set_id), ChangeStatus::Pending);
+
+    assert_eq!(setup.library.discard_pending_change_sets().unwrap(), 0);
+    assert_eq!(setup.status(set_id), ChangeStatus::PartlyWritten);
+    setup.scan();
+    assert_eq!(setup.stored(a_id, "TrackTitle"), ["New A"]);
+    assert_eq!(setup.stored(b_id, "TrackTitle"), ["B"]);
+
+    let undo = setup.library.submit_undo(set_id, "Test agent").unwrap();
+    let undone = setup.accept(undo);
+    assert_eq!(undone.files.len(), 1, "only the file written");
+    assert_eq!(undone.files[0].result, Some(FileResult::Written));
+    assert_eq!(setup.stored(a_id, "TrackTitle"), ["A"]);
+}
+
+#[test]
 fn finished_sets_expire_after_30_days_with_their_covers() {
     let mut setup = Setup::new();
     let a = add_file(&setup.music(), "a.flac", "silence.flac", "A");
@@ -476,7 +507,7 @@ fn finished_sets_expire_after_30_days_with_their_covers() {
     let (a, b) = (setup.id(&a), setup.id(&b));
 
     let with_cover = TagEdit {
-        cover: FieldEdit::Set(png([0, 200, 0])),
+        cover: FieldEdit::Set(png([0, 200, 0]).into()),
         ..TagEdit::default()
     };
     let old = setup.submit(&[(a, with_cover)]);
@@ -519,7 +550,7 @@ fn deleting_finished_sets_frees_their_covers() {
     let finished = setup.submit(&[(
         a,
         TagEdit {
-            cover: FieldEdit::Set(png([0, 0, 200])),
+            cover: FieldEdit::Set(png([0, 0, 200]).into()),
             ..TagEdit::default()
         },
     )]);
@@ -564,4 +595,23 @@ fn a_playlist_deletion_waits_for_review_and_cannot_be_undone() {
         setup.library.submit_undo(set_id, "Test agent"),
         Err(Error::NotUndoable(_))
     ));
+}
+
+#[test]
+fn a_deletion_leaves_a_playlist_that_took_the_id_since() {
+    let mut setup = Setup::new();
+    let playlist = setup.library.create_playlist("Road trip").unwrap();
+    let set_id = setup
+        .library
+        .submit_playlist_deletion("Test agent", playlist)
+        .unwrap();
+    setup.library.delete_playlist(playlist).unwrap();
+    let other = setup.library.create_playlist("Favourites of 2026").unwrap();
+    assert_eq!(other, playlist, "ids are reused");
+
+    assert!(matches!(
+        setup.library.accept_change_set(set_id, |_, _| {}),
+        Err(Error::UnknownPlaylist(_))
+    ));
+    assert!(setup.library.playlist(other).unwrap().is_some());
 }

@@ -22,6 +22,7 @@ use std::net::{Ipv4Addr, TcpListener};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use axum::extract::{Request, State};
 use axum::http::{StatusCode, header};
@@ -132,6 +133,7 @@ impl Server {
         let cancel = CancellationToken::new();
         let token: Arc<str> = config.token.into();
         let stop = cancel.clone();
+        let stopped = cancel.clone();
         let thread = thread::Builder::new()
             .name("vcmp-mcp".into())
             .spawn(move || {
@@ -145,11 +147,20 @@ impl Server {
                         return;
                     }
                 };
-                if let Err(error) =
-                    runtime.block_on(serve(listener, token, library, changes, playback, stop))
-                {
+                let served = runtime.block_on(async {
+                    let server = serve(listener, token, library, changes, playback, stop);
+                    tokio::select! {
+                        result = server => result,
+                        () = async {
+                            stopped.cancelled().await;
+                            tokio::time::sleep(STOP_GRACE).await;
+                        } => Ok(()),
+                    }
+                });
+                if let Err(error) = served {
                     log::error!("the MCP server stopped: {error}");
                 }
+                runtime.shutdown_timeout(Duration::ZERO);
             })
             .map_err(StartError::Thread)?;
         Ok(Self {
@@ -168,6 +179,8 @@ impl Server {
         address(self.port)
     }
 }
+
+const STOP_GRACE: Duration = Duration::from_millis(500);
 
 impl Drop for Server {
     fn drop(&mut self) {
@@ -232,16 +245,29 @@ async fn require_token(State(token): State<Arc<str>>, request: Request, next: Ne
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    match given {
-        Some(given) if same(given.as_bytes(), token.as_bytes()) => next.run(request).await,
-        _ => (
-            StatusCode::UNAUTHORIZED,
-            [(header::WWW_AUTHENTICATE, "Bearer")],
-            "VCMP needs its token: Authorization: Bearer <token>, from VCMP's Settings.",
+    let allowed = given.is_some_and(|given| same(given.as_bytes(), token.as_bytes()));
+    let (parts, body) = request.into_parts();
+    let Ok(body) = axum::body::to_bytes(body, BODY_LIMIT).await else {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "A request to VCMP may take at most 4 MiB.",
         )
-            .into_response(),
+            .into_response();
+    };
+    if allowed {
+        return next
+            .run(Request::from_parts(parts, axum::body::Body::from(body)))
+            .await;
     }
+    (
+        StatusCode::UNAUTHORIZED,
+        [(header::WWW_AUTHENTICATE, "Bearer")],
+        "VCMP needs its token: Authorization: Bearer <token>, from VCMP's Settings.",
+    )
+        .into_response()
 }
+
+const BODY_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Compares in time that doesn't depend on where the first difference is.
 fn same(a: &[u8], b: &[u8]) -> bool {
