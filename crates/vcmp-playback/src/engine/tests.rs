@@ -588,6 +588,32 @@ fn unplayable_tracks_are_reported_and_skipped() {
 }
 
 #[test]
+fn a_track_without_audio_does_not_repeat_for_ever() {
+    for repeat in [RepeatMode::One, RepeatMode::All] {
+        let mut h = Harness::new(CD);
+        h.send(Command::SetRepeat(repeat));
+        h.play_context(vec![synth(RATE, 2, 0.0)]);
+        h.wait_for_track(None);
+        h.wait_for_state(PlaybackState::Stopped);
+        let rounds = h.count(|event| matches!(event, Event::TrackChanged(Some(_))));
+        assert!(rounds <= 2, "{repeat:?}: {rounds} rounds");
+        assert!(h.count(|event| matches!(event, Event::TrackFailed { .. })) >= 1);
+    }
+}
+
+#[test]
+fn a_track_without_audio_is_skipped_in_a_repeating_context() {
+    let mut h = Harness::new(CD);
+    let a = file("a", "flac");
+    h.send(Command::SetRepeat(RepeatMode::All));
+    h.play_context(vec![synth(RATE, 2, 0.0), a.clone()]);
+    h.play(3 * SPLIT);
+    for _ in 0..2 {
+        h.wait_for_track(Some(&a));
+    }
+}
+
+#[test]
 fn a_queue_of_only_missing_tracks_stops() {
     let mut h = Harness::new(CD);
     h.send(Command::SetRepeat(RepeatMode::All));

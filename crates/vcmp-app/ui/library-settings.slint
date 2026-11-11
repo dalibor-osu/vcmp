@@ -83,21 +83,37 @@ component FolderRow {
     }
 }
 
-// Settings for where music comes from, and the state of the last scan.
-// The way into an empty library, on every page that lists it: the system's folder
-// dialog, as Add folder… in Settings opens it.
-export component AddFolderButton inherits HorizontalLayout {
-    alignment: start;
-
-    Button {
-        text: @tr("Add music folder…");
-        primary: true;
-        clicked => {
-            LibraryState.add-folder();
-        }
+component AddFolderError inherits VerticalLayout {
+    if LibraryState.folders.length == 0 && LibraryState.error == LibraryError.add-folder: Text {
+        text: @tr("That folder could not be added: {}", LibraryState.error-detail);
+        color: Theme.colors.text;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
     }
 }
 
+// The way into an empty library, on every page that lists it: the system's folder
+// dialog, as Add folder… in Settings opens it.
+export component AddFolderButton inherits VerticalLayout {
+    spacing: Theme.space-s;
+
+    HorizontalLayout {
+        alignment: start;
+
+        Button {
+            text: @tr("Add music folder…");
+            primary: true;
+            clicked => {
+                LibraryState.add-folder();
+            }
+        }
+    }
+
+    AddFolderError { }
+}
+
+// Settings for where music comes from, and the state of the last scan.
 export component LibrarySection inherits VerticalLayout {
     // Off in the setup wizard, whose step already has the title.
     in property <bool> heading: true;
@@ -134,6 +150,8 @@ export component LibrarySection inherits VerticalLayout {
             }
         }
     }
+
+    AddFolderError { }
 
     // Scan status and the rescan action, once there is something to scan.
     if LibraryState.folders.length > 0: HorizontalLayout {

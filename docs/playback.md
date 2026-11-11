@@ -163,7 +163,7 @@ resume) would let tag edits through sooner, but isn't built.
 | Device selection | By name, from `output_devices()`. `None` is the system default |
 | Missing device | Falls back to the system default. `OutputChanged { fell_back: true }` lets the UI tell the user |
 | Format | The device's default config, switched to stereo when the device offers it. Any cpal sample format (`f32`, `i16`, `i24`, `u8`...) is converted in the callback |
-| Unplugged device or invalidated stream | The engine reopens the output and resumes at the same position |
+| Unplugged device or invalidated stream, and on Windows any other stream error | The engine reopens the output and resumes at the same position (`stops_the_stream` in `src/output.rs`). On Windows only an underrun, a refused real-time priority and a route cpal followed by itself leave the stream as it is: WASAPI's worker ends on every other error, a stopped audio service included. ALSA's worker reports other errors and carries on, so elsewhere only a lost device or an invalidated stream reopens |
 | No device at all | `OutputFailed`; playback pauses, the queue keeps working, and Play retries |
 | Volume | `SetVolume(0.0..=1.0)` is a slider position. The amplitude is its cube, which is close to how loudness is heard. Changes ramp over 10 ms |
 
@@ -220,6 +220,10 @@ These are the agreed semantics. The pure logic is `Queue`, and the engine drives
 - **Repeat: off, all or one.** Repeat one replays a track when it ends. Next still
   moves on, and the context wraps around. Repeat is not in the spec; it was added
   because "each track once per cycle" needs a defined end of a cycle.
+  - The queue panel shows up to 100 tracks ahead, so with repeat all a short
+    context is laid out several cycles ahead. Turning repeat off ends the context
+    with the cycle playing, however far it was laid out (`cycle_starts` in
+    `src/queue.rs`).
 - **End of the queue.** The player stops, and Play starts the context over.
 - **Stop after the current track** (`Command::StopAfterCurrent`, the sleep timer's
   end). Nothing is prepared after the current track, and a next track already in the
@@ -233,7 +237,11 @@ These are the agreed semantics. The pure logic is `Queue`, and the engine drives
   - Doing this in the app on `TrackChanged` would let a moment of the next track
     through, since that event comes once the next track is audible.
 - **Unplayable tracks** (missing file, unplugged drive, unsupported data) are reported
-  with `TrackFailed` and skipped. After 100 in a row the player stops.
+  with `TrackFailed` and skipped. After 100 in a row the player stops. Only audio
+  coming out ends a row: a file that opens but gives no audio from its start (a
+  header-only WAV, data broken from the first frame) counts as unplayable, and when
+  it would only follow itself (repeat one, or the only track on repeat all) the
+  queue ends after it rather than going round without a pause.
 
 ### Shuffle
 

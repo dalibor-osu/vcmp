@@ -90,6 +90,7 @@ pub(crate) struct Engine {
     stop_after_current: bool,
     volume: f32,
     failures: usize,
+    decoded_audio: bool,
     last_position: Instant,
     /// The track last reported with [`Event::Decoding`].
     reported_decoding: Option<TrackRef>,
@@ -125,6 +126,7 @@ impl Engine {
             stop_after_current: false,
             volume: options.volume,
             failures: 0,
+            decoded_audio: false,
             last_position: Instant::now(),
             reported_decoding: None,
         }
@@ -516,7 +518,6 @@ impl Engine {
             };
             match self.open(&entry, position) {
                 Ok((stream, offset)) => {
-                    self.failures = 0;
                     let duration = stream.duration();
                     self.segments.push_back(Segment {
                         entry: entry.clone(),
@@ -525,6 +526,7 @@ impl Engine {
                         duration,
                     });
                     self.decoder = Some(stream);
+                    self.decoded_audio = false;
                     if announce {
                         self.emit(Event::TrackChanged(Some(NowPlaying {
                             entry,
@@ -605,11 +607,30 @@ impl Engine {
             Ok(None) => Ok(false),
             Err(error) => Err(error),
         };
+        let silent_from_start = !self.decoded_audio
+            && self
+                .segments
+                .back()
+                .is_some_and(|segment| segment.offset.is_zero());
         match result {
-            Ok(true) => {}
+            Ok(true) => {
+                if !self.decoded_audio {
+                    self.decoded_audio = true;
+                    self.failures = 0;
+                }
+            }
             Ok(false) => {
                 self.decoder = None;
-                self.prepare_next();
+                if silent_from_start {
+                    if let Some(segment) = self.segments.back() {
+                        let track = segment.entry.track.clone();
+                        let error = PlaybackError::Unsupported("the file holds no audio".into());
+                        self.emit(Event::TrackFailed { track, error });
+                    }
+                    self.ended_without_audio();
+                } else {
+                    self.prepare_next();
+                }
             }
             Err(error) => {
                 if let Some(segment) = self.segments.back() {
@@ -617,10 +638,31 @@ impl Engine {
                     self.emit(Event::TrackFailed { track, error });
                 }
                 self.decoder = None;
-                self.prepare_next();
+                if silent_from_start {
+                    self.ended_without_audio();
+                } else {
+                    self.prepare_next();
+                }
             }
         }
         true
+    }
+
+    fn ended_without_audio(&mut self) {
+        self.failures += 1;
+        let repeats_itself = self.segments.len() == 1 && {
+            let track = self
+                .segments
+                .back()
+                .map(|segment| segment.entry.track.clone());
+            self.following().map(|entry| &entry.track) == track.as_ref()
+        };
+        if self.failures >= MAX_FAILURES || repeats_itself {
+            self.converter.finish(&mut self.pending);
+            self.end_at = Some(self.stream_base + self.converter.emitted());
+        } else {
+            self.prepare_next();
+        }
     }
 
     /// Opens the track that follows the last one in the ring and starts decoding it
@@ -639,7 +681,6 @@ impl Engine {
             };
             match self.open(&entry, Duration::ZERO) {
                 Ok((stream, _)) => {
-                    self.failures = 0;
                     self.segments.push_back(Segment {
                         entry,
                         start: self.stream_base + self.converter.next_output_frame(),
@@ -647,6 +688,7 @@ impl Engine {
                         duration: stream.duration(),
                     });
                     self.decoder = Some(stream);
+                    self.decoded_audio = false;
                     return;
                 }
                 Err(error) => {

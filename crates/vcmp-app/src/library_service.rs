@@ -230,27 +230,32 @@ impl LibraryService {
                     let _ = sender.send(message);
                     notify();
                 };
-                let result =
-                    Library::open(&paths.database, &paths.cache).and_then(|mut library| {
-                        let (mut last_progress, mut last_albums) = (Instant::now(), Instant::now());
-                        let mut last_phase = Phase::Discovering;
-                        library.scan(&cancel, |progress| {
-                            let phase_changed = progress.phase != last_phase;
-                            if phase_changed || last_progress.elapsed() >= PROGRESS_INTERVAL {
-                                last_progress = Instant::now();
-                                send(Message::Progress(progress));
-                            }
-                            if (phase_changed && last_phase == Phase::Reading)
-                                || (progress.phase == Phase::Reading
-                                    && last_albums.elapsed() >= ALBUMS_INTERVAL)
-                            {
-                                last_albums = Instant::now();
-                                send(Message::AlbumsChanged);
-                            }
-                            last_phase = progress.phase;
+                let result = crate::worker::catch_panic(|| {
+                    Library::open(&paths.database, &paths.cache)
+                        .and_then(|mut library| {
+                            let (mut last_progress, mut last_albums) =
+                                (Instant::now(), Instant::now());
+                            let mut last_phase = Phase::Discovering;
+                            library.scan(&cancel, |progress| {
+                                let phase_changed = progress.phase != last_phase;
+                                if phase_changed || last_progress.elapsed() >= PROGRESS_INTERVAL {
+                                    last_progress = Instant::now();
+                                    send(Message::Progress(progress));
+                                }
+                                if (phase_changed && last_phase == Phase::Reading)
+                                    || (progress.phase == Phase::Reading
+                                        && last_albums.elapsed() >= ALBUMS_INTERVAL)
+                                {
+                                    last_albums = Instant::now();
+                                    send(Message::AlbumsChanged);
+                                }
+                                last_phase = progress.phase;
+                            })
                         })
-                    });
-                send(Message::Finished(result.map_err(|error| error.to_string())));
+                        .map_err(|error| error.to_string())
+                })
+                .and_then(|result| result);
+                send(Message::Finished(result));
             })
             .expect("spawning the scan thread");
     }

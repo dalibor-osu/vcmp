@@ -30,6 +30,7 @@ pub mod themes;
 pub mod title_bar;
 pub mod updates;
 pub mod wheel;
+pub mod worker;
 pub mod zoom;
 
 slint::include_modules!();

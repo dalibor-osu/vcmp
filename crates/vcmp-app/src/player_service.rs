@@ -1277,11 +1277,22 @@ impl PlayerService {
             .spawn(move || {
                 for event in events {
                     if !Self::post(move |service| service.handle_event(event)) {
-                        break;
+                        return;
                     }
                 }
+                Self::post(|service| service.engine_stopped());
             })
             .expect("spawning the player event thread");
+    }
+
+    pub fn engine_stopped(&self) {
+        log::error!("the playback engine stopped");
+        self.handle_event(Event::StateChanged(PlaybackState::Stopped));
+        if let Some(window) = self.window.upgrade() {
+            let state = window.global::<PlayerState>();
+            state.set_problem(PlayerProblem::EngineStopped);
+            state.set_problem_detail(Default::default());
+        }
     }
 
     /// Runs `action` with the service on the UI thread, from any thread. False once

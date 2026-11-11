@@ -122,9 +122,10 @@ pub struct Queue {
     groups: Groups,
     order: Vec<usize>,
     cursor: usize,
-    /// Where `order` was extended ahead of time for another repeat cycle. Turning
-    /// repeat off drops everything from here on.
-    repeat_from: Option<usize>,
+    /// Where `order` was extended ahead of time for each further repeat cycle, in
+    /// order. Turning repeat off drops everything from the first one still ahead, so
+    /// the cycle playing ends the context however many cycles were shown ahead.
+    cycle_starts: Vec<usize>,
     up_next: VecDeque<QueueEntry>,
     current: Option<QueueSlot>,
     history: VecDeque<QueueSlot>,
@@ -156,7 +157,7 @@ impl Queue {
             groups: Groups::default(),
             order: Vec::new(),
             cursor: 0,
-            repeat_from: None,
+            cycle_starts: Vec::new(),
             up_next: VecDeque::new(),
             current: None,
             history: VecDeque::new(),
@@ -219,7 +220,7 @@ impl Queue {
         self.origin = origin;
         self.order.clear();
         self.cursor = 0;
-        self.repeat_from = None;
+        self.cycle_starts.clear();
         self.history.clear();
         self.current = None;
         let n = self.context.len();
@@ -302,9 +303,6 @@ impl Queue {
         } else if self.context_has(self.cursor) {
             self.current = Some(QueueSlot::Context(self.cursor));
             self.cursor += 1;
-            if self.repeat_from.is_some_and(|from| self.cursor > from) {
-                self.repeat_from = None;
-            }
         }
         self.compact();
         self.current()
@@ -340,9 +338,6 @@ impl Queue {
             return false;
         }
         self.cursor += 1;
-        if self.repeat_from.is_some_and(|from| self.cursor > from) {
-            self.repeat_from = None;
-        }
         true
     }
 
@@ -369,7 +364,7 @@ impl Queue {
             return self.current();
         }
         self.order.truncate(self.cursor);
-        self.repeat_from = None;
+        self.cycle_starts.clear();
         self.extend_cycle();
         self.advance(Advance::Skipped)
     }
@@ -396,7 +391,7 @@ impl Queue {
         }
         self.shuffle = mode;
         self.order.truncate(self.cursor);
-        self.repeat_from = None;
+        self.cycle_starts.clear();
         let n = self.context.len();
         let current = self.current_context_index();
         match mode {
@@ -418,10 +413,11 @@ impl Queue {
 
     pub fn set_repeat(&mut self, mode: RepeatMode) {
         self.repeat = mode;
-        if mode == RepeatMode::Off
-            && let Some(from) = self.repeat_from.take()
-        {
-            self.order.truncate(from);
+        if mode == RepeatMode::Off {
+            if let Some(from) = self.next_cycle_start() {
+                self.order.truncate(from);
+            }
+            self.cycle_starts.clear();
         }
     }
 
@@ -445,7 +441,7 @@ impl Queue {
     }
 
     pub fn snapshot(&self) -> QueueSnapshot {
-        let order_len = self.repeat_from.unwrap_or(self.order.len());
+        let order_len = self.next_cycle_start().unwrap_or(self.order.len());
         QueueSnapshot {
             context: self.context.clone(),
             origin: self.origin.clone(),
@@ -503,6 +499,13 @@ impl Queue {
         }
     }
 
+    fn next_cycle_start(&self) -> Option<usize> {
+        self.cycle_starts
+            .iter()
+            .copied()
+            .find(|&from| from >= self.cursor)
+    }
+
     fn current_context_index(&self) -> Option<usize> {
         match self.current {
             Some(QueueSlot::Context(position)) => Some(self.order[position]),
@@ -534,9 +537,7 @@ impl Queue {
         if self.repeat == RepeatMode::Off {
             return false;
         }
-        if self.repeat_from.is_none() {
-            self.repeat_from = Some(self.order.len());
-        }
+        self.cycle_starts.push(self.order.len());
         self.extend_cycle();
         true
     }
@@ -574,7 +575,8 @@ impl Queue {
         }
         self.order.drain(..referenced);
         self.cursor -= referenced;
-        if let Some(from) = &mut self.repeat_from {
+        self.cycle_starts.retain(|&from| from >= referenced);
+        for from in &mut self.cycle_starts {
             *from -= referenced;
         }
         for slot in self.history.iter_mut().chain(&mut self.current) {

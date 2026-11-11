@@ -184,6 +184,7 @@ pub(crate) fn scan(
     let ((), stored_covers) = with_cover_pool(artwork, |covers| {
         let (read_sender, read_receiver) = mpsc::sync_channel(64);
         thread::scope(|scope| {
+            let read_receiver = read_receiver;
             let jobs = &jobs;
             scope.spawn(move || {
                 for job in jobs {

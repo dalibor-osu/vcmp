@@ -354,7 +354,8 @@ accepted.
   can't overwrite what changed since it looked. Each file's result is `written`,
   `conflict` or `failed`; the set is `accepted` when every file was written,
   otherwise `partly_written`. What each written file reads back as is recorded
-  (`change_values.after`).
+  (`change_values.after`) as soon as it is written, read from the file itself, and
+  again from the library once the set is done.
 - **Undo** (`Library::submit_undo`) is a new pending set, reviewed like any other. It
   writes back the `before` values of every written file, raw: all values of a key
   and in their form, so two `ARTIST` fields or a full `DATE` come back as they were
@@ -387,6 +388,8 @@ accepted.
 - **Rejected and discarded.** `Library::reject_change_set` finishes a set unwritten.
   `Library::discard_pending_change_sets` marks every set still pending as discarded,
   for the app to call when it starts: VCMP keeps no set waiting across a restart.
+  A pending set with written files was cut off while it was written (VCMP quit or
+  crashed): it becomes `partly_written` instead, so the files it wrote can be undone.
 - **Retention.** A finished set is kept for 30 days (`CHANGE_SETS_KEPT`), with the
   covers only it refers to: `Library::expire_change_sets` deletes older ones.
   `Library::delete_finished_change_sets` deletes every finished set at once and

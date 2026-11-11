@@ -672,7 +672,10 @@ impl TagEditor {
                     let _ = sender.send(message);
                     notify();
                 };
-                let report = write_files(&paths, &now, |done| send(Message::Progress(done)));
+                let report = crate::worker::catch_panic(|| {
+                    write_files(&paths, &now, |done| send(Message::Progress(done)))
+                })
+                .unwrap_or_else(|error| all_failed(&now, error));
                 send(Message::Finished(report));
             })
             .expect("spawning the tag writing thread");
@@ -735,7 +738,8 @@ impl TagEditor {
         thread::Builder::new()
             .name("vcmp-tags".into())
             .spawn(move || {
-                let report = write_files(&paths, &released, |_| {});
+                let report = crate::worker::catch_panic(|| write_files(&paths, &released, |_| {}))
+                    .unwrap_or_else(|error| all_failed(&released, error));
                 let _ = sender.send(Message::Released(released, report));
                 notify();
             })
@@ -902,18 +906,22 @@ fn write_files(
     });
     result.unwrap_or_else(|error| {
         log::error!("could not write tags: {error}");
-        TagWriteReport {
-            failed: edits
-                .iter()
-                .map(|change| FailedTagWrite {
-                    track: change.track.id,
-                    path: Some(change.track.path.clone()),
-                    error: TagWriteError::Write(error.to_string()),
-                })
-                .collect(),
-            ..TagWriteReport::default()
-        }
+        all_failed(edits, error.to_string())
     })
+}
+
+fn all_failed(edits: &[TrackEdit], error: String) -> TagWriteReport {
+    TagWriteReport {
+        failed: edits
+            .iter()
+            .map(|change| FailedTagWrite {
+                track: change.track.id,
+                path: Some(change.track.path.clone()),
+                error: TagWriteError::Write(error.clone()),
+            })
+            .collect(),
+        ..TagWriteReport::default()
+    }
 }
 
 fn log_failures(report: &TagWriteReport) {

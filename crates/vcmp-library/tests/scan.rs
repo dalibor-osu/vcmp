@@ -818,6 +818,45 @@ fn cancelled_scan_stops_without_adding() {
 }
 
 #[test]
+fn a_database_error_mid_scan_ends_the_scan() {
+    let setup = Setup::new();
+    for n in 0..200 {
+        fs::copy(
+            Path::new(FIXTURES).join("silence.mp3"),
+            setup.music().join(format!("{n:03}.mp3")),
+        )
+        .unwrap();
+    }
+    setup.add_music_source();
+    rusqlite::Connection::open(setup.base.join("data/library.sqlite3"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER disk_full BEFORE INSERT ON tracks
+             WHEN (SELECT count(*) FROM tracks) >= 3
+             BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END;",
+        )
+        .unwrap();
+
+    let Setup {
+        mut library,
+        base: _,
+        _root,
+    } = setup;
+    let (done, finished) = mpsc::channel();
+    let scan = std::thread::spawn(move || {
+        let failed = library.scan(&AtomicBool::new(false), |_| {}).is_err();
+        done.send(failed).unwrap();
+        library
+    });
+    assert_eq!(
+        finished.recv_timeout(Duration::from_secs(60)),
+        Ok(true),
+        "the scan ended with the error"
+    );
+    drop(scan.join().unwrap());
+}
+
+#[test]
 fn database_from_a_newer_build_is_refused() {
     let setup = Setup::new();
     let db = setup.base.as_path().join("data/library.sqlite3");

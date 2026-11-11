@@ -26,12 +26,13 @@ become are in [library.md](library.md#change-sets), and their review in
 | Check | Why |
 |---|---|
 | Listens on 127.0.0.1 only | Nothing on the network reaches it |
-| Every request needs `Authorization: Bearer <token>`, else 401 | Other programs and users on the computer can't use the library without the token. The token is 32 random bytes as hex (`mcp.token`), made when the server first starts; New token replaces it. The comparison takes the same time wherever the first difference is |
+| Every request needs `Authorization: Bearer <token>`, else 401 | Other programs and users on the computer can't use the library without the token. The token is 32 random bytes as hex (`mcp.token`), made when the server first starts; New token replaces it. The comparison takes the same time wherever the first difference is. The gate reads each request's body (up to 4 MiB, else 413) before anything answers: on Windows, a 401 or an Origin's 403 sent with the body unread reset the connection, and the client never saw the answer |
 | A request with an `Origin` header gets 403 (rmcp's Origin check with an empty allow list, enforced) | Browsers send `Origin` on cross-site requests and MCP clients don't, so a web page can't drive the server through the browser |
 | `Host` must be a loopback name (rmcp's default) | Against DNS rebinding |
 | No write to the library from the server's thread | Tag changes, label changes, undos and playlist deletions become change sets the owner reviews; playlist edits go through the app |
 | Playback only with its own switch (Settings, AI agents, "Let AI agents control playback"; setting `mcp.playback`, off by default) | An agent can't start music unasked. The player checks the setting on every request, so turning it off takes effect at once; the tools stay listed and answer with an error naming the switch. Playback acts at once, without review, and no tool closes VCMP |
-| A cover an agent gives by web address is fetched only for `propose_tag_changes`: http or https, up to 5 redirects, 30 s, at most 10 MB, and it must start like a JPEG or PNG | The download asks nothing of the library; what it brings goes into files only once the owner has seen the picture in the review and accepted it. A cover from a file must be given by its absolute path, with the same size and format checks |
+| A cover an agent gives by web address is fetched only for `propose_tag_changes`: http or https, up to 5 redirects, 30 s, at most 10 MB, no proxy, and it must start like a JPEG or PNG | The download asks nothing of the library; what it brings goes into files only once the owner has seen the picture in the review and accepted it. A tag that tells an agent to fetch a cover can't make VCMP reach this computer or the home network: the host's name is resolved for the first address and every redirect, and only public addresses are connected to (`PublicOnly` in `src/tools.rs`); loopback, private, link-local, shared and reserved ranges are refused, IPv4 inside IPv6 included. A proxy would resolve the name itself, so none is used: behind a network that requires one, covers by address can't be fetched |
+| A cover from a file must be given by its absolute path on one of this computer's disks, and be a regular file | A Windows network path (`\\host\share`) or device path is refused before anything touches it, so no connection or sign-in goes out. A device, pipe or folder is refused, and the read stops past 10 MB whatever size the file claims. A missing, unreadable and unsuitable path get the same answer, so an agent can't map what exists. The same format check follows |
 
 The token is in the library database like the other settings, readable by any program
 of the same user. Such a program could edit the music files directly anyway; the
@@ -134,8 +135,12 @@ ends the session.
   open (nothing on the port), the switch is off, no library or token yet, the token
   doesn't match (the relay reads another library than the VCMP that runs), or VCMP
   was restarted (the session is gone; the client has to connect again). A
-  notification has no answer to carry the reason; the relay logs it to standard
-  error.
+  notification, and a client's reply to one of VCMP's requests, has no answer to
+  carry the reason; the relay logs it to standard error.
+- **When the answer doesn't come back whole** (a timeout, a connection cut while
+  the answer is read, or an answer without a reply to the request), the request
+  gets an error answer that says it may have been carried out. It is never sent
+  again: only a connection that was refused, before anything was sent, is retried.
 - It never opens a window, creates no library where there is none, and writes
   nothing but its output.
 
@@ -147,7 +152,8 @@ for the app (`Changes` done at once on a test connection, and a recorder for
 reading tags, change sets that wait, playlist edits, and every playback tool,
 including requests with missing files and unknown tracks. The same file runs the relay over in-memory input and output against
 that server: a whole session, the answers when nothing listens or the switch is off,
-and a new token. `crates/vcmp-app/tests/agents.rs` covers the switch, the port and
+a new token, and answers cut short. Covers by file and address are refused for a
+missing file, a folder, a Windows network path and addresses in private ranges. `crates/vcmp-app/tests/agents.rs` covers the switch, the port and
 token, what the relay reads from the settings, the review in the window, the
 playback switch, and `PlayerService`'s side of playback with a recorder in place of
 the engine (the commands sent, the settings saved, the state read back). A real

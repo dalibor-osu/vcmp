@@ -468,6 +468,37 @@ fn sets_left_pending_are_discarded() {
 }
 
 #[test]
+fn a_set_cut_off_while_written_can_be_undone() {
+    let mut setup = Setup::new();
+    let a = add_file(&setup.music(), "a.flac", "silence.flac", "A");
+    let b = add_file(&setup.music(), "b.flac", "silence.flac", "B");
+    setup.scan();
+    let (a_id, b_id) = (setup.id(&a), setup.id(&b));
+    let set_id = setup.submit(&[(a_id, title("New A")), (b_id, title("New B"))]);
+
+    let library = &mut setup.library;
+    let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        library.accept_change_set(set_id, |done, _| {
+            assert!(done < 1, "VCMP stops here");
+        })
+    }));
+    assert!(interrupted.is_err());
+    assert_eq!(setup.status(set_id), ChangeStatus::Pending);
+
+    assert_eq!(setup.library.discard_pending_change_sets().unwrap(), 0);
+    assert_eq!(setup.status(set_id), ChangeStatus::PartlyWritten);
+    setup.scan();
+    assert_eq!(setup.stored(a_id, "TrackTitle"), ["New A"]);
+    assert_eq!(setup.stored(b_id, "TrackTitle"), ["B"]);
+
+    let undo = setup.library.submit_undo(set_id, "Test agent").unwrap();
+    let undone = setup.accept(undo);
+    assert_eq!(undone.files.len(), 1, "only the file written");
+    assert_eq!(undone.files[0].result, Some(FileResult::Written));
+    assert_eq!(setup.stored(a_id, "TrackTitle"), ["A"]);
+}
+
+#[test]
 fn finished_sets_expire_after_30_days_with_their_covers() {
     let mut setup = Setup::new();
     let a = add_file(&setup.music(), "a.flac", "silence.flac", "A");

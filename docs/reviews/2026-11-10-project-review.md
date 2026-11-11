@@ -759,3 +759,32 @@ raises its cost. It should go first.
 - **By hand:** everything `manual-testing.md` marks "never seen working" for
   Windows is still unseen; this review ran the tests and the screenshots there, not
   the app.
+
+## Status: fixes of 2026-11-11
+
+Branch `feature/review-fixes`, in the order above (most severe first). `fmt`,
+`clippy` and all 730 tests pass on Windows. The tests for U1, U2, U3, L1, L2, B2 and
+B3 were seen failing with their fix taken out; the others fail without it by
+reading. The app itself was not run.
+
+| # | Status | What changed |
+|---|---|---|
+| U1 | Fixed | A click on a track list's or the songs table's row gives the list the focus; a click inside an open dialog leaves the focus where it is (`release-focus`). Tests: `selection.rs`, `songs.rs`, `tag_editor.rs` (through `invoke_release_focus`, not the real winit hook: a manual step is in `manual-testing.md`) |
+| U2 | Fixed | Ctrl+F, Alt+Left/Right and the mouse's back and forward buttons do nothing while a dialog is open (`dialog-open`) |
+| U3 | Fixed | The sidebar and pages are hidden once the now playing view has faded in; the sidebar stays beside the queue covering a narrow window. Test: `ui_behaviour.rs` |
+| U4 | Fixed | With no folder yet, the add-folder error shows under the button on the empty pages, in Settings and in the setup wizard |
+| L1 | Fixed | The scan's receiver is dropped as soon as writing stops, so the reader ends. Test: a write error with 200 files queued |
+| B1 | Fixed on Windows, unit test only | On Windows every stream error but `Xrun`, `RealtimeDenied` and `DeviceChanged` marks the stream lost and reopens it. ALSA's worker reports other errors and keeps running, so Linux and macOS keep the old rule. Restarting Windows Audio is a manual step |
+| A4 | Fixed | The scan, tag writing and an agent's change writing catch a panic and report it as their error (`src/worker.rs`). An engine whose event channel closes while the window runs stops playback and says so in the bar. After a panic the tag editor reports every file of the batch as failed, those already written included. Not tested: a real panic inside `write_files` |
+| M1 | Fixed | Cover files: absolute paths on a local disk only (UNC and device paths refused before any file system call), regular files only, read through `take`, one answer for missing, unreadable and unsuitable paths |
+| M2 | Fixed | Cover downloads go through a resolver that keeps only public addresses, for the first address and every redirect, and connect to what it returned. No proxy, so a network that requires one can't fetch covers by address. Uses ureq's `unversioned` resolver API, which may change in a minor ureq release |
+| M5 | Fixed | Only a refused connection is retried; a timeout, a cut answer or an answer without a reply gets an error answer that says the request may have run. A client's reply to a request of VCMP's gets no answer from the relay. Found on the way: the server answered 401 and rmcp's Origin 403 before reading the body, which on Windows reset the connection (the token test failed 1 run in 3 here). The gate now reads the body (4 MiB cap, else 413) first |
+| L2 | Fixed | Each written file records its values as it is written; at start, a pending set with written files becomes `partly_written` and can be undone |
+| B2 | Fixed | The queue keeps every repeat cycle's start; Repeat off ends the context with the cycle playing |
+| B3 | Fixed | Only audio resets the failure count; a track that gives no audio from its start is reported and counts as unplayable, and when it would only follow itself the queue ends |
+
+Left for later, not started: M3, M4, M6, L3, L4, B4, A1 to A3, A5 to A7, U5 to U8,
+the accessibility list, P1 and P2. The usability and feature lists, and the
+DESIGN.md opinions, are the owner's to decide. The 2026-11-04 review's refactors
+(findings 1 to 14) are untouched; findings 4 and 5 (`Origin`, `play_context`)
+come first, as that review says.

@@ -469,7 +469,10 @@ impl Library {
                 params![id.0, file.track.0, result, detail],
             )?;
             match outcome {
-                Ok(edit) => written.push((file.track.0, spelling(edit))),
+                Ok(edit) => {
+                    self.record_written(id, file.track)?;
+                    written.push((file.track.0, spelling(edit)));
+                }
                 Err(_) => all_written = false,
             }
         }
@@ -503,12 +506,22 @@ impl Library {
     }
 
     /// Marks every set still pending as discarded: VCMP keeps no set waiting across a
-    /// restart. Called when the library opens for the app. Returns how many there were.
+    /// restart. Called when the library opens for the app. A set VCMP stopped in the
+    /// middle of writing becomes partly written instead, so the files it did write
+    /// can be undone. Returns how many were discarded.
     pub fn discard_pending_change_sets(&self) -> Result<usize> {
+        let now = now_ms();
+        self.conn.execute(
+            "UPDATE change_sets SET status = 'partly_written', finished_ms = ?1
+             WHERE status = 'pending' AND EXISTS (
+                 SELECT 1 FROM change_files f
+                 WHERE f.set_id = change_sets.id AND f.result = 'written')",
+            [now],
+        )?;
         Ok(self.conn.execute(
             "UPDATE change_sets SET status = 'discarded', finished_ms = ?1
              WHERE status = 'pending'",
-            [now_ms()],
+            [now],
         )?)
     }
 
@@ -927,12 +940,37 @@ impl Library {
 
     /// Stores what a written file's tags read back as.
     fn record_after(&self, id: ChangeSetId, track: TrackId) -> Result<()> {
+        let entries = self.track_tags(track)?;
+        self.record_after_from(id, track, &entries)
+    }
+
+    fn record_written(&self, id: ChangeSetId, track: TrackId) -> Result<()> {
+        let Some(found) = self.track(track)? else {
+            return Ok(());
+        };
+        match tags::read(&found.path, false) {
+            Ok(read) => self.record_after_from(id, track, &read.entries),
+            Err(reason) => {
+                log::warn!(
+                    "{}: not read back after writing: {reason}",
+                    found.path.display()
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn record_after_from(
+        &self,
+        id: ChangeSetId,
+        track: TrackId,
+        entries: &[tags::TagEntry],
+    ) -> Result<()> {
         let file_id: i64 = self.conn.query_row(
             "SELECT id FROM change_files WHERE set_id = ?1 AND track_id = ?2",
             params![id.0, track.0],
             |row| row.get(0),
         )?;
-        let entries = self.track_tags(track)?;
         for value in self.file_values(file_id)? {
             let after: Vec<String> = entries
                 .iter()

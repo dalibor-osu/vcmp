@@ -318,6 +318,36 @@ fn in_a_narrow_window_the_queue_covers_the_pages_not_the_sidebar() {
 }
 
 #[test]
+fn the_now_playing_view_hides_the_controls_under_it() {
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(1200.0, 700.0));
+    let shown = |role: AccessibleRole, label: &str| {
+        ElementHandle::find_by_accessible_label(&window, label)
+            .any(|element| element.accessible_role() == Some(role))
+    };
+    assert!(shown(AccessibleRole::Tab, "Songs"));
+    window
+        .global::<vcmp_app::PlayerState>()
+        .set_now_playing_open(true);
+    let _ = ElementHandle::find_by_element_type_name(&window, "NowPlayingView").count();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert!(
+        !shown(AccessibleRole::Tab, "Songs"),
+        "the sidebar is hidden"
+    );
+    assert!(!shown(AccessibleRole::TextInput, "Filter albums"));
+
+    window.window().set_size(LogicalSize::new(900.0, 700.0));
+    window.set_queue_open(true);
+    let _ = ElementHandle::find_by_element_type_name(&window, "QueuePanel").count();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert!(
+        shown(AccessibleRole::Tab, "Songs"),
+        "the sidebar beside the covering queue stays"
+    );
+}
+
+#[test]
 fn every_library_page_offers_to_add_a_folder_when_empty() {
     let window = open_window();
     for section in ["Albums", "Artists", "Songs", "Folders"] {

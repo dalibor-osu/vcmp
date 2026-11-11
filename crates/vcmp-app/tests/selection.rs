@@ -384,3 +384,15 @@ fn songs_table_rows_are_selected_and_used_together() {
     );
     assert!(songs.iter().all(|row| !row.selected));
 }
+
+#[test]
+fn the_keyboard_carries_on_from_a_click() {
+    let app = start();
+    app.window.invoke_release_focus();
+    app.click("Two");
+    holding(&app.window, Key::Shift, || key(&app.window, Key::DownArrow));
+    assert_eq!(app.selected(), ["Two", "Three"]);
+    key(&app.window, Key::Escape);
+    assert!(app.selected().is_empty(), "Escape clears the selection");
+    assert!(app.window.get_album_open());
+}
