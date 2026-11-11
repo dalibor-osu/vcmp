@@ -257,8 +257,13 @@ cover the configuration, the tokens and the range parsing.
 ## Known limits
 
 - The app can't connect yet; nothing in the app uses the server.
-- The image is not published, and was not built when it was written: Docker wasn't
-  running. Releases don't contain the server yet.
+- The image is not published, and releases don't contain the server yet. It was
+  built and run for amd64 under Docker Desktop on Windows; the ARM64 image wasn't
+  built yet.
+- Docker Desktop on Windows and macOS doesn't pass file changes in a mounted host
+  folder into the container, so the watcher misses them there: changes show at the
+  next rescan (hourly by default) or when an admin starts one. On a Linux host the
+  watcher works as in the app.
 - Shared tokens: one person can't be shut out alone, only everyone with that token.
 - The app polls the feed; there is no push.
 - An admin's folder change or tag write waits while a scan runs, since both write on

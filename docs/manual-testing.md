@@ -613,7 +613,7 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
 - [ ] Delete backups… asks first, in a dialog, then empties the list of finished
       changes.
 
-### VCMP server **(never seen working in Docker or behind nginx)**
+### VCMP server **(never seen working behind nginx, on ARM64 or on a Linux host)**
 
 The app can't connect to a server yet; these check the server on its own
 ([server.md](server.md)). Use a copy of some albums as its music.
@@ -631,7 +631,9 @@ The app can't connect to a server yet; these check the server on its own
 - [ ] With `/music` mounted `:ro`, the handshake (`/api/v1/handshake` with the admin
       token) says `"can_write_tags": false`; without `:ro`, true.
 - [ ] Copy another album into the music folder: within a few seconds of the copy
-      ending, the feed after the last cursor lists only its tracks.
+      ending, the feed after the last cursor lists only its tracks. On a Linux host
+      only: Docker Desktop doesn't pass a host folder's changes in, so there it
+      takes `POST /api/v1/scan` with the admin token (202), as tried on Windows.
 - [ ] `docker compose restart`: the same server id and tokens; `docker stop` stops
       it within its grace period.
 - [ ] Behind nginx with the owner's Cloudflare-managed certificate: the feed and a

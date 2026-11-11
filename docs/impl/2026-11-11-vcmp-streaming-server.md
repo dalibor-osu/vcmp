@@ -48,6 +48,16 @@ Dockerfile and documentation from workstream 7. The app can't connect yet.
   `serve` and the How to test steps 1 to 8 below with curl, all as described; the log
   held no token. Stopping by signal was not tried: the process was killed.
 
+## Follow-up changes
+
+1. Build and try the Docker image. Built with Docker 29.9.2 (linux/amd64, Docker
+   Desktop on Windows) in about 2 minutes, 130 MB; run as in docs/server.md: it runs
+   as `vcmp`, `docker exec ... vcmp-server tokens` works, the API answered as in How
+   to test, a download was byte-identical, read-only music gave
+   `can_write_tags: false` and a clean `write` failure, writable music took a tag
+   edit, a restart kept the id and tokens, and `docker stop` stopped it by SIGTERM
+   in 0.8 s. No code changed; the notes, server.md and manual-testing.md record it.
+
 ## How to test
 
 **Automated coverage.** `crates/vcmp-server/tests/api.rs` drives the server over
@@ -123,10 +133,11 @@ prints the server id, the user token (`<user>`) and the admin token (`<admin>`).
 
 ## Known problems
 
-- The Docker image was never built: Docker wasn't running on the machine this was
-  written on. The base image tags (`rust:1.99.1-trixie`, `debian:trixie-slim`) are
-  unverified.
-- Everything ran on Windows only; the server targets Linux, where it has never run.
+- The image was built and run for amd64 only, under Docker Desktop on Windows; the
+  ARM64 image was never built, and no Linux host has run the server.
+- On Docker Desktop, file changes in a Windows (or macOS) folder mounted into the
+  container never reach the watcher: a new album showed only after an admin's rescan,
+  and otherwise would at the hourly rescan.
 - Schema version 18 is shared, so every app library gets the revision column and
   triggers on its next start, though the app doesn't use them yet; older builds then
   refuse that database. Running this branch's app on the real library makes the
