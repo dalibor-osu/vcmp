@@ -207,18 +207,25 @@ export component NowPlayingView inherits Rectangle {
 
     private property <bool> wide: root.width > root.height * 1.2;
     private property <length> room: Theme.space-xxl * 2;
-    // Up to 880 px: the cover is decoded at up to 1200 px (src/player_service.rs), so
-    // it stays sharp at that size.
+    // Up to 560 px, so the cover leaves the title room on a large screen; it is
+    // decoded at up to 1200 px (src/player_service.rs), so it stays sharp.
     private property <length> cover-size: max(120px, root.wide
-        ? min(root.height - root.room, root.width * 0.45, 880px)
-        : min(root.width - root.room, root.height * 0.5, 880px));
+        ? min(root.height - root.room, root.width * 0.4, 560px)
+        : min(root.width - root.room, root.height * 0.5, 560px));
+    // Eased, so the queue sliding in or out doesn't make the title jump in size.
     private property <length> title-size: root.width > 1800px ? Theme.font-display-wide : Theme.font-display;
-    // Which of the two views it is. It keeps the last one while it fades out.
+    animate title-size { duration: Theme.duration-medium; easing: ease-out; }
+    // Which of the two views it is. It keeps the last one while it fades out: set,
+    // not bound, as a binding would turn back to the now playing view the moment the
+    // overlay closes.
     private property <Overlay> overlay: PlayerState.overlay;
-    private property <bool> lyrics-mode: PlayerState.overlay == Overlay.lyrics;
+    private property <bool> lyrics-mode;
     changed overlay => {
         if self.overlay != Overlay.none {
             root.lyrics-mode = self.overlay == Overlay.lyrics;
+            // The switch removes what had the focus (the lyrics' lines, the next
+            // track), which would leave keys reaching nothing.
+            close-button.focus();
         }
     }
     private property <length> small-cover: Theme.target-height * 2;
@@ -228,11 +235,13 @@ export component NowPlayingView inherits Rectangle {
     accessible-label: root.lyrics-mode ? @tr("Lyrics") : @tr("Now playing");
     // The window fades it in and out (its opacity).
     init => {
+        root.lyrics-mode = PlayerState.overlay == Overlay.lyrics;
         // Escape works at once; the focus ring shows only for keyboard users.
         close-button.focus();
     }
 
-    // Escape closes, wherever the focus is in the view.
+    // Escape closes, wherever the focus is in the view. In the app window the
+    // window's own handler sees it first, wherever the focus is.
     FocusScope {
         focus-on-click: false;
         focus-on-tab-navigation: false;

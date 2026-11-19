@@ -37,6 +37,10 @@ export component ArtistView {
     in property <[TrackRow]> appearances;
     // The page is in sight, so an animated picture plays.
     in property <bool> in-sight;
+    // The queue panel's slide, for the albums' grid (`CardGrid`).
+    in property <length> slide-room;
+    in property <float> slide-out: 1;
+    in property <bool> slide-opening;
     callback back();
     callback album-activated(int);
     // Plays everything by the artist: their albums' tracks, then the appearances;
@@ -288,6 +292,9 @@ export component ArtistView {
                     album-menu: true;
                     label: @tr("Albums");
                     available-width: root.width - 2 * Theme.space-xxl - Theme.space-l;
+                    slide-room: root.slide-room;
+                    slide-out: root.slide-out;
+                    slide-opening: root.slide-opening;
                     activated(index) => {
                         root.album-activated(index);
                     }

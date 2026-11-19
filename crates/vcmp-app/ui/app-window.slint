@@ -364,6 +364,9 @@ export component AppWindow inherits Window {
     // Beside the queue the pages, now playing and lyrics narrow as the panel slides
     // in and widen as it slides out, following its place.
     private property <length> queue-room: root.queue-beside ? root.queue-width * (1 - root.queue-out) : 0px;
+    // The grids lay out for both of the page's widths and mix them as the panel
+    // slides (`AlbumGrid`), rather than finding a new number of columns each frame.
+    private property <length> slide-room: root.queue-beside ? root.queue-width : 0px;
     private property <length> page-width: pages.width - root.queue-room;
 
     private property <length> marker-height: 20px;
@@ -440,6 +443,12 @@ export component AppWindow inherits Window {
             }
             if event.text == Key.Escape && root.queue-covers {
                 root.queue-open = false;
+                return accept;
+            }
+            // The now playing and lyrics views close on Escape wherever the focus
+            // is: a click in the player bar takes it out of the view (release-focus).
+            if event.text == Key.Escape && PlayerState.overlay-open && !root.dialog-open {
+                PlayerState.overlay = Overlay.none;
                 return accept;
             }
             // Ctrl+F (Cmd+F on macOS) filters the page shown, where it has a
@@ -736,6 +745,9 @@ export component AppWindow inherits Window {
                             x: 0;
                             width: root.page-width;
                             shown: root.current-page == Page.albums;
+                            slide-room: root.slide-room;
+                            slide-out: root.queue-out;
+                            slide-opening: root.queue-open;
                             from-search: root.opened-from-search;
                             back-to-search => {
                                 root.album-open = false;
@@ -769,6 +781,9 @@ export component AppWindow inherits Window {
                             x: 0;
                             width: root.page-width;
                             shown: root.current-page == Page.artists;
+                            slide-room: root.slide-room;
+                            slide-out: root.queue-out;
+                            slide-opening: root.queue-open;
                             from-search: root.opened-from-search;
                             back-to-search => {
                                 root.artist-album-open = false;
@@ -823,6 +838,9 @@ export component AppWindow inherits Window {
                             x: 0;
                             width: root.page-width;
                             shown: root.current-page == Page.playlists;
+                            slide-room: root.slide-room;
+                            slide-out: root.queue-out;
+                            slide-opening: root.queue-open;
                             from-search: root.opened-from-search;
                             back-to-search => {
                                 root.playlist-open = false;

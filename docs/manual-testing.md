@@ -193,11 +193,14 @@ but the `.lrc` files below are yours to add and remove.
 - [ ] Player bar at 780 px wide (the window's smallest): all buttons, the volume
       slider, the heart and some of the track's title fit without overlapping, and
       the window can't be made narrower.
-- [ ] Player bar: the heart sits between the cover and the title and stays put for
-      long and short titles and for a file outside the library (no heart). In a
-      window from about 930 px wide, the Lossless and Scrobble marks sit above the
-      time played, left of the shuffle button, each in its own place; narrower, they
-      hide rather than overlap the buttons. Pointing at one shows its name above it.
+- [ ] Player bar: the heart sits level with the buttons, halfway between the
+      repeat button and the total length, and stays put for long and short titles;
+      a file outside the library has no heart. Narrowing the window to 780 px moves
+      the buttons left of the centre and the heart to the bar's right edge,
+      without overlapping. In a wide enough window the Lossless and
+      Scrobble marks sit above the time played, left of the shuffle button, each in
+      its own place; narrower, they hide rather than overlap the buttons. Pointing
+      at one shows its name above it.
 
 ### Selecting and playing tracks
 
@@ -558,9 +561,27 @@ animated WebP and an APNG. For album covers, edit copies only.
       speaker icon is level with the icons beside it.
 - [ ] In the Songs table, a hovered row stays highlighted, without blinking,
       while the pointer moves and when it rests.
-- [ ] Now playing view (fades in and out): the large cover (up to 880 px on a full screen, with a
+- [ ] Now playing view (fades in and out): the large cover (up to 560 px on a full screen, with a
       larger title in a very wide window), the "…" menu (Add to playlist), closing
-      with Escape.
+      with Escape, also after clicking play or the volume in the player bar.
+- [ ] Lyrics view open, close it with the Lyrics button: the lyrics fade out and
+      the now playing view never shows, not even for a frame.
+- [ ] Switch between Albums, Labels and Songs: every page fades in, Labels too, and
+      so does opening a label and going back to the list.
+- [ ] A window at least 1000 px wide on Albums: open and close the queue. The cards
+      glide to their new rows and sizes with the panel, with no jump at the start,
+      the middle or the end. Do the same scrolled far down: the album at the top
+      left stays in place. Toggle the queue again halfway through a slide: the
+      cards turn back smoothly. Repeat on Artists and Playlists, on an artist's
+      page with several albums (the section below them moves along smoothly), and
+      with Reduce motion on (the change is instant, still on the same album).
+- [ ] Now playing on a full-screen window: open and close the queue; the cover and
+      the title shrink and grow smoothly, the title's size without a jump.
+- [ ] Now playing and lyrics: switch between them with their buttons, with the
+      focus on a lyrics line or on the next track (Tab), then press Escape: it
+      closes.
+- [ ] Player bar: Tab moves through shuffle, previous, play, next, repeat, then the
+      heart, then the position slider.
 
 ### Online
 

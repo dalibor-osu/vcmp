@@ -264,6 +264,13 @@ fn transitions_animate_by_default() {
         1.0,
         "curtain starts opaque"
     );
+
+    open_page(&window, "Labels");
+    assert_eq!(
+        page_opacity(&window, "FadeCurtain"),
+        1.0,
+        "Labels fades in like the other pages"
+    );
 }
 
 #[test]

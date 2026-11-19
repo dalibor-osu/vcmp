@@ -566,6 +566,18 @@ export component ProgressBar {
     }
 }
 
+// The base colour over a page that has just been shown, fading away: the page fades
+// in (at once with reduced motion). Pages that stay alive while hidden add one per
+// view they switch between, so opening an album or going back to the grid fades too.
+export component FadeCurtain inherits Rectangle {
+    background: Theme.colors.base;
+    opacity: 1;
+    init => {
+        self.opacity = 0;
+    }
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
+}
+
 export component SectionHeading inherits Text {
     color: Theme.colors.text;
     font-size: Theme.font-heading;

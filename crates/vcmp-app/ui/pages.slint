@@ -1,6 +1,6 @@
 import { AboutSlint, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, Dropdown, FocusRing, NavItem, ScrollArea, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
+import { Button, Dropdown, FadeCurtain, FocusRing, NavItem, ScrollArea, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
 import { Setup } from "setup.slint";
 import { Confirmation } from "confirmation.slint";
 import { LibraryState } from "library-state.slint";
@@ -545,20 +545,6 @@ export component SettingsPage inherits HorizontalLayout {
     }
 }
 
-// Fades a page in that stays alive while hidden: created each time the page is
-// shown, it starts in the page background colour and turns transparent.
-// The base colour over a page that has just been shown, fading away: the page fades
-// in (at once with reduced motion). Pages add one per view they switch between, so
-// opening an album or going back to the grid fades too.
-component FadeCurtain inherits Rectangle {
-    background: Theme.colors.base;
-    opacity: 1;
-    init => {
-        self.opacity = 0;
-    }
-    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
-}
-
 export component AlbumsPage inherits Rectangle {
     // Ctrl+F puts the focus in the page's filter.
     public function focus-filter() {
@@ -572,6 +558,10 @@ export component AlbumsPage inherits Rectangle {
     // The page is selected in the sidebar. It stays alive while hidden, so the grid
     // keeps its scroll position.
     in property <bool> shown;
+    // The queue panel's slide, for the grid (`AlbumGrid`).
+    in property <length> slide-room;
+    in property <float> slide-out: 1;
+    in property <bool> slide-opening;
     // Showing one album instead of the grid.
     in-out property <bool> album-open;
     // The open album came from search, so going back returns there.
@@ -669,6 +659,9 @@ export component AlbumsPage inherits Rectangle {
         grid := AlbumGrid {
             visible: root.albums.length > 0;
             vertical-stretch: 1;
+            slide-room: root.slide-room;
+            slide-out: root.slide-out;
+            slide-opening: root.slide-opening;
             album-menu: true;
             albums: root.albums;
             visible-range-changed(first, count) => {
@@ -726,6 +719,10 @@ export component ArtistsPage inherits Rectangle {
     // Narrows the grid to artists whose name holds every typed word.
     in-out property <string> filter;
     callback filter-edited(string);
+    // The queue panel's slide, for the grid (`AlbumGrid`) and the artist's albums.
+    in property <length> slide-room;
+    in property <float> slide-out: 1;
+    in property <bool> slide-opening;
     in property <bool> shown;
     in property <bool> library-failed;
     in-out property <bool> artist-open;
@@ -862,6 +859,9 @@ export component ArtistsPage inherits Rectangle {
         grid := AlbumGrid {
             visible: root.artists.length > 0;
             vertical-stretch: 1;
+            slide-room: root.slide-room;
+            slide-out: root.slide-out;
+            slide-opening: root.slide-opening;
             round: true;
             albums: root.artists;
             visible-range-changed(first, count) => {
@@ -876,6 +876,9 @@ export component ArtistsPage inherits Rectangle {
     artist-view := ArtistView {
         width: parent.width;
         height: parent.height;
+        slide-room: root.slide-room;
+        slide-out: root.slide-out;
+        slide-opening: root.slide-opening;
         visible: root.artist-open && !root.album-open;
         in-sight: root.shown && root.artist-open && !root.album-open && !PlayerState.overlay-open;
         artist: root.artist;
@@ -938,6 +941,10 @@ export component ArtistsPage inherits Rectangle {
 export component PlaylistsPage inherits Rectangle {
     in property <[AlbumTile]> playlists;
     in property <bool> shown;
+    // The queue panel's slide, for the grid (`AlbumGrid`).
+    in property <length> slide-room;
+    in property <float> slide-out: 1;
+    in property <bool> slide-opening;
     in property <bool> library-failed;
     in-out property <bool> playlist-open;
     // The open playlist came from search, so going back returns there.
@@ -1058,6 +1065,9 @@ export component PlaylistsPage inherits Rectangle {
         grid := AlbumGrid {
             visible: root.playlists.length > 0;
             vertical-stretch: 1;
+            slide-room: root.slide-room;
+            slide-out: root.slide-out;
+            slide-opening: root.slide-opening;
             playlists: true;
             albums: root.playlists;
             visible-range-changed(first, count) => {

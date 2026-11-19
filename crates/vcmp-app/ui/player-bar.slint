@@ -71,6 +71,17 @@ component PlayButton {
     }
 }
 
+// Likes the playing track, or takes it out of the favourites.
+component HeartButton inherits IconButton {
+    glyph: PlayerState.liked ? Glyph.heart-filled : Glyph.heart;
+    label: @tr("In Favourites");
+    checkable: true;
+    active: PlayerState.liked;
+    clicked => {
+        Favourites.toggle-track(PlayerState.track-id);
+    }
+}
+
 // A small mark about the playing track (a lossless file, Last.fm). Its label is
 // spoken, and shown above it while pointed at, since the glyph alone is no word.
 component TrackMark {
@@ -324,9 +335,18 @@ export component PlayerBar inherits Rectangle {
     // The transport buttons are centred; the marks need the room left of them, above
     // the time played.
     private property <length> transport-width: 4 * Theme.target-height + 48px + 4 * Theme.space-s;
-    private property <bool> marks-fit: (controls.width - root.transport-width) / 2 >= root.time-width + Theme.space-s;
-    // The cover, the heart's slot and room for a few letters of the title: 180 px.
-    private property <length> track-min-width: 56px + Theme.target-height + 2 * Theme.space-s + 68px;
+    // The heart sits in the buttons' row, halfway between the repeat button and
+    // where the total length starts below. The buttons stay centred while that
+    // leaves the heart room; in a narrower bar they move left of the centre, and in
+    // the narrowest the heart sits at the bar's edge.
+    private property <length> transport-x: max(0px, min((controls.width - root.transport-width) / 2, controls.width - Theme.target-height - Theme.space-s - root.transport-width));
+    private property <length> transport-end: root.transport-x + root.transport-width;
+    private property <length> heart-x: min(controls.width - Theme.target-height, max(root.transport-end + Theme.space-s, (root.transport-end + controls.width - root.time-width - Theme.target-height) / 2));
+    private property <bool> marks-fit: root.transport-x >= root.time-width + Theme.space-s;
+    // The cover and room for a few letters of the title: 132 px.
+    private property <length> track-min-width: 56px + Theme.space-s + 68px;
+    // The buttons and the heart beside them: 288 px.
+    private property <length> controls-min-width: root.transport-width + Theme.space-s + Theme.target-height;
 
     background: Theme.colors.mantle;
     height: 88px;
@@ -345,8 +365,6 @@ export component PlayerBar inherits Rectangle {
 
         // What is playing. The title and the cover lead to the album, the artist
         // to the artist; the cover is for the pointer, the title the keyboard's way.
-        // The heart sits between the cover and the title, in a slot of its own that
-        // stays while the track can't be liked, so nothing moves with the title.
         HorizontalLayout {
             min-width: root.track-min-width;
             preferred-width: 280px;
@@ -384,22 +402,6 @@ export component PlayerBar inherits Rectangle {
                     clicked => {
                         Theme.keyboard-navigation = false;
                         root.show-album();
-                    }
-                }
-            }
-
-            // Likes the playing track, or takes it out of the favourites.
-            VerticalLayout {
-                width: Theme.target-height;
-                alignment: center;
-
-                if PlayerState.has-track && PlayerState.track-id > 0: IconButton {
-                    glyph: PlayerState.liked ? Glyph.heart-filled : Glyph.heart;
-                    label: @tr("In Favourites");
-                    checkable: true;
-                    active: PlayerState.liked;
-                    clicked => {
-                        Favourites.toggle-track(PlayerState.track-id);
                     }
                 }
             }
@@ -451,23 +453,24 @@ export component PlayerBar inherits Rectangle {
 
         // Controls and the position in the track.
         controls := VerticalLayout {
-            min-width: 240px;
+            min-width: root.controls-min-width;
             preferred-width: 520px;
             horizontal-stretch: 2;
             alignment: center;
             spacing: 0px;
 
             // The buttons, with the marks for a lossless file and Last.fm at the
-            // left end, above the time played, each in a place of its own. They
-            // show only where the buttons leave them room.
+            // left end, above the time played, each in a place of its own, and the
+            // heart at the right end, above the total length. The marks show only
+            // where the buttons leave them room.
             Rectangle {
                 min-height: transport.min-height;
                 preferred-height: transport.preferred-height;
 
                 transport := HorizontalLayout {
-                    width: parent.width;
+                    x: root.transport-x;
+                    width: root.transport-width;
                     height: parent.height;
-                    alignment: center;
                     spacing: Theme.space-s;
 
                     VerticalLayout {
@@ -545,6 +548,11 @@ export component PlayerBar inherits Rectangle {
                     tint: PlayerState.scrobble == ScrobbleMark.scrobbled ? Theme.colors.text : Theme.colors.text-muted;
                     label: PlayerState.scrobble == ScrobbleMark.scrobbled ? @tr("Scrobbled to Last.fm") : @tr("Scrobbling to Last.fm");
                 }
+
+                if PlayerState.has-track && PlayerState.track-id > 0: HeartButton {
+                    x: root.heart-x;
+                    y: (parent.height - self.height) / 2;
+                }
             }
 
             HorizontalLayout {
@@ -586,7 +594,7 @@ export component PlayerBar inherits Rectangle {
         // Lyrics, the now playing view's and the queue panel's switches, the sleep timer
         // and the volume.
         HorizontalLayout {
-            // With the track's 180 px and the controls' 240 px, exactly 780 px
+            // With the track's 132 px and the controls' 288 px, exactly 780 px
             // (docs/ui.md, "Playback").
             min-width: 272px;
             preferred-width: 328px;
