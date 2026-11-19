@@ -147,11 +147,12 @@ would need the host's glibc. Windows is cross-built there with MinGW-w64 (the
 run downloads Ubuntu, Rust and the crates; later runs rebuild only what changed.
 
 Set the [integration keys](#integration-keys) in the shell first: the script passes
-the ones that are set into the container. Set `VCMP_UPDATE_SIGNING_KEY_FILE` to the
-update signing key too: after the build, the script signs `SHA256SUMS.txt` on this
-machine and asks for the key's password ([Signing updates](#signing-updates)). Then create a draft release, check it on
-GitHub and publish it, which creates the tag on `main`. Add `--prerelease` for a
-pre-release.
+the ones that are set into the container. After the build, the script signs
+`SHA256SUMS.txt` on this machine with the update signing key in
+`~/.minisign/vcmp-update.key`, or the file `VCMP_UPDATE_SIGNING_KEY_FILE` names, and
+asks for the key's password ([Signing updates](#signing-updates)). Then create a
+draft release, check it on GitHub and publish it, which creates the tag on `main`.
+Add `--prerelease` for a pre-release.
 
 ```bash
 gh release create v26.10.0 dist/vcmp-26.10.0-* dist/SHA256SUMS.txt dist/SHA256SUMS.txt.minisig --draft --target main --title "VCMP 26.10.0" --generate-notes
@@ -184,8 +185,9 @@ already out there, and their users have to download one version by hand.
   `VCMP_UPDATE_SIGNING_KEY` (the secret key file's contents) and
   `VCMP_UPDATE_SIGNING_PASSWORD`. Without them it warns and leaves the release
   unsigned.
-- `packaging/release-local.sh` signs with the file in
-  `VCMP_UPDATE_SIGNING_KEY_FILE`.
+- `packaging/release-local.sh` signs with `~/.minisign/vcmp-update.key`, or the
+  file in `VCMP_UPDATE_SIGNING_KEY_FILE`. It stops when that variable names a file
+  that doesn't exist, and leaves the release unsigned when neither is there.
 - By hand: `cargo run -p vcmp-integrations --example update_signing -- sign <key>
   dist/SHA256SUMS.txt` writes `dist/SHA256SUMS.txt.minisig`. It refuses a key that
   doesn't match `packaging/update-signing.pub`.

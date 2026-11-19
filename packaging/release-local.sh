@@ -67,12 +67,19 @@ docker run --rm --user "$(id -u):$(id -g)" \
     "${pass[@]}" "$image" bash packaging/release-local.sh --in-container
 
 # The update signature, made on this machine with the key in
-# VCMP_UPDATE_SIGNING_KEY_FILE (docs/development.md, "Signing updates"). It asks for
-# the key's password unless VCMP_UPDATE_SIGNING_PASSWORD is set.
+# VCMP_UPDATE_SIGNING_KEY_FILE, or ~/.minisign/vcmp-update.key when that is not set
+# (docs/development.md, "Signing updates"). It asks for the key's password unless
+# VCMP_UPDATE_SIGNING_PASSWORD is set. A key file named in the variable must exist;
+# without the variable and the default file the release stays unsigned.
 rm -f dist/SHA256SUMS.txt.minisig
-if [ -n "${VCMP_UPDATE_SIGNING_KEY_FILE:-}" ]; then
+key="${VCMP_UPDATE_SIGNING_KEY_FILE:-$HOME/.minisign/vcmp-update.key}"
+if [ -f "$key" ]; then
+    echo "Signing SHA256SUMS.txt with $key"
     cargo run --locked -p vcmp-integrations --example update_signing -- \
-        sign "$VCMP_UPDATE_SIGNING_KEY_FILE" dist/SHA256SUMS.txt
+        sign "$key" dist/SHA256SUMS.txt
+elif [ -n "${VCMP_UPDATE_SIGNING_KEY_FILE:-}" ]; then
+    echo "VCMP_UPDATE_SIGNING_KEY_FILE names $key, which does not exist" >&2
+    exit 1
 else
-    echo "VCMP_UPDATE_SIGNING_KEY_FILE is not set: the release is not signed, so VCMP only links to it"
+    echo "No signing key at $key and VCMP_UPDATE_SIGNING_KEY_FILE is not set: the release is not signed, so VCMP only links to it"
 fi

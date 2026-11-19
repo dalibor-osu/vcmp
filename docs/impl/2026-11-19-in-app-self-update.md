@@ -12,7 +12,8 @@ Area: vcmp-integrations (updates, self_update, update_signing example), vcmp-app
   made), `crates/vcmp-integrations/examples/update_signing.rs` (`generate`, `sign`),
   a signing step in `.github/workflows/release.yml` (secrets
   `VCMP_UPDATE_SIGNING_KEY`, `VCMP_UPDATE_SIGNING_PASSWORD`) and in
-  `packaging/release-local.sh` (`VCMP_UPDATE_SIGNING_KEY_FILE`). Unsigned releases
+  `packaging/release-local.sh` (`~/.minisign/vcmp-update.key`, or
+  `VCMP_UPDATE_SIGNING_KEY_FILE`). Unsigned releases
   stay possible and only get the link.
 - The check (`vcmp_integrations::updates`) returns the release's assets and its
   pre-release flag, and counts flagged pre-releases when asked.
@@ -33,6 +34,13 @@ Area: vcmp-integrations (updates, self_update, update_signing example), vcmp-app
   looked at. The signing example was tried with a throwaway key (sign, verify,
   wrong password refused). Not run: `cargo test --workspace`, clippy on vcmp-app and
   the whole workspace, a release build.
+
+## Follow-up changes
+
+1. `release-local.sh` finds the signing key on its own: it uses
+   `~/.minisign/vcmp-update.key` unless `VCMP_UPDATE_SIGNING_KEY_FILE` names another
+   file, stops when the named file is missing, and leaves the release unsigned when
+   neither exists. Checked with `bash -n`; not run against a real build.
 
 ## How to test
 
