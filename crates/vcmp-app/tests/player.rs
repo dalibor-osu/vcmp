@@ -1516,6 +1516,15 @@ fn the_now_playing_button_opens_the_view_and_escape_or_the_background_closes_it(
     app.key(Key::Escape);
     assert!(!app.state().get_overlay_open(), "Escape closes it");
 
+    // A click in the player bar takes the focus out of the view; Escape still works.
+    toggle().invoke_accessible_default_action();
+    app.window.invoke_release_focus();
+    app.key(Key::Escape);
+    assert!(
+        !app.state().get_overlay_open(),
+        "Escape closes it after a click elsewhere"
+    );
+
     toggle().invoke_accessible_default_action();
     // A click on the background, away from the cover and the text.
     let size = app.window.window().size().to_logical(1.0);

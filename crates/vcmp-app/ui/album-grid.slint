@@ -155,6 +155,14 @@ export component AlbumGrid {
     in property <bool> album-menu;
     // The keyboard's current card.
     in-out property <int> current: 0;
+    // The queue panel's slide (app-window.slint), so the cards glide between the
+    // page's two widths instead of jumping from one number of columns to another:
+    // `slide-room` is the width the open panel takes from the page (none where it
+    // covers the page instead), `slide-out` how far out it is (1 closed, 0 open),
+    // and `slide-opening` whether it is headed in.
+    in property <length> slide-room;
+    in property <float> slide-out: 1;
+    in property <bool> slide-opening;
     callback visible-range-changed(int, int);
     callback activated(int);
 
@@ -186,14 +194,108 @@ export component AlbumGrid {
     private property <length> gap: Theme.space-xl;
     private property <length> min-tile: 160px;
     private property <length> text-height: 44px;
-    private property <int> columns: max(1, floor((self.width - 2 * self.edge + self.gap) / (self.min-tile + self.gap)));
-    private property <length> tile-width: (self.width - 2 * self.edge - (self.columns - 1) * self.gap) / self.columns;
-    private property <length> row-height: self.tile-width + Theme.space-s + self.text-height + self.gap;
+
+    // The grid laid out for the page with the queue closed (a) and open beside it
+    // (b). At rest the two differ only while the panel is open beside the page; while
+    // it slides, every card's place and size is the mix of its two, `mix` of the way
+    // to b, so the cards follow the panel frame by frame.
+    private property <length> closed-width: self.width + self.slide-room * (1 - self.slide-out);
+    private property <length> open-width: self.closed-width - self.slide-room;
+    private property <int> columns-a: max(1, floor((self.closed-width - 2 * self.edge + self.gap) / (self.min-tile + self.gap)));
+    private property <int> columns-b: max(1, floor((self.open-width - 2 * self.edge + self.gap) / (self.min-tile + self.gap)));
+    private property <length> tile-a: (self.closed-width - 2 * self.edge - (self.columns-a - 1) * self.gap) / self.columns-a;
+    private property <length> tile-b: (self.open-width - 2 * self.edge - (self.columns-b - 1) * self.gap) / self.columns-b;
+    private property <length> row-a: self.tile-a + Theme.space-s + self.text-height + self.gap;
+    private property <length> row-b: self.tile-b + Theme.space-s + self.text-height + self.gap;
+    private property <float> mix: 1 - self.slide-out;
+    // While it slides, the layout the panel is leaving is moved by its offset, so the
+    // first album in view stays where it was at the start, and the content scrolls to
+    // keep it there at the end (`changed slide-opening`). The offsets are folded into
+    // the scroll position once the panel settles.
+    private property <bool> sliding;
+    private property <length> offset-a;
+    private property <length> offset-b;
+    private property <length> card-size: self.tile-a + (self.tile-b - self.tile-a) * self.mix;
+
+    // The layout headed for, which is the one shown at rest: the keys, scrolling a
+    // card into view and the content's height follow it.
+    private property <int> columns: self.slide-opening ? self.columns-b : self.columns-a;
+    private property <length> row-height: self.slide-opening ? self.row-b : self.row-a;
     private property <int> rows: ceil(self.albums.length / self.columns);
-    private property <int> first-row: max(0, floor((-flick.content-y - self.edge) / self.row-height));
     private property <int> visible-rows: ceil(self.height / self.row-height) + 1;
-    private property <int> first-index: self.first-row * self.columns;
-    private property <int> slot-count: self.visible-rows * self.columns;
+
+    // The cards made: those in view in the layout shown, or while sliding in either
+    // layout, with a row to spare.
+    private property <int> rows-in-view-a: ceil(self.height / self.row-a) + 1;
+    private property <int> rows-in-view-b: ceil(self.height / self.row-b) + 1;
+    private property <int> first-a: max(0, floor((-flick.content-y - self.edge - self.offset-a) / self.row-a)) * self.columns-a;
+    private property <int> first-b: max(0, floor((-flick.content-y - self.edge - self.offset-b) / self.row-b)) * self.columns-b;
+    private property <int> end-a: self.first-a + self.rows-in-view-a * self.columns-a;
+    private property <int> end-b: self.first-b + self.rows-in-view-b * self.columns-b;
+    private property <bool> both: self.sliding || (self.slide-out > 0 && self.slide-out < 1);
+    private property <int> spare: max(self.columns-a, self.columns-b);
+    private property <int> first-index: !self.both ? (self.slide-opening ? self.first-b : self.first-a)
+        : max(0, min(self.first-a, self.first-b) - self.spare);
+    private property <int> slot-count: !self.both ? (self.slide-opening ? self.end-b - self.first-b : self.end-a - self.first-a)
+        : max(self.end-a, self.end-b) + self.spare - self.first-index;
+
+    pure function card-x(index: int) -> length {
+        let a = root.edge + mod(index, root.columns-a) * (root.tile-a + root.gap);
+        let b = root.edge + mod(index, root.columns-b) * (root.tile-b + root.gap);
+        a + (b - a) * root.mix
+    }
+    pure function card-y(index: int) -> length {
+        let a = root.edge + floor(index / root.columns-a) * root.row-a + root.offset-a;
+        let b = root.edge + floor(index / root.columns-b) * root.row-b + root.offset-b;
+        a + (b - a) * root.mix
+    }
+    pure function content-a() -> length {
+        ceil(root.albums.length / root.columns-a) * root.row-a + 2 * root.edge
+    }
+    pure function content-b() -> length {
+        ceil(root.albums.length / root.columns-b) * root.row-b + 2 * root.edge
+    }
+
+    // The panel set off from rest (a turn back halfway keeps the anchor as it is):
+    // the first album in view keeps its place on screen in the layout left, through
+    // the offset, and in the layout headed for, through the scroll position.
+    changed slide-opening => {
+        if !root.sliding {
+            root.sliding = true;
+            let columns-from = root.slide-opening ? root.columns-a : root.columns-b;
+            let row-from = root.slide-opening ? root.row-a : root.row-b;
+            let columns-to = root.slide-opening ? root.columns-b : root.columns-a;
+            let row-to = root.slide-opening ? root.row-b : root.row-a;
+            let content-to = root.slide-opening ? root.content-b() : root.content-a();
+            let anchor = min(max(0, root.albums.length - 1), max(0, floor((-flick.content-y - root.edge) / row-from)) * columns-from);
+            let from-y = root.edge + floor(anchor / columns-from) * row-from;
+            let on-screen = from-y + flick.content-y;
+            let scroll = clamp(on-screen - (root.edge + floor(anchor / columns-to) * row-to), min(0px, flick.height - content-to), 0px);
+            if root.slide-opening {
+                root.offset-a = on-screen - scroll - from-y;
+                root.offset-b = 0;
+            } else {
+                root.offset-b = on-screen - scroll - from-y;
+                root.offset-a = 0;
+            }
+            flick.content-y = scroll;
+        }
+        root.settle();
+    }
+    changed slide-out => {
+        root.settle();
+    }
+
+    // Once the panel is at rest where it was headed, its layout's offset goes into
+    // the scroll position.
+    function settle() {
+        if root.sliding && root.slide-out == (root.slide-opening ? 0 : 1) {
+            flick.content-y += root.slide-opening ? root.offset-b : root.offset-a;
+            root.offset-a = 0;
+            root.offset-b = 0;
+            root.sliding = false;
+        }
+    }
 
     changed first-index => {
         root.visible-range-changed(self.first-index, self.slot-count);
@@ -304,16 +406,19 @@ export component AlbumGrid {
                 }
             }
 
+            // While sliding, tall enough for either layout, so the scroll position
+            // set for the one headed for is never cut back.
             flick := Flickable {
-                content-height: root.rows * root.row-height + 2 * root.edge;
+                content-height: root.both ? max(root.content-a() + max(0px, root.offset-a), root.content-b() + max(0px, root.offset-b))
+                    : root.rows * root.row-height + 2 * root.edge;
 
                 for slot in root.slot-count: AlbumCard {
                     property <int> index: root.first-index + slot;
                     visible: self.index < root.albums.length;
-                    x: root.edge + mod(self.index, root.columns) * (root.tile-width + root.gap);
-                    y: root.edge + floor(self.index / root.columns) * root.row-height;
-                    width: root.tile-width;
-                    cover-size: root.tile-width;
+                    x: root.card-x(self.index);
+                    y: root.card-y(self.index);
+                    width: root.card-size;
+                    cover-size: root.card-size;
                     round: root.round;
                     playlist: root.playlists;
                     album: root.albums[self.index];
@@ -350,6 +455,11 @@ export component CardGrid {
     // for their tracks.
     in property <bool> album-menu;
     in-out property <int> current: 0;
+    // The queue panel's slide, as for `AlbumGrid`: the cards glide between the
+    // layouts for the page's two widths. Left at rest outside the pages.
+    in property <length> slide-room;
+    in property <float> slide-out: 1;
+    in property <bool> slide-opening;
     callback activated(int);
 
     function show-menu(index: int, x: length, y: length) {
@@ -368,12 +478,37 @@ export component CardGrid {
     private property <length> gap: Theme.space-xl;
     private property <length> min-tile: 160px;
     private property <length> text-height: 44px;
-    private property <int> columns: max(1, floor((root.available-width + root.gap) / (root.min-tile + root.gap)));
-    private property <length> tile-width: (root.available-width - (root.columns - 1) * root.gap) / root.columns;
-    private property <length> row-height: root.tile-width + Theme.space-s + root.text-height + root.gap;
+    // Laid out for the queue closed (a) and open beside the page (b), each card at
+    // the mix of its two places while the panel slides. No scroll position to keep:
+    // the page around the grid scrolls, and its height follows the mix.
+    private property <length> closed-width: root.available-width + root.slide-room * (1 - root.slide-out);
+    private property <length> open-width: root.closed-width - root.slide-room;
+    private property <int> columns-a: max(1, floor((root.closed-width + root.gap) / (root.min-tile + root.gap)));
+    private property <int> columns-b: max(1, floor((root.open-width + root.gap) / (root.min-tile + root.gap)));
+    private property <length> tile-a: (root.closed-width - (root.columns-a - 1) * root.gap) / root.columns-a;
+    private property <length> tile-b: (root.open-width - (root.columns-b - 1) * root.gap) / root.columns-b;
+    private property <length> row-a: root.tile-a + Theme.space-s + root.text-height + root.gap;
+    private property <length> row-b: root.tile-b + Theme.space-s + root.text-height + root.gap;
+    private property <float> mix: 1 - root.slide-out;
+    private property <length> card-size: root.tile-a + (root.tile-b - root.tile-a) * root.mix;
+    private property <length> height-a: ceil(root.tiles.length / root.columns-a) * root.row-a - root.gap;
+    private property <length> height-b: ceil(root.tiles.length / root.columns-b) * root.row-b - root.gap;
+    // The layout headed for, which the keys follow.
+    private property <int> columns: root.slide-opening ? root.columns-b : root.columns-a;
+
+    pure function card-x(index: int) -> length {
+        let a = mod(index, root.columns-a) * (root.tile-a + root.gap);
+        let b = mod(index, root.columns-b) * (root.tile-b + root.gap);
+        a + (b - a) * root.mix
+    }
+    pure function card-y(index: int) -> length {
+        let a = floor(index / root.columns-a) * root.row-a;
+        let b = floor(index / root.columns-b) * root.row-b;
+        a + (b - a) * root.mix
+    }
 
     width: root.available-width;
-    height: max(0px, ceil(root.tiles.length / root.columns) * root.row-height - root.gap);
+    height: max(0px, root.height-a + (root.height-b - root.height-a) * root.mix);
     accessible-role: list;
     accessible-label: root.label;
     forward-focus: focus;
@@ -471,10 +606,10 @@ export component CardGrid {
             }
 
             for tile[index] in root.tiles: AlbumCard {
-                x: mod(index, root.columns) * (root.tile-width + root.gap);
-                y: floor(index / root.columns) * root.row-height;
-                width: root.tile-width;
-                cover-size: root.tile-width;
+                x: root.card-x(index);
+                y: root.card-y(index);
+                width: root.card-size;
+                cover-size: root.card-size;
                 round: root.round;
                 photo: root.photos;
                 playlist: root.playlists;

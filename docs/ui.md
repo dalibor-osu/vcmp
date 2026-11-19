@@ -288,6 +288,23 @@ and reuses them while scrolling. It reports the range in view through
 - Covers more than three screens away are released, so memory stays flat however
   long the library is.
 
+While the queue panel slides beside the page, the album, artist and playlist grids
+(`AlbumGrid`) don't look for a new number of columns each frame. They know the
+page's two widths at rest, the queue closed and open (`slide-room` and the
+window's `queue-out`), lay the cards out for both, and place each card at the mix
+of its two places and sizes, as far between them as the panel is, so the cards
+glide to their new rows and columns along with the slide. The layout headed for is
+the one the keys, scrolling into view and the content's height use. Scrolled down,
+the first album in view keeps its place on screen: when the panel sets off, the
+layout left is moved by an offset so nothing jumps at the start, and the scroll
+position is set for the layout headed for so the album ends where it started. The
+offset goes into the scroll position once the panel is at rest; a panel turned back
+halfway keeps the anchor it had. While it slides, the grid makes the cards in view
+in either layout, with a row to spare. On an artist's page the albums (`CardGrid`)
+glide the same way, without a scroll position to keep: the page around them
+scrolls, and the grid's height is the mix of its two heights. Search's grids and
+the pickers' still lay out each frame.
+
 An animated cover shows its first frame here: the grid draws the same 400 px
 thumbnail as for any cover, so animated pictures add nothing to its cost (see
 [Animated pictures](#animated-pictures)).
@@ -828,16 +845,20 @@ field (see [Labels](#labels)).
   view it was, until it has faded); the player bar stays below it with the
   controls, and the queue panel can be open beside it. Escape, the close button
   (top left) or a click on the background closes either; the focus starts on the
-  close button so Escape works at once.
+  close button so Escape works at once. The window catches Escape itself while a
+  view is open and no dialog is, since a click in the player bar takes the focus
+  out of the view. The view decides once, when made, whether it is the lyrics, and
+  then only on a change to the other view, so it keeps what it showed while it
+  fades out.
 - **Leading on:** as in the player bar, the title, the album and the cover lead to
   the album's page, and the artist to the artist's page; the view closes on the
   way. The next track is a button that skips to it.
-- **Content:** the cover as large as the view allows (up to 880 px, within the
-  1200 px it is decoded at), then the
-  title, artist and album, and the next track as the queue stands. Beside each
+- **Content:** the cover, at most 560 px (and 40 % of the view's width beside the
+  text, half its height above it), well within the 1200 px it is decoded at, then
+  the title, artist and album, and the next track as the queue stands. Beside each
   other in a wide window, stacked and centred in a narrow one. With the queue
   panel open in a wide window, the view narrows to leave it room, along with the
-  panel's slide.
+  panel's slide; the title's size eases when the view crosses 1800 px wide.
 - **The large cover** is the full-size artwork, decoded off the UI thread at up to
   1200 px when a view opens (and for each new track while it is open). The bar's
   small cover stands in until then; a decode that arrives after the track changed
@@ -944,10 +965,12 @@ The Albums page tells apart why it is empty:
 - **The player bar** runs along the bottom of the window:
   - the current track with its cover: the title and the cover lead to its album's
     page, the artist to the artist's page (links, underlined on hover, and tab
-    stops; the cover is for the pointer, the title the keyboard's way). The heart
-    sits between the cover and the title in a slot of its own, kept while the track
-    can't be liked, so neither moves with the title's length;
-  - shuffle, previous, play/pause, next and repeat (off, all, one);
+    stops; the cover is for the pointer, the title the keyboard's way);
+  - shuffle, previous, play/pause, next and repeat (off, all, one), centred over
+    the position, and the heart in their row, halfway between the repeat button
+    and where the total length starts below. Where that leaves the heart no room
+    the buttons move left of the centre, and in the narrowest bar the heart sits at
+    the bar's edge (`transport-x`, `heart-x`);
   - the position with a seek slider, and volume;
   - the speaker icon mutes and unmutes, coming back to the earlier volume. Moving the
     volume slider while muted unmutes at the new value. The mouse wheel over the
@@ -959,8 +982,8 @@ The Albums page tells apart why it is empty:
     `tracks.format`) and, while a Last.fm account is connected, a mark for a play
     Last.fm will count, which changes to a tick once it has (`PlayerState.scrobble`,
     set from the same `lastfm::Play` that hands the scrobble over). Each keeps its
-    own place; they show where the centred buttons leave them room (a window from
-    about 930 px wide). Pointing at a mark shows its name above it;
+    own place; they show where the buttons leave them room. Pointing at a mark
+    shows its name above it;
   - lyrics, now playing and the queue, three switches. The lyrics and now playing
     buttons each open their view, close it, or switch to it from the other (see
     [Now playing view](#now-playing-view)). The lyrics button is disabled while
@@ -976,11 +999,12 @@ The Albums page tells apart why it is empty:
     stopping by itself, ends a running one. It counts in whole minutes on a Slint
     timer and isn't saved.
 - **Width at 780 px** (at 100 % zoom), the window's smallest: the bar's three parts
-  have fixed minimums: 180 px for the track (the 56 px cover, the heart's 40 px slot
-  and 68 px of title), 240 px for the controls and 272 px for the buttons and
-  volume (five 40 px buttons, 4 px apart, and a volume slider of at least 52 px).
-  With its padding and gaps that is exactly 780 px. The owner chose to raise the
-  window's minimum from 720 px for the heart before the title (2026-11-19); another
+  have fixed minimums: 132 px for the track (the 56 px cover and 68 px of title),
+  288 px for the controls (the 240 px of transport buttons and the heart beside
+  them) and 272 px for the buttons and volume (five 40 px buttons, 4 px apart, and
+  a volume slider of at least 52 px). With its padding and gaps that is exactly
+  780 px. The owner chose to raise the window's minimum from 720 px for the heart
+  (2026-11-19, then before the title; it moved above the total length since); another
   button on the right needs room taken
   elsewhere (`smallest_window_keeps_everything_inside` checks it). The gaps can't
   depend on the window's width: the bar's minimum feeds the window's, so Slint sees
@@ -1022,8 +1046,11 @@ The Albums page tells apart why it is empty:
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
   the page (and the now playing or lyrics view) narrows to make room for it, its
   width following the panel's place as it slides, so the page narrows and widens
-  with it rather than jumping at the start (`queue-room`). Every page lays out again
-  each frame of the slide. In a narrower one the panel covers the
+  with it rather than jumping at the start (`queue-room`). Pages lay out again each
+  frame of the slide, except the grids of albums, artists, playlists and an
+  artist's albums, whose cards
+  glide between their two layouts (see [Album grid](#album-grid)), and the now
+  playing view's title, whose size eases. In a narrower one the panel covers the
   pages (and the now playing view) from the sidebar to the window's edge, so it
   never hides half a page's controls; the sidebar stays. Once it has slid in, the
   pages under it are hidden, so the keyboard can't reach controls nobody can see,

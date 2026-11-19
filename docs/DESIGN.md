@@ -159,7 +159,8 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
   - The player bar's heart sits between the cover and the title, so it no longer
     moves with the title's length. The window's smallest width goes from 720 to
     780 px to make room for it ("Raise minimum to 780 px", chosen over hiding the
-    volume slider or eliding the title to nothing).
+    volume slider or eliding the title to nothing). (2026-11-19, issue #116: moved
+    above the total length, below.)
   - The Lossless and Scrobble marks sit above the progress bar, at the left end of
     the buttons' row above the time played, and hide where the buttons leave them
     no room.
@@ -184,6 +185,16 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
   refused-key message are links that open their section. A search across the
   sections shows the rows it finds themselves, working; it matches row titles,
   section names and a few keywords per row.
+- 2026-11-19, polish after using the visual changes (issue #116): the player bar's
+  heart moves above the progress bar, level with the buttons, halfway between the
+  repeat button and the total length.
+  The now playing view's cover is smaller. Escape closes the lyrics and now playing
+  views again, and the Labels page fades in like the others. While the queue panel
+  slides, the album, artist and playlist grids no longer shrink and then jump to a
+  new number of columns: the cards glide to their new places and sizes along with
+  the slide, and the scroll stays on the same album ("Cards glide", chosen over the
+  grid waiting for the panel to settle and over fading through the change). The
+  albums on an artist's page glide the same way.
 
 ## Awaiting the owner's review
 
@@ -210,7 +221,7 @@ the owner's until reviewed; keep, change or drop each.
   title and the time, an outline under the pointer and filled in the accent while
   liked. In the player bar it is a round icon button right of the title and artist,
   filled in the accent while liked (2026-11-19: the owner moved it before the
-  title, above). The Favourites picture is the accent heart on
+  title, then above the total length, above). The Favourites picture is the accent heart on
   the surface grey. The favourites entry comes right after Add to queue in track
   menus and card menus, and first in the album page's More menu after the cover
   entries.
@@ -239,7 +250,8 @@ the owner's until reviewed; keep, change or drop each.
   The sidebar switches are one Settings row per section, titled with the section's
   name, under a "Sidebar" row that explains them. The Lossless and Scrobble marks
   sit right-aligned over the 52 px time column, Lossless first, and show from a
-  controls width of about 360 px (a window of about 930 px). About in Settings
+  controls width of about 360 px (a window of about 930 px; 370 px since the heart
+  joined the row, issue #116). About in Settings
   reads "VCMP, version ..." under an "About" heading.
 - 2026-11-19, the details of Settings' sections (issue #108): the list of sections
   is 200 px wide and uses the sidebar's own entries (a surface fill and bold name on
@@ -253,3 +265,14 @@ the owner's until reviewed; keep, change or drop each.
   self-update meanwhile, sits in General under "Check for updates". About, from
   issue #107, is the last section in the list, and drops its own "About" heading
   like the other sections.
+- 2026-11-19, the details of issue #116: "halfway" is between the repeat button's
+  edge and where the total length's text starts, measured to the heart button's
+  middle. The heart's old slot by the title is gone, and its 48 px go to
+  the controls, so the window's minimum stays 780 px. Where the centred buttons
+  would leave the heart no room, they move left of the centre, and in the narrowest
+  bar the heart sits at the bar's edge, rather than the heart going back
+  beside the title or hiding. The now playing cover is at most 560 px (was 880) and
+  40 % of the view's width (was 45 %); the title's size eases when the queue's
+  slide takes the view across 1800 px. The cards glide in step with the panel, on
+  its own easing, rather than on an animation of their own; the album kept in place
+  is the first of the top row in view. Search's grids still lay out each frame.
