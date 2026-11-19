@@ -8,7 +8,9 @@ use i_slint_backend_testing::{AccessibleRole, ElementHandle, ElementRoot};
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, SharedString};
 use vcmp_app::themes::Themes;
-use vcmp_app::{AppWindow, Page, ReduceMotion, Theme, WindowFrame, theme};
+use vcmp_app::{
+    AppWindow, Overlay, Page, ReduceMotion, SidebarSections, Theme, WindowFrame, theme,
+};
 
 fn open_window() -> AppWindow {
     i_slint_backend_testing::init_no_event_loop();
@@ -70,16 +72,24 @@ fn clicking_navigation_switches_pages() {
     let window = open_window();
     assert_eq!(window.get_current_page(), Page::Albums);
 
-    find(&window, AccessibleRole::Tab, "About").mock_single_click(PointerEventButton::Left);
-    assert_eq!(window.get_current_page(), Page::About);
+    // Tall enough for the whole Settings page: the finder skips what is out of view.
+    window.window().set_size(LogicalSize::new(1100.0, 4000.0));
+    find(&window, AccessibleRole::Tab, "Settings").mock_single_click(PointerEventButton::Left);
+    assert_eq!(window.get_current_page(), Page::Settings);
+    assert!(
+        ElementHandle::find_by_accessible_label(&window, "About")
+            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+            .is_none(),
+        "About is a section of Settings, not of the sidebar"
+    );
     find(
         &window,
         AccessibleRole::Button,
         "Made with Slint, opens slint.dev",
     );
 
-    find(&window, AccessibleRole::Tab, "Settings").mock_single_click(PointerEventButton::Left);
-    assert_eq!(window.get_current_page(), Page::Settings);
+    find(&window, AccessibleRole::Tab, "Albums").mock_single_click(PointerEventButton::Left);
+    assert_eq!(window.get_current_page(), Page::Albums);
 }
 
 #[test]
@@ -112,24 +122,27 @@ fn everything_works_from_the_keyboard() {
     let theme = window.global::<Theme>();
 
     // Tab order follows the visual order: Search, Albums, Artists, Playlists, Labels,
-    // Songs, Folders, Settings, About, then the page.
-    for _ in 0..9 {
+    // Songs, Folders, Settings, then the page.
+    for _ in 0..8 {
         press(&window, Key::Tab);
     }
     press(&window, Key::Return);
-    assert_eq!(window.get_current_page(), Page::About);
+    assert_eq!(window.get_current_page(), Page::Settings);
 
     // Enter activates; Space plays and pauses everywhere but in text fields.
     press(&window, Key::Backtab);
     press(&window, Key::Return);
+    assert_eq!(window.get_current_page(), Page::Folders);
+    press(&window, Key::Tab);
+    press(&window, Key::Return);
     assert_eq!(window.get_current_page(), Page::Settings);
 
-    // From the Settings entry: About, Favourites below the sections, Run setup again,
-    // Add folder, Update automatically, the shuffle choice, the output device, Find
-    // lyrics online, Clear play history, then the theme choice. Without folders there
-    // is no Rescan button or Library check, without a player service no Discord
-    // switch, and without a themes folder no theme file buttons.
-    for _ in 0..10 {
+    // From the Settings entry: Favourites below the sections, Run setup again, Add
+    // folder, Update automatically, the shuffle choice, the output device, Find lyrics
+    // online, Clear play history, then the theme choice. Without folders there is no
+    // Rescan button or Library check, without a player service no Discord switch,
+    // and without a themes folder no theme file buttons.
+    for _ in 0..9 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);
@@ -214,14 +227,14 @@ fn transitions_animate_by_default() {
     let window = open_window();
     let albums_marker = marker_y(&window);
 
-    open_page(&window, "About");
+    open_page(&window, "Settings");
     assert_eq!(
         marker_y(&window),
         albums_marker,
         "marker starts sliding from Albums"
     );
     assert_eq!(
-        page_opacity(&window, "AboutPage"),
+        page_opacity(&window, "SettingsPage"),
         0.0,
         "page starts its fade-in"
     );
@@ -265,6 +278,42 @@ fn the_queue_panel_slides_in_unless_motion_is_reduced() {
         1100.0 - 320.0,
         "at once with reduced motion"
     );
+}
+
+#[test]
+fn the_pages_narrow_and_widen_with_the_sliding_queue() {
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(1100.0, 720.0));
+    let page_width = |window: &AppWindow| {
+        ElementHandle::find_by_element_type_name(window, "AlbumsPage")
+            .next()
+            .expect("the albums page")
+            .size()
+            .width
+    };
+    let full = 1100.0 - 220.0;
+    assert_eq!(page_width(&window), full);
+
+    window.set_queue_open(true);
+    assert_eq!(page_width(&window), full, "the slide starts at full width");
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(110));
+    let midway = page_width(&window);
+    assert!(
+        midway < full && midway > full - 320.0,
+        "narrows along the slide, not {midway}"
+    );
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert_eq!(page_width(&window), full - 320.0);
+
+    window.set_queue_open(false);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(110));
+    let midway = page_width(&window);
+    assert!(
+        midway < full && midway > full - 320.0,
+        "widens along the slide, not {midway}"
+    );
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    assert_eq!(page_width(&window), full);
 }
 
 #[test]
@@ -328,7 +377,7 @@ fn the_now_playing_view_hides_the_controls_under_it() {
     assert!(shown(AccessibleRole::Tab, "Songs"));
     window
         .global::<vcmp_app::PlayerState>()
-        .set_now_playing_open(true);
+        .set_overlay(Overlay::NowPlaying);
     let _ = ElementHandle::find_by_element_type_name(&window, "NowPlayingView").count();
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
     assert!(
@@ -353,7 +402,7 @@ fn the_now_playing_view_leaves_the_queue_beside_it_its_room() {
     window.window().set_size(LogicalSize::new(1200.0, 700.0));
     window
         .global::<vcmp_app::PlayerState>()
-        .set_now_playing_open(true);
+        .set_overlay(Overlay::NowPlaying);
     window.set_queue_open(true);
     let _ = ElementHandle::find_by_element_type_name(&window, "NowPlayingView").count();
     let _ = ElementHandle::find_by_element_type_name(&window, "QueuePanel").count();
@@ -394,14 +443,16 @@ fn reduced_motion_makes_transitions_instant() {
     let albums_marker = marker_y(&window);
     open_page(&window, "Settings");
     motion_option(&window, "On").invoke_accessible_default_action();
+    open_page(&window, "Albums");
+    assert_eq!(marker_y(&window), albums_marker);
 
-    open_page(&window, "About");
+    open_page(&window, "Settings");
     assert!(
         marker_y(&window) > albums_marker,
-        "marker is already at About"
+        "marker is already at Settings"
     );
     assert_eq!(
-        page_opacity(&window, "AboutPage"),
+        page_opacity(&window, "SettingsPage"),
         1.0,
         "page is fully shown"
     );
@@ -447,27 +498,27 @@ fn reduced_motion_follows_the_system_unless_chosen() {
     theme.set_motion_choice(ReduceMotion::System);
     let albums_marker = marker_y(&window);
     theme.set_system_reduces_motion(true);
-    open_page(&window, "About");
+    open_page(&window, "Settings");
     assert!(
         marker_y(&window) > albums_marker,
-        "marker is already at About"
+        "marker is already at Settings"
     );
-    assert_eq!(page_opacity(&window, "AboutPage"), 1.0);
+    assert_eq!(page_opacity(&window, "SettingsPage"), 1.0);
 
-    let about_marker = marker_y(&window);
+    let settings_marker = marker_y(&window);
     theme.set_system_reduces_motion(false);
     open_page(&window, "Albums");
     assert_eq!(
         marker_y(&window),
-        about_marker,
-        "motion is back: the marker starts sliding from About"
+        settings_marker,
+        "motion is back: the marker starts sliding from Settings"
     );
 }
 
 #[test]
 fn smallest_window_keeps_everything_inside() {
     let window = open_window();
-    let width = 720.0;
+    let width = 780.0;
     window.window().set_size(LogicalSize::new(width, 480.0));
     // Settings with the Last.fm row, as in a build with an API key, in its longest
     // state: waiting, with the link back to the browser page.
@@ -475,17 +526,29 @@ fn smallest_window_keeps_everything_inside() {
     lastfm.set_available(true);
     lastfm.set_status(vcmp_app::LastfmStatus::Waiting);
 
-    // Every page, with the queue panel closed and open, and the now playing view.
-    for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6, 7, 8]
-        .into_iter()
-        .flat_map(|page| [(page, false, false), (page, true, false)])
-        .chain([(1, false, true)])
-    {
-        window.set_selected_index(page);
+    // Every page, with the queue panel closed and open, and the now playing and
+    // lyrics views.
+    for (page, queue_open, overlay) in [
+        Page::Search,
+        Page::Albums,
+        Page::Artists,
+        Page::Playlists,
+        Page::Labels,
+        Page::Songs,
+        Page::Folders,
+        Page::Settings,
+    ]
+    .into_iter()
+    .flat_map(|page| [(page, false, Overlay::None), (page, true, Overlay::None)])
+    .chain([
+        (Page::Albums, false, Overlay::NowPlaying),
+        (Page::Albums, false, Overlay::Lyrics),
+    ]) {
+        window.set_section(page);
         window.set_queue_open(queue_open);
         window
             .global::<vcmp_app::PlayerState>()
-            .set_now_playing_open(now_playing);
+            .set_overlay(overlay);
         // The queue panel slides in once made; check it where it comes to rest.
         let _ = ElementHandle::find_by_element_type_name(&window, "QueuePanel").count();
         i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
@@ -510,11 +573,52 @@ fn smallest_window_keeps_everything_inside() {
                 let label = element.accessible_label().unwrap_or_default();
                 assert!(
                     left >= 0.0 && right <= width + 0.5,
-                    "page {page} (queue: {queue_open}, now playing: {now_playing}): {role:?} {label:?} spans x {left}..{right} in a {width}px window",
+                    "page {page:?} (queue: {queue_open}, overlay: {overlay:?}): {role:?} {label:?} spans x {left}..{right} in a {width}px window",
                 );
             }
         }
     }
+}
+
+#[test]
+fn hidden_sections_leave_the_sidebar_but_their_pages_still_open() {
+    let window = open_window();
+    let sections = window.global::<SidebarSections>();
+    sections.set_playlists(false);
+    sections.set_folders(false);
+    let tabs: Vec<String> = window
+        .root_element()
+        .query_descendants()
+        .match_accessible_role(AccessibleRole::Tab)
+        .find_all()
+        .into_iter()
+        .filter_map(|tab| tab.accessible_label().map(|label| label.to_string()))
+        .collect();
+    assert_eq!(
+        tabs,
+        ["Search", "Albums", "Artists", "Labels", "Songs", "Settings"]
+    );
+    assert!(
+        ElementHandle::find_by_accessible_label(&window, "Playlists")
+            .find(|element| element.accessible_role() == Some(AccessibleRole::List))
+            .is_none(),
+        "the playlists below the sections go with their section"
+    );
+
+    // The marker still sits on its section below the hidden ones.
+    open_page(&window, "Settings");
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    let settings = find(&window, AccessibleRole::Tab, "Settings");
+    let centre = marker_y(&window) + 10.0;
+    let top = settings.absolute_position().y;
+    assert!(
+        (top..top + settings.size().height).contains(&centre),
+        "marker at {centre}, Settings at {top}"
+    );
+
+    // A link into a hidden section still opens its page.
+    window.invoke_show_section(Page::Folders);
+    assert_eq!(window.get_current_page(), Page::Folders);
 }
 
 #[test]
@@ -526,7 +630,7 @@ fn focus_rings_show_only_after_keyboard_use() {
     press(&window, Key::Tab);
     assert!(theme.get_keyboard_navigation());
 
-    find(&window, AccessibleRole::Tab, "About").mock_single_click(PointerEventButton::Left);
+    find(&window, AccessibleRole::Tab, "Settings").mock_single_click(PointerEventButton::Left);
     assert!(!theme.get_keyboard_navigation(), "a click hides the ring");
 }
 
@@ -545,7 +649,7 @@ fn a_library_that_failed_to_open_says_so() {
 #[test]
 fn a_short_window_scrolls_the_sidebar_to_the_focused_section() {
     let window = open_window();
-    window.window().set_size(LogicalSize::new(720.0, 480.0));
+    window.window().set_size(LogicalSize::new(780.0, 480.0));
     let sidebar = ElementHandle::find_by_element_id(&window, "AppWindow::sidebar")
         .next()
         .expect("sidebar");
@@ -558,23 +662,23 @@ fn a_short_window_scrolls_the_sidebar_to_the_focused_section() {
         "the sections stay inside the sidebar, above the player bar"
     );
     // Elements wholly out of view can't be found.
-    let about = || {
-        ElementHandle::find_by_accessible_label(&window, "About")
+    let settings = || {
+        ElementHandle::find_by_accessible_label(&window, "Settings")
             .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
     };
     assert!(
-        about().is_none_or(|about| bottom(&about) > bottom(&sections)),
+        settings().is_none_or(|settings| bottom(&settings) > bottom(&sections)),
         "the last section starts out of view in the smallest window"
     );
     // From the start: Search, Albums, Artists, Playlists, Labels, Songs, Folders,
-    // Settings, About.
-    for _ in 0..9 {
+    // Settings.
+    for _ in 0..8 {
         press(&window, Key::Tab);
     }
-    let about = about().expect("About in view");
+    let settings = settings().expect("Settings in view");
     assert!(
-        bottom(&about) <= bottom(&sections) + 0.5,
-        "focusing About scrolls it into view"
+        bottom(&settings) <= bottom(&sections) + 0.5,
+        "focusing Settings scrolls it into view"
     );
 }
 
@@ -723,10 +827,10 @@ fn the_queue_and_now_playing_animate_out_too() {
     assert_eq!(count("QueuePanel"), 0, "gone once it is out");
 
     let player = window.global::<PlayerState>();
-    player.set_now_playing_open(true);
+    player.set_overlay(Overlay::NowPlaying);
     count("NowPlayingView");
     wait(1000);
-    player.set_now_playing_open(false);
+    player.set_overlay(Overlay::None);
     count("NowPlayingView");
     wait(100);
     assert_eq!(count("NowPlayingView"), 1, "still there while it fades out");
@@ -736,10 +840,10 @@ fn the_queue_and_now_playing_animate_out_too() {
     // With reduced motion both leave at once.
     window.global::<Theme>().set_motion_choice(ReduceMotion::On);
     window.set_queue_open(true);
-    player.set_now_playing_open(true);
+    player.set_overlay(Overlay::NowPlaying);
     count("QueuePanel");
     window.set_queue_open(false);
-    player.set_now_playing_open(false);
+    player.set_overlay(Overlay::None);
     wait(0);
     assert_eq!((count("QueuePanel"), count("NowPlayingView")), (0, 0));
 }
@@ -777,7 +881,7 @@ fn the_sidebar_drags_the_window_down_to_its_sections_while_nothing_covers_it() {
     );
     window
         .global::<vcmp_app::PlayerState>()
-        .set_now_playing_open(true);
+        .set_overlay(Overlay::NowPlaying);
     assert_eq!(
         window.get_frame_sidebar_drag_height(),
         0.0,

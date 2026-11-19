@@ -1,6 +1,6 @@
 //! Updates in the window: the switches survive a restart and decide whether and
 //! what VCMP asks GitHub, a newer release shows a note in the sidebar and on the
-//! About page, and the note opens the dialog that installs it.
+//! About section of Settings, and the note opens the dialog that installs it.
 
 use std::cell::Cell;
 use std::ffi::OsString;
@@ -27,7 +27,7 @@ fn open_window() -> AppWindow {
     window.show().expect("show");
     // Tall enough for the whole Settings page: the finder skips what is scrolled out
     // of view.
-    window.window().set_size(LogicalSize::new(1100.0, 2400.0));
+    window.window().set_size(LogicalSize::new(1100.0, 4000.0));
     window
 }
 
@@ -147,14 +147,14 @@ fn a_newer_release_shows_a_note_in_the_sidebar_and_on_about() {
     );
     assert_eq!(notes(&window), 1, "the sidebar's note");
 
-    open_page(&window, "About");
-    assert_eq!(notes(&window), 2, "the sidebar's and the About page's");
+    open_page(&window, "Settings");
+    assert_eq!(notes(&window), 2, "the sidebar's and the About section's");
 
     // A scan takes the sidebar's foot while it runs.
     window
         .global::<LibraryState>()
         .set_phase(ScanPhase::Reading);
-    assert_eq!(notes(&window), 1, "only About's while scanning");
+    assert_eq!(notes(&window), 1, "only the About section's while scanning");
     window.global::<LibraryState>().set_phase(ScanPhase::Idle);
     assert_eq!(notes(&window), 2);
 
@@ -169,7 +169,7 @@ fn a_short_window_keeps_the_note_below_the_scrolling_sections() {
     let window = open_window();
     updates::connect(&window, None, report_newer);
     // The smallest window: the sections scroll above the note instead of under it.
-    window.window().set_size(LogicalSize::new(720.0, 480.0));
+    window.window().set_size(LogicalSize::new(780.0, 480.0));
     assert_eq!(notes(&window), 1);
     let note = ElementHandle::find_by_accessible_label(&window, NOTE)
         .find(|element| element.accessible_role() == Some(AccessibleRole::Button))
@@ -190,7 +190,7 @@ fn no_note_without_a_newer_release() {
     i_slint_backend_testing::init_no_event_loop();
     let window = open_window();
     updates::connect(&window, None, |_| {});
-    open_page(&window, "About");
+    open_page(&window, "Settings");
     assert_eq!(notes(&window), 0);
     assert_eq!(window.global::<UpdateState>().get_version(), "");
 }

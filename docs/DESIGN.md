@@ -68,7 +68,8 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
   Albums, Artists, Playlists, Songs and Folders, then Settings and About; the
   playlist list stays as it is. Choosing a section always goes to its full view,
   not to the detail it last showed. (2026-10-28: Labels joins after Playlists,
-  below.)
+  below. 2026-11-19: About moves into Settings, and the library's sections can be
+  hidden, below.)
 - 2026-10-18, an album renamed while its page is open: the page goes to the renamed
   album instead of showing it as missing.
 - 2026-10-18, selection: in a run of selected tracks, only the first and last
@@ -96,6 +97,7 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
     and choose photo for artists. The room goes to a larger cover, and the other
     text is a little bigger.
   - Small icons in the player bar mark a lossless file and Last.fm scrobbling.
+    (2026-11-19: moved above the progress bar, below.)
   - On a big 2K monitor the app looks scaled down: Settings gets a zoom.
   - The review of an agent's change is hard to navigate: its changes are grouped
     per song/file.
@@ -138,7 +140,34 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
   A track without lyrics shows the view as before. The player bar gets a lyrics
   button that opens now playing on them; it stays in place, disabled, while the
   track has none. "Find lyrics online" is in Settings and in the setup wizard's
-  Online services step.
+  Online services step. (2026-11-19: lyrics become a view of their own, below.)
+- 2026-11-19, visual and UX improvements (issue #107, chosen from offered options,
+  `docs/specs/2026-11-19-visual-ux-improvements.md`):
+  - Lyrics and now playing are separate views, one at a time: the Lyrics button
+    always opens the lyrics view (or closes it), the Now playing button always opens
+    now playing (or closes it), and pressing one while the other is open switches.
+    The toggle in the view's corner and the remembered choice are gone. Escape
+    closes either.
+  - The lyrics view keeps the small cover, title, artist and menu above the lines.
+    On a track without lyrics it stays open and says there are none; the Lyrics
+    button is disabled for such a track unless the lyrics view is open.
+  - Lyrics animate: the line playing slides to the middle with an eased motion on
+    the theme's duration, and grows and fades to the accent while the one before
+    eases back.
+  - With the queue sliding in or out of a wide window, the pages, now playing and
+    lyrics narrow and widen along with it instead of jumping.
+  - The player bar's heart sits between the cover and the title, so it no longer
+    moves with the title's length. The window's smallest width goes from 720 to
+    780 px to make room for it ("Raise minimum to 780 px", chosen over hiding the
+    volume slider or eliding the title to nothing).
+  - The Lossless and Scrobble marks sit above the progress bar, at the left end of
+    the buttons' row above the time played, and hide where the buttons leave them
+    no room.
+  - Settings' Appearance has a switch per library section (Albums, Artists,
+    Playlists, Labels, Songs, Folders) to show it in the sidebar; Search and
+    Settings always show. Hiding Playlists or Labels hides its list too; links into
+    a hidden section still work; the app opens on the first section shown.
+  - About is no longer in the sidebar: it is the last section of Settings.
 
 ## Awaiting the owner's review
 
@@ -164,7 +193,8 @@ the owner's until reviewed; keep, change or drop each.
 - 2026-11-04, the hearts (issue #78): in track lists the heart sits between the
   title and the time, an outline under the pointer and filled in the accent while
   liked. In the player bar it is a round icon button right of the title and artist,
-  filled in the accent while liked. The Favourites picture is the accent heart on
+  filled in the accent while liked (2026-11-19: the owner moved it before the
+  title, above). The Favourites picture is the accent heart on
   the surface grey. The favourites entry comes right after Add to queue in track
   menus and card menus, and first in the album page's More menu after the cover
   entries.
@@ -182,7 +212,16 @@ the owner's until reviewed; keep, change or drop each.
   and the lines 20 px, centred, at most 720 px wide; the line playing is bold in the
   accent, the others muted, and it stays in the middle of the list, gliding there
   as the mouse wheel glides. The view's toggle sits left of the track's menu in the
-  top right corner. The bar's lyrics button comes first of its three switches.
+  top right corner (2026-11-19: the toggle is gone and the glide eases, above). The bar's lyrics button comes first of its three switches.
   So the new button fits at 720 px, the bar's buttons on the right sit 4 px apart
   instead of 8 px at every width, and at the narrowest the volume slider may shrink
   to 52 px and the playing track's title to 120 px with its cover.
+- 2026-11-19, the details of issue #107: the line playing in the lyrics grows from
+  20 px to 26 px (`font-title`, the next step of the type scale) and slides over the
+  theme's medium duration (220 ms) with an ease-out. The lyrics view on a track
+  without lyrics says "No lyrics for this track", muted, in the middle of the view.
+  The sidebar switches are one Settings row per section, titled with the section's
+  name, under a "Sidebar" row that explains them. The Lossless and Scrobble marks
+  sit right-aligned over the 52 px time column, Lossless first, and show from a
+  controls width of about 360 px (a window of about 930 px). About in Settings
+  reads "VCMP, version ..." under an "About" heading.

@@ -2,8 +2,8 @@ import { Theme } from "theme.slint";
 import { FocusRing } from "components.slint";
 import { PlayerState } from "player-state.slint";
 
-// One line of synced lyrics. The line playing is in the accent; a click plays from
-// its start.
+// One line of synced lyrics. The line playing grows a step and turns to the accent,
+// easing there as the one before eases back; a click plays from its start.
 component LyricRow {
     in property <string> text;
     in property <bool> current;
@@ -12,8 +12,10 @@ component LyricRow {
     in property <int> recenter;
     callback clicked();
     // The row's place in the list and its height, when it becomes the line playing
-    // or the keyboard's.
+    // or the keyboard's; `moved-current` while the line playing grows or the one
+    // before it shrinks, so the list keeps it in the middle.
     callback shown-current(length, length);
+    callback moved-current(length, length);
     callback shown-focused(length, length);
 
     changed current => {
@@ -24,6 +26,16 @@ component LyricRow {
     changed recenter => {
         if self.current {
             root.shown-current(self.y, self.height);
+        }
+    }
+    changed y => {
+        if self.current {
+            root.moved-current(self.y, self.height);
+        }
+    }
+    changed height => {
+        if self.current {
+            root.moved-current(self.y, self.height);
         }
     }
     changed focused => {
@@ -50,8 +62,9 @@ component LyricRow {
         Text {
             text: root.text;
             color: root.current ? Theme.colors.accent : touch.has-hover ? Theme.colors.text : Theme.colors.text-muted;
-            font-size: Theme.font-large;
+            font-size: root.current ? Theme.font-title : Theme.font-large;
             font-weight: root.current ? Theme.weight-strong : Theme.weight-regular;
+            animate font-size, color { duration: Theme.duration-medium; easing: ease-out; }
             wrap: word-wrap;
             min-height: self.preferred-height;
             horizontal-alignment: center;
@@ -74,33 +87,54 @@ component LyricRow {
     }
 }
 
-// The playing track's lyrics in the now playing view. Synced lyrics keep the line
-// playing in the middle, gliding to each new line (jumping with reduced motion); a
-// click, or Enter on the keyboard's line, plays from a line. Plain lyrics scroll.
+// The playing track's lyrics in the lyrics view. Synced lyrics keep the line playing
+// in the middle, sliding to each new line over the theme's medium duration (jumping
+// with reduced motion); a click, or Enter on the keyboard's line, plays from a line.
+// Plain lyrics scroll.
 // The lines are one tab stop: Up and Down, Page Up and Page Down, Home and End.
 export component LyricsView {
     private property <int> count: PlayerState.lyrics-lines.length;
     private property <int> cursor;
-    // Where the list glides to, and whether it is on its way.
+    // Where the list slides from and to, since when, and whether it is on its way.
+    private property <length> from-y;
     private property <length> target-y;
+    private property <duration> glide-start;
     private property <bool> gliding;
     private property <int> recenter;
     // Waits for the first layout before showing the line playing.
     private property <bool> settling: true;
 
+    function clamped(y: length) -> length {
+        max(min(0px, flick.height - flick.content-height), min(0px, y))
+    }
+
+    // A new place: the slide starts again from where the list is, so a line that
+    // comes before the last slide ended takes over from it.
     function scroll-to(y: length) {
-        let to = max(min(0px, flick.height - flick.content-height), min(0px, y));
+        let to = root.clamped(y);
         if Theme.reduced-motion {
             root.gliding = false;
             flick.content-y = to;
         } else {
+            root.from-y = flick.content-y;
             root.target-y = to;
+            root.glide-start = animation-tick();
             root.gliding = true;
         }
     }
 
     function center-line(top: length, height: length) {
         root.scroll-to(flick.height / 2 - top - height / 2);
+    }
+
+    // The line playing changed size or place on its way to the middle: the slide
+    // aims at its new middle without starting over.
+    function follow-line(top: length, height: length) {
+        if root.gliding {
+            root.target-y = root.clamped(flick.height / 2 - top - height / 2);
+        } else {
+            root.center-line(top, height);
+        }
     }
 
     function ensure-visible(top: length, height: length) {
@@ -140,17 +174,18 @@ export component LyricsView {
         }
     }
 
-    // A third of the way left each tick, as the mouse wheel glides (src/wheel.rs).
+    // Eases out over the theme's medium duration, as the other motion of the UI.
     Timer {
         interval: Theme.drag-scroll-tick;
         running: root.gliding;
         triggered => {
-            let left = root.target-y - flick.content-y;
-            if abs(left) <= 2px {
+            let progress = min(1, (animation-tick() - root.glide-start) / Theme.duration-medium);
+            if progress >= 1 {
                 flick.content-y = root.target-y;
                 root.gliding = false;
             } else {
-                flick.content-y += left / 3;
+                let rest = 1 - progress;
+                flick.content-y = root.from-y + (root.target-y - root.from-y) * (1 - rest * rest * rest);
             }
         }
     }
@@ -232,6 +267,9 @@ export component LyricsView {
                     }
                     shown-current(top, height) => {
                         root.center-line(top, height);
+                    }
+                    moved-current(top, height) => {
+                        root.follow-line(top, height);
                     }
                     shown-focused(top, height) => {
                         root.ensure-visible(top, height);

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
 use slint::ComponentHandle;
-use vcmp_app::{AppWindow, ReduceMotion, Theme, preferences};
+use vcmp_app::{AppWindow, Page, ReduceMotion, SidebarSections, Theme, preferences};
 use vcmp_library::Library;
 
 fn click(window: &AppWindow, role: AccessibleRole, label: &str) {
@@ -190,5 +190,46 @@ fn unknown_saved_values_are_ignored() {
     assert_eq!(
         window.global::<Theme>().get_motion_choice(),
         ReduceMotion::System
+    );
+}
+
+#[test]
+fn the_sidebar_sections_are_saved_and_the_window_opens_on_the_first_shown() {
+    i_slint_backend_testing::init_no_event_loop();
+    let dir = tempfile::tempdir().unwrap();
+    let open = || Rc::new(open_library(&dir));
+
+    let window = settings_window();
+    preferences::connect_sidebar(&window, open()).unwrap();
+    assert_eq!(window.get_current_page(), Page::Albums);
+    window.invoke_show_section(Page::Settings);
+    click(
+        &window,
+        AccessibleRole::Switch,
+        "Show Albums in the sidebar",
+    );
+    click(
+        &window,
+        AccessibleRole::Switch,
+        "Show Folders in the sidebar",
+    );
+    let sections = window.global::<SidebarSections>();
+    assert!(!sections.get_albums() && !sections.get_folders() && sections.get_artists());
+    assert_eq!(
+        open()
+            .setting(preferences::SIDEBAR_HIDDEN)
+            .unwrap()
+            .as_deref(),
+        Some("albums folders")
+    );
+
+    let again = settings_window();
+    preferences::connect_sidebar(&again, open()).unwrap();
+    let sections = again.global::<SidebarSections>();
+    assert!(!sections.get_albums() && !sections.get_folders() && sections.get_songs());
+    assert_eq!(
+        again.get_current_page(),
+        Page::Artists,
+        "Albums is hidden, so the window opens on Artists"
     );
 }

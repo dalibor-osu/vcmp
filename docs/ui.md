@@ -22,7 +22,7 @@ DESIGN.md).
 | `ui/themes.slint` | `Themes` global, `ThemeWords` and `ThemeRows`: the theme tiles, the accent dots and the theme file buttons, notes and contrast warning (see "Themes") |
 | `ui/confirmation.slint` | `Confirmation` global and `ConfirmDialog`: the "are you sure?" before deleting a playlist, a label or the agents' backups |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage` (its last section, About, with the `AboutSlint` badge) and its page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/playlist-page.slint` | `PlaylistView`: one playlist's picture, name, actions and tracks |
 | `ui/picture.slint` | `PictureFrame`, `PictureSlot`, the `MovingPictures` global and `MovingPicture`: a detail page's or the now playing view's picture, which plays an animation's frames while in sight |
@@ -64,6 +64,7 @@ DESIGN.md).
 | `ui/lastfm-settings.slint` | `LastfmRow`: the Last.fm setting and its Connect, Cancel or Disconnect button; `LastfmLoveRow` and `LastfmImportRow`, shown while an account is connected |
 | `src/lastfm_service.rs` | `LastfmService`: the Last.fm rows, the account, plays into the scrobble queue, hearts into the love queue, and the import's progress and result |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
+| `ui/sidebar-sections.slint` | `SidebarSections` global (which library sections the sidebar shows) and `SidebarRows`, their switches in Settings' Appearance |
 | `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note, `UpdateDialog`, `UpdateCheckRow`, `PrereleaseRow` and the Updates section of Settings |
 | `ui/agents.slint` | `AgentState` global, `AgentsSwitchRow`, the AI agents section of Settings (switch, connection, the playback switch, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
 | `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread; `AppPlayback` (`src/player_service/agent_playback.rs`) brings their playback requests to `PlayerService` |
@@ -91,7 +92,7 @@ DESIGN.md).
 | Every text pairing reaches 4.5:1 and every control boundary 3:1, on every built-in theme with every accent it offers; label dots reach 3:1 on every built-in theme | `src/theme/mod.rs` |
 | The theme and accent are restored; `light` and `dark` saved before themes keep their look; theme files load, or are listed with what is wrong; a chosen file that is gone falls back to the built-in theme of its kind | `tests/themes.rs`, `src/themes.rs`, `src/theme/file.rs` |
 | Every wrapped text sets `min-height: self.preferred-height` (or its height outright). Slint 1.18.1 measures an element an `if` creates at its single-line width, so a wrapped text there lost its last lines ([slint-ui/slint#13655](https://github.com/slint-ui/slint/issues/13655), fixed after 1.18.1); a text's own preferred height follows its real width. Drop the rule once Slint is past the fix | `tests/ui_invariants.rs` |
-| Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
+| Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 780 px wide window | `tests/ui_behaviour.rs` |
 | No std-widgets `ScrollView`: every scrolling part is a `ScrollArea`, which draws no scroll bar; the queue and Settings show none, and the queue's rows and Clear end inside the panel | `tests/ui_invariants.rs`, `tests/player.rs` |
 | Every track or album menu (one with Play next or Add to playlist) has the favourites entry | `tests/ui_invariants.rs` |
 
@@ -206,15 +207,17 @@ border, so the dialog's text keeps base's contrast.
 | Red only for errors, with words | The owner's choice (2026-10-18): pink means active, so a wrong value marked in pink read as selected. The red label is bold and the sentence under the form names the field, so the colour never carries the message alone |
 | Sora for everything, two weights (400, 600) | The owner's choice; two weights carry hierarchy without a second family at ENERGY 1 |
 | Type scale 12 / 14 / 16 / 20 / 26 px, and 34 px for the track in the now playing view (42 px when the view is wider than 1800 px) and for the title of an album, artist or playlist page | Small steps suit a calm UI; the page title is the one large element per screen, and the now playing view's and a detail page's titles take its place there, a step larger next to the large cover. A detail page's artist line is 20 px and its counts 14 px, so the header reads at a glance beside its cover (the owner's request, 2026-10-28) |
-| Now playing covers the pages, not the player bar | The bar already holds every control, so the view needs none of its own and the controls stay where people know them. The one exception is the lyrics toggle, which switches what the view itself shows ([lyrics spec](specs/2026-11-07-lyrics-in-now-playing.md)) |
-| Lyrics take the cover's place in now playing, behind a toggle that is remembered; the player bar has a lyrics button too, always there and disabled while the track has none | The owner's choices (2026-11-07): one arrangement for wide and narrow windows with the most room for the lines, a view that looks as before for tracks without lyrics, one click from anywhere, and a bar whose buttons never move between tracks. The line playing is in the accent, whose job is "what plays now" |
+| Now playing and lyrics cover the pages, not the player bar | The bar already holds every control, so the views need none of their own and the controls stay where people know them |
+| Now playing and lyrics are two views, one at a time, each with its own button in the player bar; nothing is remembered between them | The owner's choices (2026-11-19, [spec](specs/2026-11-19-visual-ux-improvements.md)), replacing the lyrics toggle inside now playing (2026-11-07): each button opens its view, closes it, or switches from the other, and Escape closes whichever is open. The lyrics view keeps the small cover and the names above the lines, stays open on a track without lyrics and says so, and the Lyrics button is disabled for such a track unless the view is open. The line playing is in the accent, whose job is "what plays now" |
 | Titles, artists and albums of the playing track are links, underlined on hover | People expect to go from what plays to where it comes from; the underline marks a link without adding colour |
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px; round (half the element's size) for icon-only buttons, the play button, progress and slider tracks, the slider knob and drop lines; the switch is a pill | Circles and round-ended tracks are what those controls are; everything else uses the three radii. `tests/ui_invariants.rs` refuses a radius written in bare pixels |
 | Content column capped at 720 px, except track lists and the songs table | Keeps a setting's label and its control within one glance on wide windows. Track lists span the page: the owner found half a wide window left empty beside them unfinished (2026-10-18) |
-| Settings and About in a column in the middle of the page, 60 % of its width, from 720 to 960 px (`Theme.column-max-width`) | The owner's request (2026-10-20): the column at the left of a wide window, with the right side blank, looked weird. 960 px still keeps a setting's label and its control within reach; About shares the frame, so the two pages next to each other in the sidebar look alike |
-| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Playlists, Songs, Folders, Settings, About), then the playlists by name |
-| The sidebar's sections in three groups: Search; Albums to Folders; Settings and About | The owner's request (2026-10-18): Search and the app's own pages are not views of the library. A gap with a faint line sets the groups apart, the order stays; the page marker adds the gaps above its section |
+| Settings in a column in the middle of the page, 60 % of its width, from 720 to 960 px (`Theme.column-max-width`) | The owner's request (2026-10-20): the column at the left of a wide window, with the right side blank, looked weird. 960 px still keeps a setting's label and its control within reach |
+| About is the last section of Settings, not a page of its own | The owner's request (2026-11-19, issue #107). It keeps the version, the update link, the licences, the credits and the `AboutSlint` badge the Slint licence asks for |
+| Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Playlists, Labels, Songs, Folders, Settings), then the playlists and labels by name |
+| The sidebar's sections in three groups: Search; Albums to Folders; Settings | The owner's request (2026-10-18): Search and the app's own page are not views of the library. A gap with a faint line sets the groups apart, the order stays; the page marker adds the gaps above its section |
+| The library's sections can be hidden from the sidebar, each with a switch in Settings' Appearance; Search and Settings always show | The owner's request (2026-11-19, issue #107). The sidebar is driven by which sections show (`SidebarSections`) and the window tracks the section shown by its page (`AppWindow.section`), not by a place in a list, so hiding moves nothing else. A hidden Playlists or Labels takes its list below the sections with it. Links into a hidden section still open its pages, with no section marked. The window opens on the first section shown, Search if none is. Saved as `ui.sidebar_hidden`, the names of the hidden ones, so a section added later shows |
 | A sidebar section always opens on its grid | The owner's request (2026-10-18): the album, artist or playlist last open is not where someone choosing Albums means to go |
 | A click selects a track; the play button in the number's place, a double-click or Enter plays | The owner's request (2026-10-18), as in Spotify and MusicBee: a stray click no longer starts music, and the button keeps playing one click away |
 | Column widths as shares, dragged at the edge between headings | The owner's request (2026-10-18). Shares fit any window width; one setting serves every track list, another the songs table |
@@ -228,8 +231,8 @@ border, so the dialog's text keeps base's contrast.
 | Accent-filled button only for "Add music folder…" on the empty library pages (Albums, Artists, Songs, Folders) | The single action those empty screens exist for; every other button is outlined. Not yet true: Play, the tag editor's save buttons and the review's Write button are filled too, which audit 001 (finding 5) leaves open with the accent's jobs (finding 3) |
 | Scan progress at the bottom of the sidebar | Albums appear during a long first scan; progress stays visible on any page |
 | No scroll bars anywhere | The owner's decision (2026-10-30, issue #67). The std-widgets `ScrollView` drew its bar over the content and widened it on hover: in the queue it covered the durations, the remove buttons and Clear, on a light grey track that matched nothing else in VCMP. The album grid and the Songs page already scrolled without one. The wheel, the touchpad and the keyboard (the focus brings what it reaches into view) scroll every part; `ScrollArea` in `components.slint` is the std `ScrollView` without its bars, so nothing needs theming |
-| The sidebar's sections and playlists scroll as one, above its foot | Eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
-| A newer VCMP is a muted link at the foot of the sidebar, and a link on About | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings or About would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
+| The sidebar's sections and playlists scroll as one, above its foot | Up to eight sections and any number of playlists don't fit a short window. Scrolling them together keeps one scroll in the sidebar, and the scan status and update note stay in view below. The keyboard scrolls the focused entry into view; the page marker scrolls with its section |
+| A newer VCMP is a muted link at the foot of the sidebar, and a link in Settings' About section | The sidebar is on screen on every page, so the note is seen without opening anything; small, muted and in a corner, it doesn't compete with the navigation or interrupt listening. A dialog or toast would interrupt, a badge would be a second accent, and a note only in Settings would go unseen. A running scan takes its place, as the scan's progress matters now and the note waits |
 | Accent on the play button, the playback progress and the playing track | All three mark what is playing now; the volume fill is muted because it is a setting |
 | Track numbers and durations muted, titles in text colour | The title is what people scan for; numbers support it |
 | One list of themes, no light/dark switch; the first start picks Light or Dark from the OS once | The owner's decision (2026-10-20, kept 2026-11-05): VCMP offers themes rather than a mode. Following the OS later is gone; the first start still matches it |
@@ -264,7 +267,7 @@ border, so the dialog's text keeps base's contrast.
 | Deleting a playlist warns that it can't be undone, whoever asks | The owner's decision (2026-10-20): the playlist page's own Delete question says it too |
 | The changes by agents list newest first, with Review or Undo where they apply, in a dialog of their own opened from Settings (Show changes…) | The decision is about the latest change; older ones are history. An undo is itself a change, so it can be undone (it writes the agent's tags again). The owner's request (2026-10-28): a busy month of changes cluttered Settings, so the page keeps one row that counts them. A review opened from the dialog takes its place and gives it back when it closes; a click beside the dialog closes it, as it holds nothing to lose |
 | Zoom in Settings, from 80 to 200 %, with Ctrl+= and Ctrl+- (Ctrl+0 for 100 %) | The owner's request (2026-10-28): on a large 2K monitor VCMP looked small. It scales the whole window on top of the system's own scale, so every size in `theme.slint` grows together and the layout rules still hold. Buttons on either side of the value step it, as zooming goes a step at a time; the shortcuts are the ones browsers use |
-| Small marks after the playing track's artist: lossless (a waveform) and Last.fm (signal arcs, with a tick once the play counts) | The owner's request (2026-10-28). Muted and 14 px, so they inform without competing with the title; the scrobbled mark turns to text colour and changes shape, so the state never rests on colour. Their name shows above them under the pointer and is what a screen reader hears. The Last.fm mark shows only while an account is connected, and only for plays Last.fm would count (an artist, and longer than 30 s) |
+| Small marks for the playing track: lossless (a waveform) and Last.fm (signal arcs, with a tick once the play counts), above the time played at the left end of the transport buttons' row | The owner's request (2026-10-28), moved there on 2026-11-19 (issue #107) so they keep their place whatever the title. Each has a place of its own, so neither moves when the other is hidden, and they show only where the centred buttons leave them room (windows from about 930 px wide). Muted and 14 px, so they inform without competing with the title; the scrobbled mark turns to text colour and changes shape, so the state never rests on colour. Their name shows above them under the pointer and is what a screen reader hears. The Last.fm mark shows only while an account is connected, and only for plays Last.fm would count (an artist, and longer than 30 s) |
 | The wheel over the volume slider changes the volume, 5 % a notch; over the position slider it scrolls the page | The owner's request (2026-10-28). Turning the wheel to set the volume is what people expect of a player; seeking by wheel would happen by accident while scrolling. The volume is saved once the wheel rests (`Theme.wheel-commit-delay`), not on every step |
 | On Windows no system title bar: VCMP's own minimise, maximise and close buttons in the top right corner (`ui/window-frame.slint`, `src/title_bar.rs`), 46 × 32 px as Windows' own. The window drags by a 16 px strip along its top and by the sidebar down to its first section. The frame's border is `surface` and Windows' dark frame follows the theme | The owner's choice (issue #55, 2026-10-30): Windows painted its bar in the accent colour, a pink strip over the dark theme, on a row of its own. The window keeps Windows' styles and only gives the title bar's room to the app, so Windows still snaps, maximises on a double-click of a drag area, opens the window menu on Alt+Space or a right-click, and resizes at the edges. The maximise button answers Windows as its own (`HTMAXBUTTON`), so Windows 11 shows Snap layouts over it. Top right is where Windows users look for the buttons, and the page headers start 40 px down, so the 32 px buttons cover nothing. The strip is 16 px because detail pages, dialogs and the now playing view put controls from 16 or 24 px down; the now playing view's menu moves below the buttons. **The placement, sizes and hover are awaiting the owner's review** (DESIGN.md) |
 
@@ -433,7 +436,7 @@ the new view in too.
     library's settings (`integrations.fanart_personal_key`) and never written to
     the log: fanart.tv's error messages have both keys scrubbed.
   - **Credit:** a photo found on fanart.tv says "Photo from fanart.tv" under it, a
-    link to the site; a file of the owner's says nothing. About names fanart.tv,
+    link to the site; a file of the owner's says nothing. Settings' About section names fanart.tv,
     the Cover Art Archive and MusicBrainz as the sources of what VCMP finds online,
     with links, as fanart.tv's terms ask.
   - "Choose photo…" takes a JPEG, PNG, WebP or GIF file. One that can't be read says so
@@ -772,13 +775,16 @@ field (see [Labels](#labels)).
 
 ## Now playing view
 
-- **Opening:** the now playing button in the player bar, next to the queue
-  button, opens and closes it. The view (`NowPlayingView`) lies over the sidebar
-  and pages and fades in and out (the window animates its opacity, and keeps the
-  view until it has faded); the player bar stays below it with the controls, and
-  the queue panel can be open beside it. Escape, the close button (top left) or a
-  click on the background returns; the focus starts on the close button so Escape
-  works at once.
+- **Opening:** two buttons in the player bar, next to the queue button, open the
+  two views over the pages: Now playing (the cover) and Lyrics. Each opens its
+  view, closes it when it is open, or switches straight to it from the other one;
+  only one is open at a time (`PlayerState.overlay`: none, now playing or lyrics).
+  The view (`NowPlayingView`, which is both) lies over the sidebar and pages and
+  fades in and out (the window animates its opacity, and keeps the view, as the
+  view it was, until it has faded); the player bar stays below it with the
+  controls, and the queue panel can be open beside it. Escape, the close button
+  (top left) or a click on the background closes either; the focus starts on the
+  close button so Escape works at once.
 - **Leading on:** as in the player bar, the title, the album and the cover lead to
   the album's page, and the artist to the artist's page; the view closes on the
   way. The next track is a button that skips to it.
@@ -786,27 +792,35 @@ field (see [Labels](#labels)).
   1200 px it is decoded at), then the
   title, artist and album, and the next track as the queue stands. Beside each
   other in a wide window, stacked and centred in a narrow one. With the queue
-  panel open in a wide window, the view narrows to leave it room.
+  panel open in a wide window, the view narrows to leave it room, along with the
+  panel's slide.
 - **The large cover** is the full-size artwork, decoded off the UI thread at up to
-  1200 px when the view opens (and for each new track while it is open). The bar's
+  1200 px when a view opens (and for each new track while it is open). The bar's
   small cover stands in until then; a decode that arrives after the track changed
   is dropped.
 - **An animated cover** plays here too, at up to 1200 px (see
   [Animated pictures](#animated-pictures)).
-- **Lyrics** ([spec](specs/2026-11-07-lyrics-in-now-playing.md)): for a track
-  with lyrics, a lyrics button beside the track's menu (top right) switches the view
-  to them and back; the choice is saved (`ui.lyrics_shown`) and applies to every
-  track that has lyrics. In lyrics mode the cover goes small (80 px) beside the
-  title, artist and album, without the next track, and the lyrics take the rest of
-  the view, at most 720 px wide, in wide and narrow windows alike. A track without
-  lyrics shows the view as before, without the button. Lyrics that arrive a moment
-  after the track started (an LRCLIB answer) switch the open view when they land.
+- **The lyrics view** ([spec](specs/2026-11-19-visual-ux-improvements.md), first
+  built by [the lyrics spec](specs/2026-11-07-lyrics-in-now-playing.md)): the cover
+  goes small (80 px) beside the title, artist and album, without the next track,
+  and the lyrics take the rest of the view, at most 720 px wide, in wide and narrow
+  windows alike. Nothing is remembered: the view opens only from its button (the
+  `ui.lyrics_shown` an older VCMP saved is left in the database and ignored). A
+  track without lyrics keeps the view open and says "No lyrics for this track";
+  the bar's Lyrics button is then disabled unless the view is open, so it can
+  always close it. Lyrics that arrive a moment after the track started (an LRCLIB
+  answer) show when they land.
   - **Synced lyrics** (`LyricsView`, `ui/lyrics.slint`): one line per row, the line
-    playing in the accent and bold, the others muted. The line playing is kept in
-    the middle: the list glides there a third of the way each 16 ms, as the mouse
-    wheel does, or jumps with reduced motion on. A click on a line plays from its
-    start. The lines are one tab stop: Up/Down, Page Up/Down (five lines),
-    Home/End move the keyboard's line, Enter or Space plays from it.
+    playing larger (`font-title` instead of `font-large`), bold and in the accent,
+    the others muted; size and colour ease over the theme's medium duration, the
+    line before easing back. The line playing is kept in the middle: the list
+    slides there with an ease-out over the same duration (a 16 ms timer reading
+    `animation-tick()`), or jumps with reduced motion on. A new line during a slide
+    starts the slide again from where the list is; while the line playing grows or
+    the one before shrinks, the slide aims at the line's new middle without
+    starting over. A click on a line plays from its start. The lines are one tab
+    stop: Up/Down, Page Up/Down (five lines), Home/End move the keyboard's line,
+    Enter or Space plays from it.
   - **Plain lyrics** are one text that scrolls; Up/Down, Page Up/Down and Home/End
     scroll it from the keyboard.
   - **Where the line comes from:** `src/player_service/lyrics.rs` takes the
@@ -886,7 +900,9 @@ The Albums page tells apart why it is empty:
 - **The player bar** runs along the bottom of the window:
   - the current track with its cover: the title and the cover lead to its album's
     page, the artist to the artist's page (links, underlined on hover, and tab
-    stops; the cover is for the pointer, the title the keyboard's way);
+    stops; the cover is for the pointer, the title the keyboard's way). The heart
+    sits between the cover and the title in a slot of its own, kept while the track
+    can't be liked, so neither moves with the title's length;
   - shuffle, previous, play/pause, next and repeat (off, all, one);
   - the position with a seek slider, and volume;
   - the speaker icon mutes and unmutes, coming back to the earlier volume. Moving the
@@ -894,15 +910,18 @@ The Albums page tells apart why it is empty:
     volume slider changes it, 5 % a notch (a third of that each frame of a
     `WheelScroller` glide, which adds up the same), and the volume is saved once
     the wheel has rested for 400 ms;
-  - after the artist, a mark for a lossless file (FLAC, WAV, AIFF or ALAC, from the library's
+  - above the time played, at the left end of the transport buttons' row, a mark
+    for a lossless file (FLAC, WAV, AIFF or ALAC, from the library's
     `tracks.format`) and, while a Last.fm account is connected, a mark for a play
     Last.fm will count, which changes to a tick once it has (`PlayerState.scrobble`,
-    set from the same `lastfm::Play` that hands the scrobble over). Pointing at a
-    mark shows its name above it;
-  - lyrics, now playing and the queue, three switches. The lyrics button opens now
-    playing on the lyrics (and turns the view's lyrics toggle on), switches an open
-    view to them, or closes a view that shows them. It is disabled while the track
-    has no lyrics, and in the accent while the view shows them;
+    set from the same `lastfm::Play` that hands the scrobble over). Each keeps its
+    own place; they show where the centred buttons leave them room (a window from
+    about 930 px wide). Pointing at a mark shows its name above it;
+  - lyrics, now playing and the queue, three switches. The lyrics and now playing
+    buttons each open their view, close it, or switch to it from the other (see
+    [Now playing view](#now-playing-view)). The lyrics button is disabled while
+    the track has no lyrics and the lyrics view is closed, and each is in the accent
+    while its view is open;
   - the sleep timer, a moon next to the queue button. Its menu offers "End of this
     track" and 15, 30, 45, 60 and 90 minutes, plus "Turn off sleep timer" while one
     is on. While it is on the moon is in the accent; while it counts down, the minutes
@@ -912,10 +931,13 @@ The Albums page tells apart why it is empty:
     A timer that runs out while nothing plays just ends, and Stop, or playback
     stopping by itself, ends a running one. It counts in whole minutes on a Slint
     timer and isn't saved.
-- **Width at 720 px** (at 100 % zoom): the bar's three parts have fixed minimums: 120 px for the
-  track, 240 px for the controls and 272 px for the buttons and volume (five 40 px
-  buttons, 4 px apart, and a volume slider of at least 52 px). With its padding and
-  gaps that is exactly 720 px; another button on the right needs room taken
+- **Width at 780 px** (at 100 % zoom), the window's smallest: the bar's three parts
+  have fixed minimums: 180 px for the track (the 56 px cover, the heart's 40 px slot
+  and 68 px of title), 240 px for the controls and 272 px for the buttons and
+  volume (five 40 px buttons, 4 px apart, and a volume slider of at least 52 px).
+  With its padding and gaps that is exactly 780 px. The owner chose to raise the
+  window's minimum from 720 px for the heart before the title (2026-11-19); another
+  button on the right needs room taken
   elsewhere (`smallest_window_keeps_everything_inside` checks it). The gaps can't
   depend on the window's width: the bar's minimum feeds the window's, so Slint sees
   a binding loop.
@@ -948,13 +970,16 @@ The Albums page tells apart why it is empty:
   app's other controls never take focus on a click. While a dialog is open a click
   leaves the focus where it is in the dialog, so Escape still closes it and Tab
   stays inside it.
-- **The now playing view** hides the sidebar and pages under it once it has faded
-  in, as the covering queue does, so Tab can't reach controls nobody sees.
+- **The now playing and lyrics views** hide the sidebar and pages under them once
+  faded in, as the covering queue does, so Tab can't reach controls nobody sees.
 - **The queue panel** slides in from the window's edge and back out when it closes
   (at once with reduced motion): the window animates how far out it is
   (`queue-out`) and keeps the panel until it is out. It opens from the queue button in the player bar, and stays open
   or closed across restarts (`ui.queue_open`). In a window at least 1000 px wide
-  the page narrows to make room for it. In a narrower one the panel covers the
+  the page (and the now playing or lyrics view) narrows to make room for it, its
+  width following the panel's place as it slides, so the page narrows and widens
+  with it rather than jumping at the start (`queue-room`). Every page lays out again
+  each frame of the slide. In a narrower one the panel covers the
   pages (and the now playing view) from the sidebar to the window's edge, so it
   never hides half a page's controls; the sidebar stays. Once it has slid in, the
   pages under it are hidden, so the keyboard can't reach controls nobody can see,
@@ -1142,9 +1167,9 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
   release, because a fix for an older line published after a newer release would
   otherwise count as the newest.
 - A newer version fills `UpdateState`, and the note "VCMP 1.2.0 is available" shows
-  at the foot of the sidebar and under the version on About. Activating it opens the
-  update dialog (below). The page address is built from the tag, not taken from the
-  answer.
+  at the foot of the sidebar and under the version in Settings' About section.
+  Activating it opens the update dialog (below). The page address is built from
+  the tag, not taken from the answer.
 - The request carries VCMP's User-Agent (its name and version). GitHub sees the IP
   address and nothing about the library; the setting's description says so.
 - Network errors and answers other than 200 (offline, the rate limit, 404) are
@@ -1344,8 +1369,9 @@ owned by `LibraryView`) answers the `Favourites` global.
   while liked, filled in the accent. Like the play button in the number's place,
   the heart is part of the row (the row's click checks where the pointer is), so it
   is no tab stop; the row's spoken label adds "in Favourites". The player bar has a
-  heart button beside the title, a tab stop, within the track section's minimum.
-  The Songs table, the queue and the now playing view have no hearts.
+  heart button between the cover and the title, a tab stop, within the track
+  section's minimum. The Songs table, the queue and the now playing and lyrics
+  views have no hearts.
 - **Menus.** Every track menu (track lists, the songs table, the queue, the now
   playing "…" menu) and every album menu (album cards, the album page's More menu)
   has "Add to Favourites", or "Remove from Favourites" when every track it acts on

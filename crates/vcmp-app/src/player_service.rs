@@ -42,9 +42,7 @@ mod agent_playback;
 mod lyrics;
 
 pub use agent_playback::AppPlayback;
-pub use lyrics::{
-    LyricsReader, LyricsSearch, SETTING_LYRICS_ONLINE, SETTING_LYRICS_SHOWN, ThreadReader,
-};
+pub use lyrics::{LyricsReader, LyricsSearch, SETTING_LYRICS_ONLINE, ThreadReader};
 
 use crate::albums::initial;
 use crate::favourites;
@@ -1032,7 +1030,7 @@ impl PlayerService {
             let animation = artwork.and_then(|artwork| self.library.cover_animation(artwork));
             moving_pictures::show(&window, Picture::NowPlaying, animation);
         }
-        if state.get_now_playing_open() {
+        if state.get_overlay_open() {
             self.load_large_cover();
         }
     }

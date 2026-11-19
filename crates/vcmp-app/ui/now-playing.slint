@@ -4,7 +4,7 @@ import { Playlists } from "playlist-state.slint";
 import { Labels } from "labels.slint";
 import { Favourites } from "favourites.slint";
 import { Glyph } from "icons.slint";
-import { PlayerState } from "player-state.slint";
+import { Overlay, PlayerState } from "player-state.slint";
 import { MovingPicture, PictureSlot } from "picture.slint";
 import { WindowFrame } from "window-frame.slint";
 import { LyricsView } from "lyrics.slint";
@@ -27,7 +27,7 @@ component BigCover inherits Rectangle {
         still: PlayerState.has-large-cover ? PlayerState.large-cover : PlayerState.cover;
         slot: PictureSlot.now-playing;
         frames: PlayerState.large-cover-frames;
-        in-sight: PlayerState.now-playing-open;
+        in-sight: PlayerState.overlay-open;
         image-fit: ImageFit.cover;
         accessible-role: none;
     }
@@ -192,9 +192,9 @@ component TrackDetails inherits VerticalLayout {
 
 // The track playing, large: its cover, title, artist and album, and what plays
 // next. It covers the pages; the player bar below stays and holds the controls.
-// Escape, the close button or a click on the background returns. With lyrics shown
-// (remembered) and the track having some, the lyrics take the cover's place and the
-// cover goes small beside the title, in wide and narrow windows alike.
+// Escape, the close button or a click on the background returns. As the lyrics view
+// the lyrics take the cover's place and the cover goes small beside the title, in
+// wide and narrow windows alike; a track without lyrics says so there.
 export component NowPlayingView inherits Rectangle {
     callback close();
     // Leads to the playing track's album or artist.
@@ -213,12 +213,19 @@ export component NowPlayingView inherits Rectangle {
         ? min(root.height - root.room, root.width * 0.45, 880px)
         : min(root.width - root.room, root.height * 0.5, 880px));
     private property <length> title-size: root.width > 1800px ? Theme.font-display-wide : Theme.font-display;
-    private property <bool> lyrics-mode: PlayerState.lyrics-shown && PlayerState.has-lyrics;
+    // Which of the two views it is. It keeps the last one while it fades out.
+    private property <Overlay> overlay: PlayerState.overlay;
+    private property <bool> lyrics-mode: PlayerState.overlay == Overlay.lyrics;
+    changed overlay => {
+        if self.overlay != Overlay.none {
+            root.lyrics-mode = self.overlay == Overlay.lyrics;
+        }
+    }
     private property <length> small-cover: Theme.target-height * 2;
 
     background: Theme.colors.base;
     accessible-role: groupbox;
-    accessible-label: @tr("Now playing");
+    accessible-label: root.lyrics-mode ? @tr("Lyrics") : @tr("Now playing");
     // The window fades it in and out (its opacity).
     init => {
         // Escape works at once; the focus ring shows only for keyboard users.
@@ -358,10 +365,20 @@ export component NowPlayingView inherits Rectangle {
                 // Clicks between the lines keep the view open.
                 TouchArea { }
                 // Sized here: a centring layout would give it only its minimum width.
-                LyricsView {
+                if PlayerState.has-lyrics: LyricsView {
                     width: min(parent.width, Theme.content-max-width);
                     height: parent.height;
                     x: (parent.width - self.width) / 2;
+                }
+                if !PlayerState.has-lyrics && PlayerState.has-track: Text {
+                    y: (parent.height - self.height) / 2;
+                    width: parent.width;
+                    height: self.preferred-height;
+                    text: @tr("No lyrics for this track");
+                    color: Theme.colors.text-muted;
+                    font-size: Theme.font-large;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
                 }
             }
         }
@@ -370,22 +387,9 @@ export component NowPlayingView inherits Rectangle {
             x: Theme.space-l;
             y: Theme.space-l;
             glyph: Glyph.chevron-down;
-            label: @tr("Close now playing");
+            label: root.lyrics-mode ? @tr("Close lyrics") : @tr("Close now playing");
             clicked => {
                 root.close();
-            }
-        }
-
-        // Lyrics or the cover, for a track with lyrics; beside the track's menu.
-        if PlayerState.has-lyrics: IconButton {
-            x: root.width - Theme.target-height * 2 - Theme.space-l - Theme.space-s;
-            y: WindowFrame.custom ? Theme.caption-button-height + Theme.space-s : Theme.space-l;
-            glyph: Glyph.lyrics;
-            checkable: true;
-            active: PlayerState.lyrics-shown;
-            label: @tr("Show lyrics");
-            clicked => {
-                PlayerState.set-lyrics-shown(!PlayerState.lyrics-shown);
             }
         }
 

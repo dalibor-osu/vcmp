@@ -1,7 +1,7 @@
 import "../../../assets/fonts/sora/Sora[wght].ttf";
 import { ReduceMotion, Theme, ThemeKind, ThemePalette } from "theme.slint";
 import { NavItem, PlaylistLink, ScrollArea } from "components.slint";
-import { AboutPage, AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
+import { AlbumsPage, ArtistsPage, FoldersPage, PlaylistsPage, SearchPage, SettingsPage, SongsPage } from "pages.slint";
 import { FolderRow } from "folders-page.slint";
 import { DayStamp, SongColumn, SongDates, SongRow, SongSelection } from "songs-page.slint";
 import { ArtistDetail } from "artist-page.slint";
@@ -13,7 +13,7 @@ import { Playlists } from "playlist-state.slint";
 import { PlaylistImport, PlaylistImportReport, UnmatchedEntry } from "playlist-import.slint";
 import { LibraryError, LibraryState, ScanPhase, SourceFolder, UnreadableFile } from "library-state.slint";
 import { ProgressBar } from "components.slint";
-import { PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, ScrobbleMark, Shuffle, ShuffleKind, SleepTimer } from "player-state.slint";
+import { Overlay, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, ScrobbleMark, Shuffle, ShuffleKind, SleepTimer } from "player-state.slint";
 import { PlayerBar } from "player-bar.slint";
 import { QueuePanel } from "queue-panel.slint";
 import { NowPlayingView } from "now-playing.slint";
@@ -34,13 +34,14 @@ import { Setup, SetupWizard } from "setup.slint";
 import { Favourites } from "favourites.slint";
 import { CheckList, CheckTab, CheckTrack, CoverlessAlbum, DuplicateBlock, GapBlock, LibraryCheck, LibraryCheckPage } from "library-check.slint";
 import { AccentTile, ContrastFailure, InvalidThemeFile, ThemeFileProblem, Themes, ThemeTile } from "themes.slint";
+import { SidebarSections } from "sidebar-sections.slint";
 
-export { Confirmation, Favourites, Setup, WindowFrame }
+export { Confirmation, Favourites, Setup, SidebarSections, WindowFrame }
 export { AccentTile, ContrastFailure, InvalidThemeFile, ThemeFileProblem, Themes, ThemeTile }
 export { LabelChoice, LabelDetail, LabelEntry, LabelFilterPage, LabelProblem, Labels, PaletteColour }
 export { AgentState, ChangeEntry, ChangeField, ChangeGroup, ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, ReviewStatus, ServerStatus }
 export { LastfmImport, LastfmProblem, LastfmState, LastfmStatus }
-export { Glyph, IconArt, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, ScrobbleMark, Shuffle, ShuffleKind, SleepTimer }
+export { Glyph, IconArt, Overlay, PlayerProblem, PlayerState, PlayState, QueueRow, QueueSource, Repeat, ScrobbleMark, Shuffle, ShuffleKind, SleepTimer }
 export { CoverSearch, CoverSearchStatus, PhotoSearch, PhotoSearchStatus }
 export { CheckList, CheckTab, CheckTrack, CoverlessAlbum, DuplicateBlock, GapBlock, LibraryCheck }
 export { TagChange, TagEditorState, TagEditorStatus, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues }
@@ -52,14 +53,18 @@ export { UpdateBlocker, UpdateFailure, UpdatePhase, UpdateState }
 export { TrackSelection }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeKind, ThemePalette, TrackRow, UnreadableFile }
 
-export enum Page { search, albums, artists, playlists, labels, songs, folders, settings, about }
+export enum Page { search, albums, artists, playlists, labels, songs, folders, settings }
 
 struct NavEntry {
     page: Page,
     label: string,
-    // The sidebar groups its sections: Search, then the library, then the app's own
-    // pages. Numbered in order, from 0.
+    // The sidebar groups its sections: Search, then the library, then Settings.
+    // Numbered in order, from 0.
     group: int,
+    // Chosen in Settings for the library's sections; Search and Settings always.
+    shown: bool,
+    // How many shown sections come before it.
+    place: int,
 }
 
 export component AppWindow inherits Window {
@@ -134,8 +139,9 @@ export component AppWindow inherits Window {
     in-out property <bool> queue-open;
     // The library database could not be opened or read.
     in property <bool> library-failed;
-    // Starts on Albums.
-    in-out property <int> selected-index: 1;
+    // The section shown, which the sidebar marks while it shows that section. Starts
+    // on Albums, or on the first section the sidebar shows (src/preferences.rs).
+    in-out property <Page> section: Page.albums;
     // The album grid's rows in view changed: first album index and how many fit.
     callback album-range-changed(int, int);
     callback album-activated(int);
@@ -179,26 +185,49 @@ export component AppWindow inherits Window {
     callback folder-go-to(int);
     callback play-folder-file(int);
     callback queue-folder-file(int, bool);
-    out property <Page> current-page: root.nav[root.selected-index].page;
+    out property <Page> current-page: root.section;
 
+    private property <int> shown-albums: SidebarSections.albums ? 1 : 0;
+    private property <int> shown-artists: SidebarSections.artists ? 1 : 0;
+    private property <int> shown-playlists: SidebarSections.playlists ? 1 : 0;
+    private property <int> shown-labels: SidebarSections.labels ? 1 : 0;
+    private property <int> shown-songs: SidebarSections.songs ? 1 : 0;
+    private property <int> shown-folders: SidebarSections.folders ? 1 : 0;
+    private property <int> shown-library: root.shown-albums + root.shown-artists + root.shown-playlists + root.shown-labels + root.shown-songs + root.shown-folders;
     private property <[NavEntry]> nav: [
-        { page: Page.search, label: @tr("Search"), group: 0 },
-        { page: Page.albums, label: @tr("Albums"), group: 1 },
-        { page: Page.artists, label: @tr("Artists"), group: 1 },
-        { page: Page.playlists, label: @tr("Playlists"), group: 1 },
-        { page: Page.labels, label: @tr("Labels"), group: 1 },
-        { page: Page.songs, label: @tr("Songs"), group: 1 },
-        { page: Page.folders, label: @tr("Folders"), group: 1 },
-        { page: Page.settings, label: @tr("Settings"), group: 2 },
-        { page: Page.about, label: @tr("About"), group: 2 },
+        { page: Page.search, label: @tr("Search"), group: 0, shown: true, place: 0 },
+        { page: Page.albums, label: @tr("Albums"), group: 1, shown: SidebarSections.albums, place: 1 },
+        { page: Page.artists, label: @tr("Artists"), group: 1, shown: SidebarSections.artists, place: 1 + root.shown-albums },
+        { page: Page.playlists, label: @tr("Playlists"), group: 1, shown: SidebarSections.playlists, place: 1 + root.shown-albums + root.shown-artists },
+        { page: Page.labels, label: @tr("Labels"), group: 1, shown: SidebarSections.labels, place: 1 + root.shown-albums + root.shown-artists + root.shown-playlists },
+        { page: Page.songs, label: @tr("Songs"), group: 1, shown: SidebarSections.songs, place: 1 + root.shown-albums + root.shown-artists + root.shown-playlists + root.shown-labels },
+        { page: Page.folders, label: @tr("Folders"), group: 1, shown: SidebarSections.folders, place: 1 + root.shown-library - root.shown-folders },
+        { page: Page.settings, label: @tr("Settings"), group: 2, shown: true, place: 1 + root.shown-library },
     ];
+
+    pure function entry(page: Page) -> NavEntry {
+        page == Page.search ? root.nav[0]
+            : page == Page.albums ? root.nav[1]
+            : page == Page.artists ? root.nav[2]
+            : page == Page.playlists ? root.nav[3]
+            : page == Page.labels ? root.nav[4]
+            : page == Page.songs ? root.nav[5]
+            : page == Page.folders ? root.nav[6]
+            : root.nav[7]
+    }
+
+    // The separators above a section: one before the library's first shown section,
+    // one before Settings.
+    pure function gaps-above(entry: NavEntry) -> int {
+        entry.group == 0 ? 0 : entry.group == 1 ? 1 : root.shown-library > 0 ? 2 : 1
+    }
     // Back and forward through the places shown, like a browser (src/navigation.rs):
     // the mouse's back and forward buttons, and Alt+Left and Alt+Right. The window
     // reports every change of section or of the page open in it.
     callback navigated();
     callback go-back();
     callback go-forward();
-    changed selected-index => {
+    changed section => {
         root.navigated();
     }
     changed album-open => {
@@ -236,9 +265,8 @@ export component AppWindow inherits Window {
 
     // Shows a section on its grid, not on the album, artist or playlist it last
     // showed, as its sidebar entry does.
-    public function show-section(index: int) {
-        root.selected-index = index;
-        let page = root.nav[index].page;
+    public function show-section(page: Page) {
+        root.section = page;
         if page == Page.albums && root.album-open {
             albums-page.close-album();
         }
@@ -261,14 +289,14 @@ export component AppWindow inherits Window {
     function show-playing-album() {
         PlayerState.go-to-album();
         root.opened-from-search = false;
-        PlayerState.now-playing-open = false;
-        root.selected-index = 1;
+        PlayerState.overlay = Overlay.none;
+        root.section = Page.albums;
     }
     function show-playing-artist() {
         PlayerState.go-to-artist();
         root.opened-from-search = false;
-        PlayerState.now-playing-open = false;
-        root.selected-index = 2;
+        PlayerState.overlay = Overlay.none;
+        root.section = Page.artists;
     }
 
     // A text field has the focus, so Space types instead of playing.
@@ -287,20 +315,20 @@ export component AppWindow inherits Window {
     function show-playlist(index: int) {
         root.playlist-activated(index);
         root.opened-from-search = false;
-        root.selected-index = 3;
+        root.section = Page.playlists;
     }
 
     // Opens label `index` on the Labels page, from the sidebar.
     function show-label(index: int) {
         root.label-activated(index);
         root.opened-from-search = false;
-        root.selected-index = 4;
+        root.section = Page.labels;
     }
 
     // Shows the Search page with its field focused.
     function show-search() {
         root.opened-from-search = false;
-        root.selected-index = 0;
+        root.section = Page.search;
         search-page.focus-field();
     }
 
@@ -323,16 +351,19 @@ export component AppWindow inherits Window {
     // How much of the now playing view shows: it fades in and out. The conditions
     // that make the view and the queue panel read these first, so the animations
     // follow every change, drawn or not.
-    private property <float> now-playing-shown: PlayerState.now-playing-open ? 1 : 0;
+    private property <float> now-playing-shown: PlayerState.overlay-open ? 1 : 0;
     animate now-playing-shown { duration: Theme.duration-medium; easing: ease-out; }
-    private property <length> page-width: pages.width - (root.queue-open && root.queue-beside ? root.queue-width : 0px);
+    // Beside the queue the pages, now playing and lyrics narrow as the panel slides
+    // in and widen as it slides out, following its place.
+    private property <length> queue-room: root.queue-beside ? root.queue-width * (1 - root.queue-out) : 0px;
+    private property <length> page-width: pages.width - root.queue-room;
 
     private property <length> marker-height: 20px;
     // The marker's place below the first section; it slides when the page changes.
     // The room between two groups of sections, with a line across its middle.
     private property <length> nav-group-gap: Theme.space-l;
-    private property <length> marker-offset: root.selected-index * (Theme.target-height + root.nav-spacing)
-        + root.nav[root.selected-index].group * root.nav-group-gap + (Theme.target-height - root.marker-height) / 2;
+    private property <length> marker-offset: root.entry(root.section).place * (Theme.target-height + root.nav-spacing)
+        + root.gaps-above(root.entry(root.section)) * root.nav-group-gap + (Theme.target-height - root.marker-height) / 2;
     animate marker-offset { duration: Theme.duration-medium; easing: ease-in-out; }
 
     // Scrolls the sidebar so the entry at window y `top` with `height` is in view,
@@ -367,14 +398,14 @@ export component AppWindow inherits Window {
         Theme.system-scheme-changed();
     }
     out property <bool> dialog-open: CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open || Setup.open || PlaylistImport.open || UpdateState.dialog-open || Confirmation.open;
-    private property <bool> now-playing-covers: PlayerState.now-playing-open && root.now-playing-shown == 1 && !(root.queue-covers && root.queue-settled);
-    private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.now-playing-open || root.dialog-open;
+    private property <bool> now-playing-covers: PlayerState.overlay-open && root.now-playing-shown == 1 && !(root.queue-covers && root.queue-settled);
+    private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.overlay-open || root.dialog-open;
     out property <length> frame-sidebar-width: sidebar.width;
     out property <length> frame-sidebar-drag-height: root.sidebar-covered ? 0px : max(0px, sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y - Theme.space-s);
     changed frame-sidebar-drag-height => {
         root.frame-changed();
     }
-    min-width: 720px;
+    min-width: 780px;
     min-height: 480px;
     preferred-width: 1100px;
     preferred-height: 720px;
@@ -487,14 +518,18 @@ export component AppWindow inherits Window {
                                     }
                                 }
 
+                                // A hidden section takes no room: the spacing before
+                                // each shown section is its own.
                                 nav-list := VerticalLayout {
-                                    spacing: root.nav-spacing;
                                     accessible-role: tab-list;
                                     accessible-label: @tr("Sections");
 
-                                    for entry[index] in root.nav: VerticalLayout {
-                                        // The first section of a group has the gap above it.
-                                        if index > 0 && root.nav[index - 1].group != entry.group: Rectangle {
+                                    for entry in root.nav: VerticalLayout {
+                                        padding-top: entry.shown && entry.place > 0 ? root.nav-spacing : 0px;
+
+                                        // The first shown section of a group has the gap
+                                        // above it.
+                                        if entry.shown && (entry.group == 2 || (entry.group == 1 && entry.place == 1)): Rectangle {
                                             height: root.nav-group-gap;
 
                                             Rectangle {
@@ -505,11 +540,11 @@ export component AppWindow inherits Window {
                                             }
                                         }
 
-                                        NavItem {
+                                        if entry.shown: NavItem {
                                             label: entry.label;
-                                            selected: index == root.selected-index;
+                                            selected: entry.page == root.section;
                                             activated => {
-                                                root.show-section(index);
+                                                root.show-section(entry.page);
                                             }
                                             shown-focused(top, height) => {
                                                 root.show-in-sidebar(top, height);
@@ -520,8 +555,9 @@ export component AppWindow inherits Window {
 
                                 // The playlists, below the sections: Favourites first,
                                 // always, then the owner's by name. Their places count
-                                // from Favourites, as in the Playlists page's grid.
-                                VerticalLayout {
+                                // from Favourites, as in the Playlists page's grid. They
+                                // go with a hidden Playlists section.
+                                if SidebarSections.playlists: VerticalLayout {
                                     spacing: Theme.space-s;
 
                                     HorizontalLayout {
@@ -563,8 +599,9 @@ export component AppWindow inherits Window {
                                     }
                                 }
 
-                                // The labels, below the playlists.
-                                if Labels.all.length > 0: VerticalLayout {
+                                // The labels, below the playlists, unless the Labels
+                                // section is hidden.
+                                if SidebarSections.labels && Labels.all.length > 0: VerticalLayout {
                                     spacing: Theme.space-s;
 
                                     HorizontalLayout {
@@ -631,7 +668,8 @@ export component AppWindow inherits Window {
                             if AgentState.pending-count > 0: SidebarReviewNote { }
 
                             // A newer VCMP is out: shown where the scan status goes,
-                            // which has the place while a scan runs. About shows it too.
+                            // which has the place while a scan runs. Settings' About
+                            // section shows it too.
                             if UpdateState.available && !LibraryState.scanning: SidebarUpdateNote { }
                         }
 
@@ -640,7 +678,7 @@ export component AppWindow inherits Window {
                         marker := Rectangle {
                             x: Theme.space-l - 6px;
                             y: sidebar-scroll.y + sidebar-scroll.content-y + sidebar-content.y + nav-list.y + root.marker-offset;
-                            visible: self.y >= sidebar-scroll.y && self.y + self.height <= sidebar-scroll.y + sidebar-scroll.visible-height;
+                            visible: root.entry(root.section).shown && self.y >= sidebar-scroll.y && self.y + self.height <= sidebar-scroll.y + sidebar-scroll.visible-height;
                             width: 3px;
                             height: root.marker-height;
                             border-radius: Theme.radius-s;
@@ -667,17 +705,17 @@ export component AppWindow inherits Window {
                             artist-activated(index) => {
                                 root.search-artist-activated(index);
                                 root.opened-from-search = true;
-                                root.selected-index = 2;
+                                root.section = Page.artists;
                             }
                             album-activated(index) => {
                                 root.search-album-activated(index);
                                 root.opened-from-search = true;
-                                root.selected-index = 1;
+                                root.section = Page.albums;
                             }
                             playlist-activated(index) => {
                                 root.search-playlist-activated(index);
                                 root.opened-from-search = true;
-                                root.selected-index = 3;
+                                root.section = Page.playlists;
                             }
                             play-track(index) => {
                                 root.play-search-track(index);
@@ -902,20 +940,13 @@ export component AppWindow inherits Window {
                             width: root.page-width;
                             SettingsPage {
                                 width: parent.width;
+                                version: root.version;
                             }
                         }
                         if root.current-page == Page.settings && LibraryCheck.open: LibraryCheckPage {
                             x: 0;
                             width: root.page-width;
                             height: parent.height;
-                        }
-                        if root.current-page == Page.about: ScrollArea {
-                            x: 0;
-                            width: root.page-width;
-                            AboutPage {
-                                width: parent.width;
-                                version: root.version;
-                            }
                         }
 
                     }
@@ -924,14 +955,14 @@ export component AppWindow inherits Window {
                 }
 
                 // Leaves the queue panel its room when the window is wide enough.
-                if root.now-playing-shown > 0 || PlayerState.now-playing-open: NowPlayingView {
+                if root.now-playing-shown > 0 || PlayerState.overlay-open: NowPlayingView {
                     opacity: root.now-playing-shown;
                     visible: !(root.queue-covers && root.queue-settled);
                     x: 0;
-                    width: parent.width - (root.queue-open && root.queue-beside ? root.queue-width : 0px);
+                    width: parent.width - root.queue-room;
                     height: parent.height;
                     close => {
-                        PlayerState.now-playing-open = false;
+                        PlayerState.overlay = Overlay.none;
                     }
                     show-album => {
                         root.show-playing-album();
@@ -997,7 +1028,7 @@ export component AppWindow inherits Window {
                     height: parent.height;
                 }
 
-                // The update, from the note in the sidebar or on the About page.
+                // The update, from the note in the sidebar or in Settings' About section.
                 if UpdateState.dialog-open: UpdateDialog {
                     width: parent.width;
                     height: parent.height;

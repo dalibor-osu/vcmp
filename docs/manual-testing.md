@@ -120,6 +120,11 @@ Use an empty `VCMP_HOME`, such as `VCMP_HOME=target/first-start cargo run -p vcm
 - [ ] Queue panel in a window narrower than 1000 px: it covers the whole page area
       but not the sidebar, Tab doesn't reach the page under it, and Escape closes
       it. Wider than that, it sits beside the page.
+- [ ] Queue panel in a window at least 1000 px wide, on Albums, Songs and a long album
+      page, and over now playing and lyrics: the page narrows smoothly along with the
+      sliding panel and widens along with it when it closes, without a jump at the
+      start or the end and without stutter (a release build; note any page that
+      stutters). With Reduce motion on both happen at once.
 - [ ] Queue panel: it slides in and out (at once with Reduce motion on); Play next and Add
       to queue land in the right places; drag an Up next track to another place,
       also past the visible rows (the list scrolls while you hold it at the edge);
@@ -146,18 +151,27 @@ Use copies of your music or a `VCMP_HOME` library; nothing is written to the fil
 but the `.lrc` files below are yours to add and remove.
 
 - [ ] Next to a copied FLAC, add `song.lrc` with timed lines (`[00:05.00]...`).
-      Play it: the player bar's lyrics button is enabled. Press it: now playing
-      opens on the lyrics, the line playing in the accent and kept in the middle;
+      Play it: the player bar's lyrics button is enabled. Press it: the lyrics view
+      opens, the line playing larger, bold and in the accent and kept in the middle;
       lines change on the beat, not a quarter second late. Press it again: the view
       closes.
+- [ ] Each new line slides smoothly to the middle (not in steps), growing and
+      turning to the accent while the line before shrinks back, and the growing
+      line stays centred, also when it wraps onto two lines in a narrow window.
+      Scroll with the wheel during a slide: the wheel wins and nothing jumps back
+      until the next line.
 - [ ] Click a line: playback jumps to it. Tab to the lines, Up/Down moves a focus
       ring, Enter plays from that line. Seek with the bar's slider and pause: the
       highlight follows and stops.
-- [ ] Reduce motion on: the list jumps to each new line instead of gliding.
-- [ ] Turn the view's lyrics button off, close and reopen now playing, restart VCMP:
-      the view stays on the cover. Turn it on: it stays on the lyrics for every
-      track that has lyrics; a track without any shows the cover and no button, and
-      the bar's button is greyed.
+- [ ] Reduce motion on: the list jumps to each new line and the line's size and
+      colour change at once.
+- [ ] Open the lyrics, then press Now playing: it switches to the cover; Lyrics
+      switches back; each pressed again closes its view. Escape closes either.
+      Neither view has a lyrics toggle of its own, and restarting VCMP opens
+      neither.
+- [ ] With the lyrics view open, skip to a track without lyrics: the view stays,
+      saying "No lyrics for this track", and the bar's Lyrics button stays enabled
+      to close it. Closed, the button is greyed for that track.
 - [ ] An MP3 with SYLT (synced) lyrics from a tagger (Mp3tag, foobar2000,
       MusicBrainz Picard with a lyrics plugin), and one with USLT holding LRC text:
       both show synced. A file with plain USLT or `LYRICS`: the text scrolls, with
@@ -175,8 +189,14 @@ but the `.lrc` files below are yours to add and remove.
       again and the lyrics appear. **(never seen working with real tracks)**
 - [ ] A track with plain lyrics in its tags and "Find lyrics online" on: the plain
       text shows at once and gives way to LRCLIB's synced lyrics when they come.
-- [ ] Player bar at 720 px wide: all buttons, the volume slider and
-      the track's title fit without overlapping.
+- [ ] Player bar at 780 px wide (the window's smallest): all buttons, the volume
+      slider, the heart and some of the track's title fit without overlapping, and
+      the window can't be made narrower.
+- [ ] Player bar: the heart sits between the cover and the title and stays put for
+      long and short titles and for a file outside the library (no heart). In a
+      window from about 930 px wide, the Lossless and Scrobble marks sit above the
+      time played, left of the shuffle button, each in its own place; narrower, they
+      hide rather than overlap the buttons. Pointing at one shows its name above it.
 
 ### Selecting and playing tracks
 
@@ -306,7 +326,7 @@ but the `.lrc` files below are yours to add and remove.
   - A file with nothing from the library (or an empty one): no playlist is made,
     the dialog says "No playlist was imported", and closing it puts the focus back
     on Import….
-  - A 720 px wide window: Import… and New playlist stay beside the title, inside
+  - A 780 px wide window: Import… and New playlist stay beside the title, inside
     the window.
 
 ### Labels
@@ -363,7 +383,7 @@ but the `.lrc` files below are yours to add and remove.
 - [ ] Move a liked file to another music folder and rescan: it stays liked. Unplug
       or rename away a liked file's folder: it stays in Favourites, dimmed, "File not
       found", and comes back with the folder.
-- [ ] A 720 px wide window with a long title playing: the bar's heart and buttons
+- [ ] A 780 px wide window with a long title playing: the bar's heart and buttons
       all stay inside.
 
 ### Play history **(never seen working)**
@@ -392,7 +412,7 @@ but the `.lrc` files below are yours to add and remove.
 - [ ] Settings, Playback, "Clear play history…": the dialog says what is lost.
       Keep: nothing changes. Clear: every Plays is 0 and Last played empty; Added
       stays, and plays waiting for Last.fm are still sent.
-- [ ] A 720 px window with every Songs column turned on: note how the text columns
+- [ ] A 780 px window with every Songs column turned on: note how the text columns
       fit; hiding a few gives them room back.
 
 ### Covers and artist photos
@@ -403,7 +423,7 @@ but the `.lrc` files below are yours to add and remove.
       Find photo online, Choose photo… and Remove photo. Nothing is left under the
       cover but the fanart.tv credit.
 - [ ] On a full screen the cover of an album, artist and playlist page is 280 px,
-      with the larger title beside it; narrowing the window to 720 px shrinks the
+      with the larger title beside it; narrowing the window to 780 px shrinks the
       cover first, and Play, Shuffle and More stay beside it.
 - [ ] An album without a cover: Find cover online shows choices, the one picked
       stays after a restart, and Find another cover and Remove cover work.
@@ -415,7 +435,7 @@ but the `.lrc` files below are yours to add and remove.
       an obscure one, and one with a name that several artists share.
       **(never seen working with a live key)**
 - [ ] A photo picked there says "Photo from fanart.tv" under it, and the link
-      opens fanart.tv; a photo from a file says nothing. About names fanart.tv,
+      opens fanart.tv; a photo from a file says nothing. Settings' About section names fanart.tv,
       the Cover Art Archive and MusicBrainz, and each link opens its site.
 - [ ] Settings → Artist photos: paste your fanart.tv personal key, Save, and
       search again; photos still come. Type a wrong key: the picker says fanart.tv
@@ -457,7 +477,7 @@ animated WebP and an APNG. For album covers, edit copies only.
 ### Window, look and keyboard
 
 - [ ] Settings → Theme: each of Light, Dark, Darker and Midnight, and a few
-      accents on each, recolour the whole window at once, the std widgets (About's
+      accents on each, recolour the whole window at once, the std widgets (Settings' About
       Slint logo) and the title bar included. Yellow is offered on the dark themes
       only; with yellow chosen, Light shows pink. Restart: theme and accent kept.
 - [ ] First start (a fresh `VCMP_HOME`) with the OS set to dark: VCMP starts on
@@ -489,21 +509,30 @@ animated WebP and an APNG. For album covers, edit copies only.
 - [ ] Tab reaches every control in order and focus rings show only after a key
       press; a click hides them.
 - [ ] The sidebar has three groups, set apart by a gap and a line: Search; Albums
-      to Folders; Settings and About. The page marker sits on the section shown.
+      to Folders; Settings. The page marker sits on the section shown.
+- [ ] Settings, Appearance, Sidebar: turn off Folders and Playlists. They leave the
+      sidebar at once, the playlists list below goes too, the marker still sits on
+      the section shown, and Tab skips them. Open an album from search or the player
+      bar with Albums hidden: the album page opens and no section is marked. Hide
+      Albums and restart: VCMP opens on the first section still shown; hide all six
+      and it opens on Search. Turn them back on: they return in their places.
+- [ ] About is gone from the sidebar; it is the last section of Settings, with the
+      version, the licences, the credits and the Made with Slint badge, which opens
+      slint.dev on click and on Enter.
 - [ ] With an album, artist or playlist open, go to another section and back by
       its sidebar entry: the section opens on its grid.
 - [ ] Make the window as short as it goes: the sidebar scrolls and the focused
       entry stays in view.
 - [ ] No scroll bar shows anywhere, also with the pointer at a scrolling part's
       right edge: the queue with a long album and tracks in Next in queue (the
-      durations, the remove buttons and Clear are whole), Settings, About, the
+      durations, the remove buttons and Clear are whole), Settings, the
       sidebar in a short window, the album, artist, playlist, label and Folders
       pages, Search, and the dialogs (tag editor, cover and photo pickers, change
       review and history). Each scrolls with the mouse wheel, with two fingers on a
       touchpad (gliding on after a flick), and Tab to a control out of view brings
       it into view.
-- [ ] On a full screen, Settings and About sit in a column in the middle of the
-      page, and the column narrows with the window down to 720 px.
+- [ ] On a full screen, Settings sits in a column in the middle of the page, and the
+      column narrows with the window down to the smallest window, 780 px.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the
       tag editor's error messages, the empty library message in a narrow window.
 - [ ] Hovering an album, artist or playlist card puts a fill behind it. Opening an
@@ -542,9 +571,9 @@ animated WebP and an APNG. For album covers, edit copies only.
       **(never seen working with a real account; checks that 200 a page is
       accepted)**
 - [ ] Update check: once the repository is public and has a release newer than the
-      build, the sidebar and About show "VCMP x.y.z is available" and open the
-      update dialog; turning the setting off hides it. While the repository is
-      private the check gets 404 and shows nothing.
+      build, the sidebar and Settings' About section show "VCMP x.y.z is available"
+      and open the update dialog; turning the setting off hides it. While the
+      repository is private the check gets 404 and shows nothing.
 - [ ] Self-update, Windows and Linux: unpack a signed release older than the newest
       signed one into a folder you can write to and start it. Open the note, Install
       and restart: the progress bar fills, the window closes, the new version opens
