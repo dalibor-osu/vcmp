@@ -7,7 +7,7 @@
 # program runs on glibc 2.35 or newer; built on the host, it would need the host's
 # glibc. Windows is cross-built there with MinGW-w64 (x86_64-pc-windows-gnu), where
 # the workflow builds with MSVC on Windows. The archives, named and laid out as the
-# workflow's, and their SHA256SUMS.txt land in dist/.
+# workflow's, their SHA256SUMS.txt and its update signature land in dist/.
 #
 # The integration keys are passed into the build when they are set here, as the
 # workflow passes its secrets. Without them the build has no Last.fm and no "Find
@@ -65,3 +65,21 @@ docker run --rm --user "$(id -u):$(id -g)" \
     --env CARGO_HOME=/src/target/release-local/cargo-home \
     --env CARGO_TARGET_DIR=/src/target/release-local \
     "${pass[@]}" "$image" bash packaging/release-local.sh --in-container
+
+# The update signature, made on this machine with the key in
+# VCMP_UPDATE_SIGNING_KEY_FILE, or ~/.minisign/vcmp-update.key when that is not set
+# (docs/development.md, "Signing updates"). It asks for the key's password unless
+# VCMP_UPDATE_SIGNING_PASSWORD is set. A key file named in the variable must exist;
+# without the variable and the default file the release stays unsigned.
+rm -f dist/SHA256SUMS.txt.minisig
+key="${VCMP_UPDATE_SIGNING_KEY_FILE:-$HOME/.minisign/vcmp-update.key}"
+if [ -f "$key" ]; then
+    echo "Signing SHA256SUMS.txt with $key"
+    cargo run --locked -p vcmp-integrations --example update_signing -- \
+        sign "$key" dist/SHA256SUMS.txt
+elif [ -n "${VCMP_UPDATE_SIGNING_KEY_FILE:-}" ]; then
+    echo "VCMP_UPDATE_SIGNING_KEY_FILE names $key, which does not exist" >&2
+    exit 1
+else
+    echo "No signing key at $key and VCMP_UPDATE_SIGNING_KEY_FILE is not set: the release is not signed, so VCMP only links to it"
+fi

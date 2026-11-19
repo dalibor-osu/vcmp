@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use slint::ComponentHandle;
 use vcmp_app::agents::{self, AgentService};
@@ -14,6 +15,7 @@ use vcmp_app::navigation::History;
 use vcmp_app::player_service::{PlayerService, Presence, SETTING_OUTPUT_DEVICE};
 use vcmp_app::tag_editor::TagEditor;
 use vcmp_app::themes::Themes;
+use vcmp_app::updates::StartReason;
 use vcmp_app::{Setup, updates};
 use vcmp_integrations::discord::{self, DiscordPresence};
 use vcmp_integrations::fanart::PhotoPicker;
@@ -29,6 +31,7 @@ fn main() -> Result<(), slint::PlatformError> {
         relay();
         return Ok(());
     }
+    let start = StartReason::from_args(std::env::args_os().skip(1));
     let window = vcmp_app::create_window()?;
     vcmp_app::shortcuts::install(&window);
     vcmp_app::preferences::follow_system_motion(&window);
@@ -236,6 +239,14 @@ fn main() -> Result<(), slint::PlatformError> {
             updates::connect(&window, None, updates::check_online);
         }
     }
+    match start {
+        StartReason::Normal => {}
+        // Once the window is up, the version before may go.
+        StartReason::Updated(marker) => {
+            slint::Timer::single_shot(Duration::ZERO, move || updates::confirm_started(&marker))
+        }
+        StartReason::UpdateFailed(version) => updates::show_rolled_back(&window, &version),
+    }
     let result = window.run();
     if let Some((_, player_service, _, _, tag_editor, _)) = &mut services {
         if let Some(player_service) = player_service.take() {
@@ -245,6 +256,13 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         // Edits that waited for that file can be written now.
         tag_editor.write_waiting();
+    }
+    // An installed update: everything that holds the library, the MCP port, the media
+    // controls and Discord closes before the new version starts.
+    if let Some(hand_over) = updates::take_hand_over() {
+        drop(services);
+        drop(window);
+        hand_over.run();
     }
     result
 }

@@ -94,7 +94,18 @@ Run anyway.
 A version is the date of its release: 26.10.0 is the first release of October 2026,
 26.10.1 a fix later that month and 26.11.0 the release in November. Releases marked
 as pre-releases on GitHub are for trying out, and VCMP's update check doesn't
-offer them.
+offer them unless "Include pre-releases" is on (Settings, Updates).
+
+### Updating
+
+When VCMP finds a newer version it says "VCMP x is available" at the foot of the
+sidebar and in the About section of Settings. On Windows and Linux, choose it, then Install and
+restart: VCMP downloads the new version from GitHub, checks that it carries VCMP's
+signature, puts it in place of the old program and starts it. The queue comes back
+paused. If the new version doesn't start, VCMP puts the old one back and says so.
+
+VCMP updates itself only where it can write to the folder it runs from; there, and
+on macOS, the dialog links to the release page instead.
 
 ## AI agents
 

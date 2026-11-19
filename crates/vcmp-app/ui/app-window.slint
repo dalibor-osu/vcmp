@@ -20,7 +20,7 @@ import { NowPlayingView } from "now-playing.slint";
 import { MovingPictures, PictureFrame, PictureSlot } from "picture.slint";
 import { Glyph, IconArt } from "icons.slint";
 import { LastfmImport, LastfmProblem, LastfmState, LastfmStatus } from "lastfm-state.slint";
-import { SidebarUpdateNote, UpdateState } from "updates.slint";
+import { SidebarUpdateNote, UpdateBlocker, UpdateDialog, UpdateFailure, UpdatePhase, UpdateState } from "updates.slint";
 import { CoverPicker, CoverSearch, CoverSearchStatus } from "cover-picker.slint";
 import { PhotoPicker, PhotoSearch, PhotoSearchStatus } from "photo-picker.slint";
 import { TagChange, TagEditorState, TagEditorStatus, TagEditorView, TagFailure, TagFailureReason, TagField, TagMixed, TagProblem, TagValues } from "tag-editor.slint";
@@ -49,7 +49,7 @@ export { DayStamp, FolderRow, PlaylistDetail, PlaylistImport, Playlists, SongCol
 export { SelectionChange }
 export { MovingPictures, PictureFrame, PictureSlot }
 export { ColumnWidths, SongColumns }
-export { UpdateState }
+export { UpdateBlocker, UpdateFailure, UpdatePhase, UpdateState }
 export { TrackSelection }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeKind, ThemePalette, TrackRow, UnreadableFile }
 
@@ -397,7 +397,7 @@ export component AppWindow inherits Window {
     changed system-scheme-known => {
         Theme.system-scheme-changed();
     }
-    out property <bool> dialog-open: CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open || Setup.open || PlaylistImport.open || Confirmation.open;
+    out property <bool> dialog-open: CoverSearch.open || PhotoSearch.open || TagEditorState.open || AgentState.history-open || AgentState.review-open || Labels.editor-open || Setup.open || PlaylistImport.open || UpdateState.dialog-open || Confirmation.open;
     private property <bool> now-playing-covers: PlayerState.overlay-open && root.now-playing-shown == 1 && !(root.queue-covers && root.queue-settled);
     private property <bool> sidebar-covered: root.now-playing-shown > 0 || PlayerState.overlay-open || root.dialog-open;
     out property <length> frame-sidebar-width: sidebar.width;
@@ -1024,6 +1024,12 @@ export component AppWindow inherits Window {
 
                 // What an import of a playlist file left out.
                 if PlaylistImport.open: PlaylistImportReport {
+                    width: parent.width;
+                    height: parent.height;
+                }
+
+                // The update, from the note in the sidebar or in Settings' About section.
+                if UpdateState.dialog-open: UpdateDialog {
                     width: parent.width;
                     height: parent.height;
                 }

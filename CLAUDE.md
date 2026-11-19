@@ -36,6 +36,7 @@ Read it before changing anything structural.
 | AI agents (MCP) | rmcp 3.6 (the official Rust SDK) serving Streamable HTTP through axum 0.8 on 127.0.0.1, on a tokio runtime of its own; getrandom for the token |
 | Typeface | Sora, bundled from `assets/fonts/sora/` (SIL OFL 1.1) |
 | CI | GitHub Actions, turned off for now: `.github/workflows/ci.yml` runs only when started by hand (Ubuntu, Windows and macOS). With its triggers restored: all three for pull requests into `main` and pushes to it, Ubuntu only for pull requests between feature branches, and a newer push to a pull request cancels its running checks |
+| Self-update | minisign-verify (checking the release's signed `SHA256SUMS.txt`), sha2, zip and tar with flate2 (the archives), self-replace (swapping the running program); the key's public half is `packaging/update-signing.pub` (docs/development.md, "Signing updates"). Windows and Linux only |
 | Releases | An unsigned archive per platform (zip of `vcmp.exe`, zip of `VCMP.app`, tar.gz of `vcmp`), built by `.github/workflows/release.yml`; while that can't run, `packaging/release-local.sh` builds the Windows and Linux ones locally in Docker (docs/development.md, "Building the archives locally"). Installers are left for later: the cargo-packager configuration for MSI, NSIS, dmg, AppImage and .deb stays in `[package.metadata.packager]` in `crates/vcmp-app/Cargo.toml` (icons in `packaging/icons/`); the macOS `.app` already comes from it |
 | License | MIT OR Apache-2.0 |
 
@@ -46,7 +47,7 @@ Workspace layout:
 | `crates/vcmp-app` | Binary `vcmp`: the Slint UI (`ui/`) and its Rust glue (`src/`) |
 | `crates/vcmp-library` | Source directories, scanning, tags (reading every tag, writing any), SQLite database, artwork cache, search, playlists and their M3U export and import, labels, favourites, play history, lyrics (read from tags and `.lrc` files, LRCLIB's answers cached), the Last.fm scrobble and love queues, change sets agents ask for (review, undo, retention), the library check (duplicates, missing tags and covers), watcher |
 | `crates/vcmp-playback` | Playback engine: decoding, output and devices, gapless, queue, shuffle ([docs/playback.md](docs/playback.md)) |
-| `crates/vcmp-integrations` | OS media controls, the OS reduce-motion setting, the file manager (showing a file selected), Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online", artist photos from fanart.tv, lyrics from LRCLIB, the update check, Last.fm scrobbling, loves and the import of loved tracks |
+| `crates/vcmp-integrations` | OS media controls, the OS reduce-motion setting, the file manager (showing a file selected), Discord Rich Presence and its MusicBrainz cover lookup, cover search for "Find cover online", artist photos from fanart.tv, lyrics from LRCLIB, the update check and self-update, Last.fm scrobbling, loves and the import of loved tracks |
 | `crates/vcmp-mcp` | The MCP server AI agents connect to: its tools, the token and Origin checks; changes go to the app through its `Changes` trait, playback through its `Playback` trait |
 
 The core crates must never depend on `vcmp-app` or Slint.
