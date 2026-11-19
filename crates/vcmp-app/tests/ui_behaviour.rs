@@ -288,6 +288,8 @@ fn the_queue_panel_slides_in_unless_motion_is_reduced() {
     assert_eq!(panel_x(&window), 1100.0 - 320.0, "then sits at the edge");
 
     window.set_queue_open(false);
+    // Until the panel has slid out the page is too narrow for Settings' list.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
     open_settings(&window, "Appearance");
     motion_option(&window, "On").invoke_accessible_default_action();
     window.set_queue_open(true);
