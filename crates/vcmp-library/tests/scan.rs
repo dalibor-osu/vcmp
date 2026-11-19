@@ -26,7 +26,11 @@ const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
 
 /// Drops what the migrations after version 9 add, for tests that put a database back
 /// the way an older version left it.
-const TABLES_AFTER_VERSION_9: &str = "DROP TABLE love_queue; DROP TABLE lyrics_lookups;
+const TABLES_AFTER_VERSION_9: &str = "DROP TABLE server_folders; DROP TABLE remote_tracks;
+    DROP TABLE servers; DROP TRIGGER tracks_revision_insert;
+    DROP TRIGGER tracks_revision_update; DROP TRIGGER albums_revision_artwork;
+    DROP INDEX tracks_revision; ALTER TABLE tracks DROP COLUMN revision;
+    DROP TABLE love_queue; DROP TABLE lyrics_lookups;
     DROP TABLE plays; DROP TABLE not_duplicates;
     DROP TABLE favourites;
     DROP TABLE change_labels; DROP TABLE track_labels;
@@ -374,12 +378,15 @@ fn moved_file_keeps_its_track_id_and_playlist_entry() {
         (1, 0, 1)
     );
     let track = setup.library.track(id).unwrap().unwrap();
-    assert_eq!(track.path, new);
+    assert_eq!(track.file, Some(new.clone()));
     assert!(track.available);
     assert_eq!(setup.library.tracks().unwrap().len(), 1);
     let entries = setup.library.playlist_entries(playlist).unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!((entries[0].track.id, &entries[0].track.path), (id, &new));
+    assert_eq!(
+        (entries[0].track.id, &entries[0].track.file),
+        (id, &Some(new))
+    );
 }
 
 #[test]

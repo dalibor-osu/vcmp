@@ -26,10 +26,12 @@ serde_json = "1.0.154"
 slint = { workspace = true, features = ["unstable-winit-030"] }
 # Theme files in the themes folder (src/theme/file.rs).
 toml = "1.1.8"
+vcmp-client = { version = "26.11.0", path = "../vcmp-client" }
 vcmp-integrations = { version = "26.11.0", path = "../vcmp-integrations" }
 vcmp-library = { version = "26.11.0", path = "../vcmp-library" }
 vcmp-mcp = { version = "26.11.0", path = "../vcmp-mcp" }
 vcmp-playback = { version = "26.11.0", path = "../vcmp-playback" }
+vcmp-protocol = { version = "26.11.0", path = "../vcmp-protocol" }
 # Opens Last.fm's page where the user allows VCMP to scrobble.
 webbrowser = "1.2.4"
 
@@ -51,6 +53,7 @@ png = "0.18.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 tempfile = "3.27.0"
 vcmp-integrations = { path = "../vcmp-integrations" }
+vcmp-server = { path = "../vcmp-server" }
 
 # Installers, built by cargo-packager (see "Installers" in docs/development.md and
 # .github/workflows/release.yml). Paths are relative to this file. Build the binary

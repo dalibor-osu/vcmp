@@ -56,6 +56,12 @@ struct Segment {
     duration: Option<Duration>,
 }
 
+struct Waiting {
+    track: TrackRef,
+    position: Duration,
+    announce: bool,
+}
+
 /// Amplitude for a volume slider position: a cubic curve, close to how loudness is
 /// heard.
 fn gain(volume: f32) -> f32 {
@@ -86,8 +92,13 @@ pub(crate) struct Engine {
     stream_base: u64,
     decoder: Option<Box<dyn TrackStream>>,
     segments: VecDeque<Segment>,
-    /// Ring frame where the queue runs out.
+    /// Ring frame where the queue runs out, or where the current track ends with the
+    /// following one not ready yet.
     end_at: Option<u64>,
+    next_not_ready: bool,
+    waiting: Option<Waiting>,
+    buffering: Option<TrackRef>,
+    hinted: Option<TrackRef>,
     state: PlaybackState,
     /// [`Command::StopAfterCurrent`]: nothing follows the current track.
     stop_after_current: bool,
@@ -125,6 +136,10 @@ impl Engine {
             decoder: None,
             segments: VecDeque::new(),
             end_at: None,
+            next_not_ready: false,
+            waiting: None,
+            buffering: None,
+            hinted: None,
             state: PlaybackState::Stopped,
             stop_after_current: false,
             volume: if options.volume.is_nan() {
@@ -158,6 +173,7 @@ impl Engine {
             }
             self.send_backlog();
             self.follow_playback();
+            self.retry_not_ready();
             let busy = self.fill();
             self.report_decoding();
             if !busy {
@@ -251,6 +267,8 @@ impl Engine {
             }
             Command::Stop => {
                 self.set_stop_after_current(false);
+                self.waiting = None;
+                self.report_buffering();
                 if self.state != PlaybackState::Stopped {
                     self.flush();
                     self.set_state(PlaybackState::Stopped);
@@ -298,6 +316,7 @@ impl Engine {
             Command::StopAfterCurrent(on) => {
                 self.set_stop_after_current(on);
                 self.check_prepared();
+                self.hint_following();
             }
             Command::Sync(token) => self.emit(Event::Synced(token)),
         }
@@ -399,6 +418,30 @@ impl Engine {
         }
     }
 
+    fn report_buffering(&mut self) {
+        let waiting = self.waiting.as_ref().map(|waiting| &waiting.track);
+        if waiting != self.buffering.as_ref() {
+            self.buffering = waiting.cloned();
+            self.emit(Event::Buffering(self.buffering.clone()));
+        }
+    }
+
+    fn hint(&mut self, track: Option<TrackRef>) {
+        if track != self.hinted {
+            if let Some(track) = &track {
+                self.sources.get(track.source).prepare(&track.id);
+            }
+            self.hinted = track;
+        }
+    }
+
+    fn hint_following(&mut self) {
+        if !self.segments.is_empty() {
+            let following = self.following().map(|entry| entry.track.clone());
+            self.hint(following);
+        }
+    }
+
     fn emit_queue(&mut self) {
         let view = self.queue.view();
         self.emit(Event::QueueChanged(view));
@@ -444,6 +487,7 @@ impl Engine {
         self.decoder = None;
         self.segments.clear();
         self.end_at = None;
+        self.next_not_ready = false;
     }
 
     /// Opens the output again and carries on where playback was.
@@ -488,6 +532,8 @@ impl Engine {
         self.decoder = None;
         self.segments.clear();
         self.end_at = None;
+        self.next_not_ready = false;
+        self.waiting = None;
         let written = self.feed.written();
         self.send_control(Control::Flush { to: written });
         self.stream_base = written;
@@ -519,8 +565,17 @@ impl Engine {
 
     /// Starts the queue's current track at `position`, skipping tracks that cannot
     /// be played. `announce` sends [`Event::TrackChanged`]: a new play, not a seek.
-    fn load_current(&mut self, mut position: Duration, mut announce: bool) {
+    fn load_current(&mut self, position: Duration, announce: bool) {
+        let announce = announce
+            || self
+                .waiting
+                .as_ref()
+                .is_some_and(|waiting| waiting.announce);
         self.flush();
+        self.open_current(position, announce);
+    }
+
+    fn open_current(&mut self, mut position: Duration, mut announce: bool) {
         loop {
             let Some(entry) = self.queue.current().cloned() else {
                 self.queue_finished();
@@ -528,6 +583,8 @@ impl Engine {
             };
             match self.open(&entry, position) {
                 Ok((stream, offset)) => {
+                    self.waiting = None;
+                    self.report_buffering();
                     let duration = stream.duration();
                     self.segments.push_back(Segment {
                         entry: entry.clone(),
@@ -546,6 +603,17 @@ impl Engine {
                     }
                     self.emit(Event::Position(offset));
                     self.last_position = Instant::now();
+                    self.hint_following();
+                    return;
+                }
+                Err(PlaybackError::NotReady) => {
+                    self.hint(Some(entry.track.clone()));
+                    self.waiting = Some(Waiting {
+                        track: entry.track,
+                        position,
+                        announce,
+                    });
+                    self.report_buffering();
                     return;
                 }
                 Err(error) => {
@@ -570,6 +638,7 @@ impl Engine {
     /// Nothing more to play.
     fn queue_finished(&mut self) {
         self.flush();
+        self.report_buffering();
         self.set_stop_after_current(false);
         self.set_state(PlaybackState::Stopped);
         self.emit(Event::TrackChanged(None));
@@ -579,6 +648,7 @@ impl Engine {
     /// start. It is announced without a duration: its file is opened once it plays.
     fn stop_before(&mut self, next: QueueEntry) {
         self.flush();
+        self.report_buffering();
         self.set_stop_after_current(false);
         self.set_state(PlaybackState::Stopped);
         self.emit(Event::TrackChanged(Some(NowPlaying {
@@ -679,14 +749,14 @@ impl Engine {
     /// straight after. At most one track waits ahead; with a very short track the
     /// next one is prepared once it has become audible.
     fn prepare_next(&mut self) {
+        self.next_not_ready = false;
         if self.segments.len() > 1 {
             return;
         }
         loop {
             let next = self.following().cloned();
             let Some(entry) = next else {
-                self.converter.finish(&mut self.pending);
-                self.end_at = Some(self.stream_base + self.converter.emitted());
+                self.end_run(false);
                 return;
             };
             match self.open(&entry, Duration::ZERO) {
@@ -701,6 +771,10 @@ impl Engine {
                     self.decoded_audio = false;
                     return;
                 }
+                Err(PlaybackError::NotReady) => {
+                    self.end_run(true);
+                    return;
+                }
                 Err(error) => {
                     self.emit(Event::TrackFailed {
                         track: entry.track,
@@ -708,13 +782,29 @@ impl Engine {
                     });
                     self.failures += 1;
                     if self.failures >= MAX_FAILURES || !self.queue.drop_next() {
-                        self.converter.finish(&mut self.pending);
-                        self.end_at = Some(self.stream_base + self.converter.emitted());
+                        self.end_run(false);
                         return;
                     }
                     self.emit_queue();
+                    self.hint_following();
                 }
             }
+        }
+    }
+
+    fn end_run(&mut self, next_not_ready: bool) {
+        self.converter.finish(&mut self.pending);
+        self.end_at = Some(self.stream_base + self.converter.emitted());
+        self.next_not_ready = next_not_ready;
+    }
+
+    fn retry_not_ready(&mut self) {
+        if let Some(waiting) = &self.waiting {
+            let (position, announce) = (waiting.position, waiting.announce);
+            self.open_current(position, announce);
+        } else if self.next_not_ready {
+            self.end_at = None;
+            self.prepare_next();
         }
     }
 
@@ -723,6 +813,7 @@ impl Engine {
     fn queue_changed(&mut self) {
         self.emit_queue();
         self.check_prepared();
+        self.hint_following();
     }
 
     /// Makes sure the track waiting in the ring is the one that should follow, or
@@ -754,6 +845,7 @@ impl Engine {
         };
         self.decoder = None;
         self.end_at = None;
+        self.next_not_ready = false;
         // Everything up to the boundary must be out of the converter before cutting.
         self.converter.finish(&mut self.pending);
         let written = self.feed.written();
@@ -792,6 +884,7 @@ impl Engine {
                 origin: self.current_origin(),
             })));
             self.emit_queue();
+            self.hint_following();
             self.last_position = Instant::now();
             if self.decoder.is_none() && self.end_at.is_none() {
                 self.prepare_next();
@@ -801,14 +894,18 @@ impl Engine {
             && read >= end
             && self.segments.len() <= 1
         {
+            let next_not_ready = self.next_not_ready;
             match self.queue.advance(Advance::Ended).cloned() {
                 Some(next) if self.stop_after_current => self.stop_before(next),
+                Some(_) if next_not_ready => self.load_current(Duration::ZERO, true),
                 _ => self.queue_finished(),
             }
             self.emit_queue();
             return;
         }
-        if self.state == PlaybackState::Playing && self.last_position.elapsed() >= POSITION_INTERVAL
+        if self.state == PlaybackState::Playing
+            && self.waiting.is_none()
+            && self.last_position.elapsed() >= POSITION_INTERVAL
         {
             self.last_position = Instant::now();
             self.emit(Event::Position(self.position()));
@@ -817,6 +914,9 @@ impl Engine {
 
     /// Position in the audible track.
     fn position(&self) -> Duration {
+        if let Some(waiting) = &self.waiting {
+            return waiting.position;
+        }
         let Some(segment) = self.segments.front() else {
             return Duration::ZERO;
         };

@@ -1,0 +1,480 @@
+import { Theme } from "theme.slint";
+import { Button, Dropdown, SectionHeading, SettingRow, TextField } from "components.slint";
+
+export enum MusicServerStatus { connecting, syncing, online, away, refused, outdated, other-server }
+
+export enum MusicServerError { none, address, token, unreachable, outdated, keyring, library }
+
+export struct MusicServerItem {
+    id: int,
+    name: string,
+    address: string,
+    status: MusicServerStatus,
+    detail: string,
+    admin: bool,
+    can-write: bool,
+    received: int,
+}
+
+export struct MusicServerFolder {
+    id: int,
+    name: string,
+    path: string,
+    configured: bool,
+    reachable: bool,
+}
+
+export struct MusicServerScan {
+    known: bool,
+    running: bool,
+    added: int,
+    updated: int,
+    gone: int,
+    back: int,
+    skipped: int,
+    unreachable: int,
+    error: string,
+}
+
+export global MusicServers {
+    in property <[MusicServerItem]> servers;
+    in-out property <string> address;
+    in-out property <string> token;
+    in property <bool> adding;
+    in property <bool> insecure;
+    in property <MusicServerError> error;
+    in property <string> error-detail;
+    in property <int> cache-limit-mb;
+    in property <int> cache-used-mb;
+
+    callback add(string, string, bool);
+    callback remove(int);
+    callback sync(int);
+    callback set-cache-limit(int);
+    callback clear-cache();
+    callback dismiss();
+
+    in property <int> managing: -1;
+    in property <bool> admin-busy;
+    in property <[MusicServerFolder]> admin-folders;
+    in property <MusicServerScan> admin-scan;
+    in-out property <string> admin-folder-path;
+    in property <string> admin-new-token;
+    in property <bool> admin-new-token-is-admin;
+    in property <string> admin-error;
+
+    callback manage(int);
+    callback add-server-folder(string);
+    callback remove-server-folder(int);
+    callback rescan-server();
+    callback replace-token(bool);
+}
+
+component ServerAdminPanel inherits VerticalLayout {
+    in property <MusicServerItem> server;
+
+    spacing: Theme.space-s;
+    padding-left: Theme.space-xl;
+    padding-bottom: Theme.space-m;
+
+    Text {
+        text: @tr("Music folders on {}", root.server.name);
+        color: Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: Theme.weight-strong;
+    }
+
+    if MusicServers.admin-busy && MusicServers.admin-folders.length == 0: Text {
+        text: @tr("Asking the server…");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+    }
+
+    for folder in MusicServers.admin-folders: HorizontalLayout {
+        spacing: Theme.space-l;
+
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+
+            Text {
+                text: folder.path;
+                color: Theme.colors.text;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+
+            if folder.configured || !folder.reachable: Text {
+                text: !folder.reachable ? @tr("The server can't read this folder right now.") : @tr("Named in the server's configuration; change it there.");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+        }
+
+        if !folder.configured: VerticalLayout {
+            alignment: center;
+
+            Button {
+                text: @tr("Remove");
+                label: @tr("Remove {} from the server", folder.path);
+                enabled: !MusicServers.admin-busy;
+                clicked => {
+                    MusicServers.remove-server-folder(folder.id);
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Theme.space-s;
+
+        TextField {
+            label: @tr("Folder on the server");
+            placeholder: @tr("A path as the server sees it, such as /music/new");
+            text <=> MusicServers.admin-folder-path;
+            horizontal-stretch: 1;
+            accepted => {
+                MusicServers.add-server-folder(MusicServers.admin-folder-path);
+            }
+        }
+
+        Button {
+            text: @tr("Add folder");
+            enabled: !MusicServers.admin-busy && MusicServers.admin-folder-path != "";
+            clicked => {
+                MusicServers.add-server-folder(MusicServers.admin-folder-path);
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: Theme.space-l;
+
+        Text {
+            text: !MusicServers.admin-scan.known ? @tr("No scan has finished on the server since it started.")
+                : MusicServers.admin-scan.running ? @tr("The server is scanning its music folders…")
+                : MusicServers.admin-scan.error != "" ? @tr("The last scan failed: {}", MusicServers.admin-scan.error)
+                : @tr("Last scan: {0} added, {1} changed, {2} gone, {3} back, {4} skipped", MusicServers.admin-scan.added, MusicServers.admin-scan.updated, MusicServers.admin-scan.gone, MusicServers.admin-scan.back, MusicServers.admin-scan.skipped);
+            color: Theme.colors.text;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        Button {
+            text: @tr("Rescan");
+            label: @tr("Rescan the music folders of {}", root.server.name);
+            enabled: !MusicServers.admin-busy && !MusicServers.admin-scan.running;
+            clicked => {
+                MusicServers.rescan-server();
+            }
+        }
+    }
+
+    if MusicServers.admin-scan.unreachable > 0: Text {
+        text: @tr("{n} folder can't be read by the server" | "{n} folders can't be read by the server" % MusicServers.admin-scan.unreachable);
+        color: Theme.colors.text;
+        font-size: Theme.font-small;
+    }
+
+    Text {
+        text: @tr("Tokens");
+        color: Theme.colors.text;
+        font-size: Theme.font-body;
+        font-weight: Theme.weight-strong;
+    }
+
+    Text {
+        text: @tr("A new token replaces the old one at once: everyone using the old one has to enter the new one.");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+
+    HorizontalLayout {
+        spacing: Theme.space-s;
+        alignment: start;
+
+        Button {
+            text: @tr("New user token");
+            enabled: !MusicServers.admin-busy;
+            clicked => {
+                MusicServers.replace-token(false);
+            }
+        }
+
+        Button {
+            text: @tr("New admin token");
+            enabled: !MusicServers.admin-busy;
+            clicked => {
+                MusicServers.replace-token(true);
+            }
+        }
+    }
+
+    if MusicServers.admin-new-token != "": HorizontalLayout {
+        spacing: Theme.space-s;
+
+        token-field := TextField {
+            label: MusicServers.admin-new-token-is-admin ? @tr("New admin token") : @tr("New user token");
+            text: MusicServers.admin-new-token;
+            read-only: true;
+            horizontal-stretch: 1;
+        }
+
+        Button {
+            text: @tr("Copy");
+            label: @tr("Copy the new token");
+            clicked => {
+                token-field.copy-all();
+            }
+        }
+    }
+
+    if MusicServers.admin-error != "": Text {
+        text: @tr("The server didn't do that: {}", MusicServers.admin-error);
+        color: Theme.colors.text;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+}
+
+
+component MusicServerRow {
+    in property <MusicServerItem> server;
+
+    HorizontalLayout {
+        spacing: Theme.space-xl;
+        padding-top: Theme.space-m;
+        padding-bottom: Theme.space-m;
+
+        VerticalLayout {
+            spacing: Theme.space-xs;
+            alignment: center;
+            horizontal-stretch: 1;
+
+            Text {
+                text: root.server.name;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                font-weight: Theme.weight-strong;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.server.address;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.server.status == MusicServerStatus.connecting ? @tr("Connecting…")
+                    : root.server.status == MusicServerStatus.syncing ? @tr("Syncing: {n} track received" | "Syncing: {n} tracks received" % root.server.received)
+                    : root.server.status == MusicServerStatus.online ? (root.server.admin ? @tr("Connected with the admin token") : @tr("Connected"))
+                    : root.server.status == MusicServerStatus.refused ? @tr("The server refused the token. Remove the server and add it again with a current token.")
+                    : root.server.status == MusicServerStatus.outdated ? @tr("The server and this app speak different versions. Update the older one.")
+                    : root.server.status == MusicServerStatus.other-server ? @tr("This address now answers as another server. Remove it and add the new one.")
+                    : @tr("Can't be reached right now. Its music stays in the library, dimmed, and tracks played before still play.");
+                color: Theme.colors.text;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+
+            if root.server.detail != "" && root.server.status != MusicServerStatus.online: Text {
+                text: root.server.detail;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+        }
+
+        if root.server.admin: VerticalLayout {
+            alignment: center;
+
+            Button {
+                text: MusicServers.managing == root.server.id ? @tr("Close") : @tr("Manage…");
+                label: MusicServers.managing == root.server.id ? @tr("Close the management of {}", root.server.name) : @tr("Manage {}", root.server.name);
+                clicked => {
+                    MusicServers.manage(root.server.id);
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+
+            Button {
+                text: @tr("Sync now");
+                label: @tr("Sync {} now", root.server.name);
+                enabled: root.server.status != MusicServerStatus.syncing && root.server.status != MusicServerStatus.connecting;
+                clicked => {
+                    MusicServers.sync(root.server.id);
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+
+            Button {
+                text: @tr("Remove");
+                label: @tr("Remove {}", root.server.name);
+                clicked => {
+                    MusicServers.remove(root.server.id);
+                }
+            }
+        }
+    }
+}
+
+export component MusicServersSection inherits VerticalLayout {
+    private property <[int]> cache-sizes: [1024, 2048, 5120, 10240, 20480];
+
+    spacing: Theme.space-xs;
+
+    SectionHeading {
+        text: @tr("Music servers");
+    }
+
+    Text {
+        text: MusicServers.servers.length == 0 ? @tr("A VCMP server shares a music library from another computer, a NAS or a VPS. Add one with its address and one of its tokens to play its music alongside your own.") : @tr("Music from these servers is in your library next to your own, and streams when it plays.");
+        color: Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+
+    for server in MusicServers.servers: VerticalLayout {
+        MusicServerRow {
+            server: server;
+        }
+
+        if server.admin && MusicServers.managing == server.id: ServerAdminPanel {
+            server: server;
+        }
+    }
+
+    VerticalLayout {
+        spacing: Theme.space-s;
+        padding-top: Theme.space-s;
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+
+            address := TextField {
+                label: @tr("Server address");
+                placeholder: @tr("music.example.com or 192.168.1.5:8268");
+                text <=> MusicServers.address;
+                horizontal-stretch: 2;
+            }
+
+            TextField {
+                label: @tr("Token");
+                placeholder: @tr("The server's user or admin token");
+                input-type: InputType.password;
+                text <=> MusicServers.token;
+                horizontal-stretch: 1;
+                accepted => {
+                    MusicServers.add(MusicServers.address, MusicServers.token, false);
+                }
+            }
+
+            Button {
+                text: @tr("Connect");
+                primary: true;
+                enabled: !MusicServers.adding && !MusicServers.insecure && MusicServers.address != "" && MusicServers.token != "";
+                clicked => {
+                    MusicServers.add(MusicServers.address, MusicServers.token, false);
+                }
+            }
+        }
+
+        if MusicServers.adding: Text {
+            text: @tr("Connecting to the server…");
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+        }
+
+        if MusicServers.insecure: VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: @tr("This address uses plain http on the internet, so the token travels unencrypted and anyone along the way can read it. Put the server behind https (a reverse proxy such as nginx) if you can.");
+                color: Theme.colors.text;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+
+            HorizontalLayout {
+                spacing: Theme.space-s;
+                alignment: start;
+
+                Button {
+                    text: @tr("Connect anyway");
+                    clicked => {
+                        MusicServers.add(MusicServers.address, MusicServers.token, true);
+                    }
+                }
+
+                Button {
+                    text: @tr("Cancel");
+                    clicked => {
+                        MusicServers.dismiss();
+                    }
+                }
+            }
+        }
+
+        if MusicServers.error != MusicServerError.none: Text {
+            text: MusicServers.error == MusicServerError.address ? @tr("That is not a server address: {}", MusicServers.error-detail)
+                : MusicServers.error == MusicServerError.token ? (MusicServers.error-detail == "" ? @tr("Enter one of the server's tokens.") : @tr("The server refused that token. Check it with `vcmp-server tokens` on the server."))
+                : MusicServers.error == MusicServerError.unreachable ? @tr("The server can't be reached: {}", MusicServers.error-detail)
+                : MusicServers.error == MusicServerError.outdated ? @tr("The server and this app speak different versions: {}", MusicServers.error-detail)
+                : MusicServers.error == MusicServerError.keyring ? @tr("The token could not be kept in the system's keyring: {}", MusicServers.error-detail)
+                : @tr("The library could not be changed: {}", MusicServers.error-detail);
+            color: Theme.colors.text;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+    }
+
+    if MusicServers.servers.length > 0: SettingRow {
+        title: @tr("Downloaded music");
+        description: @tr("Tracks from servers stay on this computer after they play, so they start at once next time. {0} MB of {1} MB used; the oldest go first.", MusicServers.cache-used-mb, MusicServers.cache-limit-mb);
+
+        HorizontalLayout {
+            spacing: Theme.space-s;
+
+            Dropdown {
+                label: @tr("Space for downloaded music");
+                options: [@tr("1 GB"), @tr("2 GB"), @tr("5 GB"), @tr("10 GB"), @tr("20 GB")];
+                current-index: MusicServers.cache-limit-mb <= 1024 ? 0
+                    : MusicServers.cache-limit-mb <= 2048 ? 1
+                    : MusicServers.cache-limit-mb <= 5120 ? 2
+                    : MusicServers.cache-limit-mb <= 10240 ? 3 : 4;
+                selected(index) => {
+                    MusicServers.set-cache-limit(root.cache-sizes[index]);
+                }
+            }
+
+            Button {
+                text: @tr("Empty");
+                label: @tr("Delete the downloaded music");
+                clicked => {
+                    MusicServers.clear-cache();
+                }
+            }
+        }
+    }
+}

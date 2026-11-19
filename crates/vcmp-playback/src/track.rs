@@ -6,14 +6,15 @@ use std::sync::Arc;
 
 /// Which [`TrackSource`](crate::TrackSource) a track belongs to.
 ///
-/// v1 has only local files. A Spotify source is planned behind the same queue,
-/// shuffle and controls, which is why queue entries carry the source at all.
+/// Local files and the tracks of VCMP servers. A Spotify source is planned behind
+/// the same queue, shuffle and controls.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SourceKind {
     /// Files on a local or mounted disk; the track id is the file path.
     #[default]
     Local,
+    Server,
 }
 
 impl SourceKind {
@@ -21,6 +22,7 @@ impl SourceKind {
     pub fn as_str(self) -> &'static str {
         match self {
             SourceKind::Local => "local",
+            SourceKind::Server => "server",
         }
     }
 }
@@ -37,6 +39,7 @@ impl FromStr for SourceKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "local" => Ok(SourceKind::Local),
+            "server" => Ok(SourceKind::Server),
             _ => Err(UnknownSource(s.to_owned())),
         }
     }
@@ -68,6 +71,13 @@ impl TrackRef {
         TrackRef {
             source: SourceKind::Local,
             id: path.into(),
+        }
+    }
+
+    pub fn server(id: impl Into<Arc<str>>) -> Self {
+        TrackRef {
+            source: SourceKind::Server,
+            id: id.into(),
         }
     }
 }
@@ -119,6 +129,8 @@ mod tests {
     fn source_names_round_trip() {
         assert_eq!("local".parse::<SourceKind>(), Ok(SourceKind::Local));
         assert_eq!(SourceKind::Local.to_string(), "local");
+        assert_eq!("server".parse::<SourceKind>(), Ok(SourceKind::Server));
+        assert_eq!(SourceKind::Server.to_string(), "server");
         assert!("spotify".parse::<SourceKind>().is_err());
     }
 }

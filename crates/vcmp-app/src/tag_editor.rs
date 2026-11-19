@@ -644,7 +644,7 @@ impl TagEditor {
         let held = self.held_file();
         let (hold, now): (Vec<_>, Vec<_>) = edits
             .into_iter()
-            .partition(|change| Some(&change.track.path) == held.as_ref());
+            .partition(|change| change.track.file.is_some() && change.track.file == held);
         self.shown_waiting
             .set(hold.first().map(|change| change.track.id));
         {
@@ -723,7 +723,7 @@ impl TagEditor {
             let mut waiting = self.waiting.borrow_mut();
             let (still, released) = std::mem::take(&mut *waiting)
                 .into_iter()
-                .partition(|change| Some(&change.track.path) == held.as_ref());
+                .partition(|change| change.track.file.is_some() && change.track.file == held);
             *waiting = still;
             released
         };
@@ -763,7 +763,7 @@ impl TagEditor {
             .borrow()
             .iter()
             .find(|track| self.waits(track.id))
-            .map(|track| file_name(&track.path))
+            .map(|track| file_name(&track.location()))
             .unwrap_or_default();
         state.set_waiting_file(file.into());
     }
@@ -842,7 +842,8 @@ impl TagEditor {
             };
             // Playback opened the file again before it could be replaced: wait again.
             if matches!(failure.error, TagWriteError::Replace(_))
-                && self.held_file().as_ref() == Some(&change.track.path)
+                && change.track.file.is_some()
+                && self.held_file() == change.track.file
             {
                 self.waiting.borrow_mut().push(change.clone());
                 continue;
@@ -856,7 +857,7 @@ impl TagEditor {
                 self.shown_waiting.set(None);
                 rows.push(failure_row(failure));
             } else if let Some(not_written) = &*self.on_not_written.borrow() {
-                not_written(&change.track.path);
+                not_written(&change.track.location());
             }
         }
         let Some(shown) = shown else {
@@ -897,6 +898,33 @@ fn write_files(
     edits: &[TrackEdit],
     mut progress: impl FnMut(usize),
 ) -> TagWriteReport {
+    let (remote, edits): (Vec<TrackEdit>, Vec<TrackEdit>) = edits
+        .iter()
+        .cloned()
+        .partition(|change| change.track.remote.is_some());
+    let mut report = write_local(paths, &edits, &mut progress);
+    if !remote.is_empty() {
+        let written = report.written.len() + report.failed.len();
+        let pairs: Vec<(Track, TagEdit)> = remote
+            .iter()
+            .map(|change| (change.track.clone(), change.edit.clone()))
+            .collect();
+        let server_report = crate::servers::write_tags(paths, &pairs);
+        report.written.extend(server_report.written);
+        report.failed.extend(server_report.failed);
+        progress(written + remote.len());
+    }
+    report
+}
+
+fn write_local(
+    paths: &LibraryPaths,
+    edits: &[TrackEdit],
+    mut progress: impl FnMut(usize),
+) -> TagWriteReport {
+    if edits.is_empty() {
+        return TagWriteReport::default();
+    }
     let result = Library::open(&paths.database, &paths.cache).and_then(|mut library| {
         let edits: Vec<_> = edits
             .iter()
@@ -916,7 +944,7 @@ fn all_failed(edits: &[TrackEdit], error: String) -> TagWriteReport {
             .iter()
             .map(|change| FailedTagWrite {
                 track: change.track.id,
-                path: Some(change.track.path.clone()),
+                path: change.track.file.clone(),
                 error: TagWriteError::Write(error.clone()),
             })
             .collect(),
@@ -1200,7 +1228,8 @@ mod tests {
     fn a_waiting_edit_shows_as_written() {
         let track = Track {
             id: TrackId(1),
-            path: PathBuf::from("/music/1.flac"),
+            file: Some(PathBuf::from("/music/1.flac")),
+            remote: None,
             available: true,
             format: None,
             title: "One".into(),

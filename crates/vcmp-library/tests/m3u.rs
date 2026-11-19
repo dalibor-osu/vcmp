@@ -117,7 +117,8 @@ fn paths_are_relative_to_the_playlist_file() {
         M3uExport {
             written: 2,
             missing: 0,
-            left_out: Vec::new()
+            left_out: Vec::new(),
+            from_servers: Vec::new(),
         }
     );
 

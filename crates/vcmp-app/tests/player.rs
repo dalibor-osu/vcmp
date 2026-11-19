@@ -1266,6 +1266,16 @@ fn the_queue_is_saved_and_comes_back_paused() {
 }
 
 #[test]
+fn a_server_track_shows_loading_while_it_downloads() {
+    let app = start(|_| {});
+    app.service
+        .handle_event(Event::Buffering(Some(TrackRef::server("vcmp-server:1:2"))));
+    assert!(app.state().get_buffering());
+    app.service.handle_event(Event::Buffering(None));
+    assert!(!app.state().get_buffering());
+}
+
+#[test]
 fn the_output_device_is_chosen_and_remembered() {
     let app = start(|library| {
         library
@@ -1303,6 +1313,9 @@ fn the_output_device_is_chosen_and_remembered() {
     // The dropdown in Settings, from the keyboard: Up picks the device above.
     app.service
         .set_device_lister(|| Ok(vec!["Speakers".into(), "Headphones".into()]));
+    app.window
+        .window()
+        .set_size(slint::LogicalSize::new(1100.0, 2400.0));
     app.press(AccessibleRole::Tab, "Settings");
     let dropdown = ElementHandle::find_by_accessible_label(&app.window, "Output device")
         .find(|element| element.accessible_role() == Some(AccessibleRole::Combobox))

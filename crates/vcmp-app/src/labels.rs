@@ -496,7 +496,7 @@ impl LabelBrowser {
                 .tracks()
                 .unwrap_or_default()
                 .into_iter()
-                .map(|track| (track.path.to_string_lossy().into_owned(), track.id))
+                .map(|track| (track.key(), track.id))
                 .collect()
         });
         paths
@@ -762,7 +762,7 @@ impl LabelBrowser {
                 title: track.title.as_str().into(),
                 artist: source(track).into(),
                 duration: format_duration(track.duration).into(),
-                path: track.path.to_string_lossy().as_ref().into(),
+                path: track.key().into(),
                 labels: chips(track.id),
                 track_id: crate::favourites::row_id(track.id),
                 liked: crate::favourites::liked(track.id),

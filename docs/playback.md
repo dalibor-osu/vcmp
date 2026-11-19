@@ -15,8 +15,8 @@ engine.
 let (player, events) = Player::new(PlayerOptions::default())?;
 player.send(Command::PlayContext { entries, origin: Some("album:42".into()), start: Some(3) });
 // events: StateChanged, TrackChanged, Position, QueueChanged, TrackFailed,
-//         OutputChanged, OutputFailed, RestoreFailed, Decoding, StopAfterCurrent,
-//         Synced
+//         OutputChanged, OutputFailed, RestoreFailed, Decoding, Buffering,
+//         StopAfterCurrent, Synced
 ```
 
 - **Events into Slint (workstream 4):** forward them from a thread blocking on the
@@ -30,6 +30,11 @@ player.send(Command::PlayContext { entries, origin: Some("album:42".into()), sta
   its path) and optional artist and album keys.
   - Shuffle uses the keys to keep the same artist or album apart.
   - Any value unique per artist and per album works, such as a database id.
+- **Tracks of a VCMP server:** `TrackRef::server(id)`, stored as `server`. The id
+  means something only to the server source, which the app hands the engine with
+  `Sources::default().with(SourceKind::Server, source)`. Without one, server tracks
+  fail as unsupported. Their data may not be there yet: see
+  [Tracks that aren't there yet](#tracks-that-arent-there-yet).
 - **Playable formats:** MP3, FLAC, WAV, AIFF (and most AIFF-C), Ogg Vorbis,
   and AAC and ALAC in MP4 (`.m4a`). Opus, WMA, APE and WavPack are not supported (see
   the spec's risk table).
@@ -97,7 +102,9 @@ TrackSource ─► TrackStream ─► Converter ──────────�
 1. **Sources.** A source (`TrackSource`) opens a track id and returns a `TrackStream`
    of decoded, interleaved `f32` chunks. It removes encoder delay and padding itself,
    and seeks to an exact sample. `LocalSource` does this for files with symphonia.
-   - A future Spotify source plugs in here, behind the same queue, shuffle and output.
+   - The server source plugs in here: it downloads a VCMP server's file into a cache
+     and decodes the cached file with `LocalSource`. A future Spotify source would
+     plug in the same way, behind the same queue, shuffle and output.
 2. **Converter.** It maps channels to the device's layout, then resamples to the
    device's rate. Consecutive tracks of the same format form one run: they pass through
    the same resampler with no break, so there is no seam where they meet. When the
@@ -121,7 +128,9 @@ TrackSource ─► TrackStream ─► Converter ──────────�
 - **The stream stays open.** One output stream stays open across tracks.
 - **Decoding ahead.** When the current track has been decoded to its end, the engine
   opens the next one at once and writes its frames straight after. Only one track waits
-  ahead; the one after it is opened once that track becomes audible.
+  ahead; the one after it is opened once that track becomes audible. A next track
+  whose data isn't there yet joins only if it arrives before the current track's
+  audio ends (see [Tracks that aren't there yet](#tracks-that-arent-there-yet)).
 - **Trimming.** Each format declares its encoder delay and padding differently:
 
 | Format | Where delay and padding come from |
@@ -149,12 +158,46 @@ The engine keeps one file open at a time: the track it decodes.
 | Seeking | Closed and opened again at once; not reported. A file that can't seek (a broken index) plays from its start rather than being skipped, also when restoring a saved position |
 | The track is decoded to its end, about a ring's length (2 s) before it ends | Closed. The next track's file opens to follow gaplessly |
 | Skipping, a new context, Stop, the end of the queue | Closed (and the new track's opened) |
+| Waiting for a track whose data isn't there yet | Nothing is open |
 
 `Event::Decoding(Option<TrackRef>)` is sent when the open track changes. The engine
 checks once per round of its loop, after commands and decoding, so the event comes
 after the old file was closed, and a seek's reopening of the same file is not sent.
 Releasing the file while paused (and opening it again at the decoded position on
 resume) would let tag edits through sooner, but isn't built.
+
+## Tracks that aren't there yet
+
+The engine thread never waits on the network. A source whose track is not on the
+computer yet (a VCMP server's file still downloading) answers `open` at once with
+`PlaybackError::NotReady` and goes on fetching it in the background. `NotReady` is not
+a failure: no `TrackFailed` is sent, and it does not count towards the 100 failures in
+a row that stop the player.
+
+| When | What the engine does |
+|---|---|
+| The track to play isn't ready (Play, a new context, Next, Previous, a seek, Restore, a device reopen) | It stays the queue's current track and the engine sends `Event::Buffering(Some(track))`. It tries `open` again every round of its loop (5 ms while playing, 50 ms otherwise) until the track opens or fails for real. Once it opens: `Buffering(None)`, then `TrackChanged` and `Position` as for any start |
+| A command meanwhile | Answered as usual (`Sync` and `snapshot` too). A seek changes where the track will start, and `snapshot` reports that place, so a restored position survives the wait. Next, Previous, a new context, SkipTo and Restore move on: the new track opens (`Buffering(None)`) or is waited for instead (`Buffering(Some(other))`). Stop and the end of the queue end the wait with `Buffering(None)` |
+| The following track isn't ready when the current one has been decoded to its end | The current run ends as at the end of the queue. While its audio still plays, the following track is tried again every round, and if it opens in time its frames follow straight after, as for a track added once the end was decoded (sample-exact without resampling; see Known limits). Otherwise the current track plays to its end, the queue moves on, and the following track waits as above. Once there, it starts with the usual fade-in |
+| `open` fails for real | As always: `TrackFailed`, and the track is skipped |
+
+While the engine waits, no file is open (`Decoding(None)`) and no `Position` is sent.
+Pausing keeps the wait, and the track opens paused.
+
+**The prepare hint.** `TrackSource::prepare(id)` tells a source that a track will be
+wanted soon; the server source starts its download. The default does nothing. The
+engine calls it:
+
+- for the entry that follows the current track, once the current track has opened or
+  become audible after a gapless join, and again after queue edits, stop after the
+  current track, or a following track that failed, change what follows. The download
+  so starts a whole track ahead;
+- for a track it starts waiting for, in case nothing hinted it before.
+
+Each call happens once per change of the hinted track, not every round. While the
+current track waits, nothing else is hinted, so the following download doesn't slow
+it down. `prepare` and a not-ready `open` must return at once: they run on the
+engine thread.
 
 ## Output
 
@@ -241,7 +284,9 @@ These are the agreed semantics. The pure logic is `Queue`, and the engine drives
   coming out ends a row: a file that opens but gives no audio from its start (a
   header-only WAV, data broken from the first frame) counts as unplayable, and when
   it would only follow itself (repeat one, or the only track on repeat all) the
-  queue ends after it rather than going round without a pause.
+  queue ends after it rather than going round without a pause. A track whose data
+  isn't there yet is not unplayable: the player waits for it (see
+  [Tracks that aren't there yet](#tracks-that-arent-there-yet)).
 
 ### Shuffle
 
@@ -322,6 +367,7 @@ paused.
 | rubato's FFT resampler with fixed input and output chunks | The best quality the crate offers for fixed ratios, and allocation-free per call. It adds a constant latency of half an input sample, which is harmless |
 | Seeks start 4096 samples early and decode up to the target | Right after a reset, the MP3 decoder lacks the previous frame's overlap. The first frame would be distorted at the target |
 | Errors carry English `Display` text | Meant for logs. The UI shows its own translated text per `PlaybackError` variant |
+| A track not there yet answers `NotReady`, and the engine loop tries again | The engine thread also answers commands and `snapshot`. A source that blocked on the network inside `open` or `next_chunk` would freeze them. Retrying from the loop, which polls anyway, needs no thread or signal between source and engine, and a not-ready `open` is only a lookup |
 | PulseAudio on Linux, through cpal, with ALSA as the fallback (2026-10-18) | Through ALSA, a sound card opened directly fails as busy while PipeWire uses it, and the device list is ALSA's plugins. cpal's PulseAudio backend lists the server's outputs and mixes with other apps. It is pure Rust, so nothing new is needed at build time, and pipewire-pulse serves it too. cpal's PipeWire backend would need libpipewire's headers to build |
 | A 1024-frame period at 48 kHz | PipeWire's default quantum. A 960-frame period already lowered the graph's quantum to 512 (measured with `pw-top`), which wakes every app's audio twice as often. On real hardware the latency measured 27 ms, against 16 ms for the ALSA path's 512-frame periods |
 | One shared host | Each dropped PulseAudio host leaves its connection and a thread behind (measured: five hosts, five threads, five server clients), and Settings lists the devices every time it opens |
@@ -380,11 +426,17 @@ paused.
   returns by itself.
 - **Silence after a seek:** with a full ring, the new audio can arrive one callback
   period after the fade-out, which leaves a few milliseconds of silence.
-- **Replaced next track while resampling:** if the track that was to follow is replaced
-  while resampling is active, the old track's tail and the replacement are resampled
+- **Replaced or late next track while resampling:** if the track that was to follow is
+  replaced, or opens only after the current one was decoded to its end (added to the
+  queue at the last moment, or a server track still downloading then), while
+  resampling is active, the old track's tail and the new track are resampled
   separately. That join is not seamless.
 - **Very short tracks:** only one track is decoded ahead. A track shorter than the time
   needed to open the one after it (a few milliseconds) can leave a gap.
+- **Server tracks start once downloaded:** the server source downloads whole files, so
+  a server track starts only once its whole file is in the cache. The first track
+  waits for its download. A track that follows one whose audio ends before its own
+  download is done is not gapless: silence until the file is there, then it fades in.
 - **Chained Ogg files** (several streams in one file) play up to the first stream
   change.
 - **Paths:** track ids must be valid UTF-8.

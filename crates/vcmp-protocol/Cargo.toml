@@ -1,0 +1,15 @@
+[package]
+name = "vcmp-protocol"
+description = "What a VCMP server and the VCMP app say to each other"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0.154"

@@ -422,6 +422,67 @@ CREATE TABLE love_queue (
     UNIQUE (artist, title)
 ) STRICT;
 "#,
+    r#"
+ALTER TABLE tracks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+UPDATE tracks SET revision = id;
+CREATE INDEX tracks_revision ON tracks(revision, id);
+
+CREATE TRIGGER tracks_revision_insert AFTER INSERT ON tracks
+BEGIN
+    UPDATE tracks SET revision = (SELECT MAX(revision) FROM tracks) + 1 WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER tracks_revision_update AFTER UPDATE ON tracks
+WHEN OLD.revision IS NEW.revision AND (
+    OLD.path IS NOT NEW.path OR OLD.source_id IS NOT NEW.source_id
+    OR OLD.file_size IS NOT NEW.file_size OR OLD.modified_ms IS NOT NEW.modified_ms
+    OR OLD.available IS NOT NEW.available OR OLD.format IS NOT NEW.format
+    OR OLD.title IS NOT NEW.title OR OLD.artist IS NOT NEW.artist
+    OR OLD.album IS NOT NEW.album OR OLD.album_artist IS NOT NEW.album_artist
+    OR OLD.album_id IS NOT NEW.album_id OR OLD.track_number IS NOT NEW.track_number
+    OR OLD.disc_number IS NOT NEW.disc_number OR OLD.year IS NOT NEW.year
+    OR OLD.genre IS NOT NEW.genre OR OLD.duration_ms IS NOT NEW.duration_ms
+    OR OLD.mb_recording_id IS NOT NEW.mb_recording_id OR OLD.added_ms IS NOT NEW.added_ms)
+BEGIN
+    UPDATE tracks SET revision = (SELECT MAX(revision) FROM tracks) + 1 WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER albums_revision_artwork AFTER UPDATE OF artwork_hash ON albums
+WHEN OLD.artwork_hash IS NOT NEW.artwork_hash
+BEGIN
+    UPDATE tracks SET revision = (SELECT MAX(revision) FROM tracks) + 1
+    WHERE album_id = NEW.id;
+END;
+"#,
+    r#"
+CREATE TABLE servers (
+    id INTEGER PRIMARY KEY,
+    server_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    address TEXT NOT NULL,
+    connected INTEGER NOT NULL DEFAULT 1,
+    cursor_revision INTEGER NOT NULL DEFAULT 0,
+    cursor_track INTEGER NOT NULL DEFAULT 0,
+    added_ms INTEGER NOT NULL,
+    synced_ms INTEGER
+) STRICT;
+
+CREATE TABLE remote_tracks (
+    track_id INTEGER PRIMARY KEY REFERENCES tracks(id),
+    server INTEGER NOT NULL REFERENCES servers(id),
+    remote_id INTEGER NOT NULL,
+    folder INTEGER,
+    path TEXT NOT NULL,
+    UNIQUE (server, remote_id)
+) STRICT;
+
+CREATE TABLE server_folders (
+    server INTEGER NOT NULL REFERENCES servers(id),
+    remote_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY (server, remote_id)
+) STRICT;
+"#,
 ];
 
 pub(crate) const VERSION: i64 = MIGRATIONS.len() as i64;

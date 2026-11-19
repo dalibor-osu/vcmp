@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
-use vcmp_library::{Library, Track};
+use vcmp_library::{Library, Track, server_folder_location};
 
 use crate::library_view::format_duration;
 use crate::{AppWindow, FolderRow, TrackRow};
@@ -85,7 +85,7 @@ impl FolderBrowser {
             tracks
                 .iter()
                 .flatten()
-                .any(|track| track.path.starts_with(folder))
+                .any(|track| track.location().starts_with(folder))
         };
         let mut path = self.path.borrow_mut();
         // The music folder itself stays even when empty, as on the top level.
@@ -140,18 +140,35 @@ impl FolderBrowser {
             log::error!("could not read the music folders: {error}");
             Vec::new()
         });
-        let rows = sources
+        let count = |folder: &Path| {
+            tracks
+                .iter()
+                .filter(|track| track.location().starts_with(folder))
+                .count() as i32
+        };
+        let mut rows: Vec<FolderRow> = sources
             .iter()
             .map(|source| FolderRow {
                 name: name(&source.path).into(),
-                track_count: tracks
-                    .iter()
-                    .filter(|track| track.path.starts_with(&source.path))
-                    .count() as i32,
+                track_count: count(&source.path),
                 missing: !source.path.is_dir(),
             })
             .collect();
-        let paths = sources.into_iter().map(|source| source.path).collect();
+        let mut paths: Vec<PathBuf> = sources.into_iter().map(|source| source.path).collect();
+        for server in self.library.servers().unwrap_or_else(|error| {
+            log::error!("could not read the servers: {error}");
+            Vec::new()
+        }) {
+            for folder in self.library.server_folders(server.id).unwrap_or_default() {
+                let location = server_folder_location(server.id, folder.id);
+                rows.push(FolderRow {
+                    name: format!("{} · {}", server.name, folder.name).into(),
+                    track_count: count(&location),
+                    missing: false,
+                });
+                paths.push(location);
+            }
+        }
         (rows, paths, Vec::new())
     }
 }
@@ -162,7 +179,8 @@ fn contents(folder: &Path, tracks: &[Track]) -> (Vec<FolderRow>, Vec<PathBuf>, V
     let mut subfolders: BTreeMap<(String, PathBuf), i32> = BTreeMap::new();
     let mut files = Vec::new();
     for track in tracks {
-        let Ok(inside) = track.path.strip_prefix(folder) else {
+        let location = track.location();
+        let Ok(inside) = location.strip_prefix(folder) else {
             continue;
         };
         let mut components = inside.components();
@@ -177,7 +195,7 @@ fn contents(folder: &Path, tracks: &[Track]) -> (Vec<FolderRow>, Vec<PathBuf>, V
             (None, _) => {}
         }
     }
-    files.sort_by_cached_key(|track| name(&track.path).to_lowercase());
+    files.sort_by_cached_key(|track| name(&track.location()).to_lowercase());
     let rows = subfolders
         .iter()
         .map(|((_, path), count)| FolderRow {
@@ -200,10 +218,10 @@ fn file_row(track: &Track) -> TrackRow {
         format!("{} · {artist}", track.title)
     };
     TrackRow {
-        title: name(&track.path).into(),
+        title: name(&track.location()).into(),
         artist: tags.into(),
         duration: format_duration(track.duration).into(),
-        path: track.path.to_string_lossy().as_ref().into(),
+        path: track.key().into(),
         labels: crate::labels::chips(track.id),
         track_id: crate::favourites::row_id(track.id),
         liked: crate::favourites::liked(track.id),
@@ -226,7 +244,8 @@ mod tests {
     fn track(path: &str) -> Track {
         Track {
             id: vcmp_library::TrackId(0),
-            path: PathBuf::from(path),
+            file: Some(PathBuf::from(path)),
+            remote: None,
             available: true,
             format: None,
             title: "t".into(),
@@ -261,7 +280,7 @@ mod tests {
             .collect();
         assert_eq!(rows, [("A".to_string(), 2), ("b".to_string(), 1)]);
         assert_eq!(paths, [PathBuf::from("/m/A"), PathBuf::from("/m/b")]);
-        let files: Vec<String> = files.iter().map(|t| name(&t.path)).collect();
+        let files: Vec<String> = files.iter().map(|t| name(&t.location())).collect();
         assert_eq!(files, ["a.mp3", "z.mp3"]);
     }
 }

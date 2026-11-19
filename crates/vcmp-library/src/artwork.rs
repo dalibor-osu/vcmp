@@ -118,6 +118,13 @@ impl ArtworkStore {
         Ok(Some(path))
     }
 
+    pub(crate) fn put(&self, key: &str, original: &[u8], thumbnail: &[u8]) -> Result<Artwork> {
+        let artwork = self.paths(key);
+        write_atomically(&artwork.original, original)?;
+        write_atomically(&artwork.thumbnail, thumbnail)?;
+        Ok(artwork)
+    }
+
     fn paths(&self, key: &str) -> Artwork {
         let stem = key.split('.').next().unwrap_or(key);
         Artwork {

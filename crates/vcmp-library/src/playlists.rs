@@ -99,7 +99,7 @@ impl Library {
         Ok(statement
             .query_map([id.0], |row| {
                 Ok(PlaylistEntry {
-                    position: row.get(16)?,
+                    position: row.get(crate::query::TRACK_COLUMN_COUNT)?,
                     track: track_from(row)?,
                 })
             })?

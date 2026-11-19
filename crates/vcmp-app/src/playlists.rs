@@ -342,7 +342,8 @@ impl PlaylistBrowser {
             .as_secs()
             .div_ceil(60);
         let rows: Vec<TrackRow> = entries.iter().map(entry_row).collect();
-        let (exported_to, export_failed, export_missing, export_left_out) = self.export_report();
+        let (exported_to, export_failed, export_missing, export_left_out, export_from_servers) =
+            self.export_report();
         window.set_playlist_detail(PlaylistDetail {
             favourites: true,
             track_count: entries.len() as i32,
@@ -353,6 +354,7 @@ impl PlaylistBrowser {
             export_failed,
             export_missing,
             export_left_out,
+            export_from_servers,
             ..PlaylistDetail::default()
         });
         moving_pictures::show(window, Picture::Playlist, None);
@@ -364,7 +366,7 @@ impl PlaylistBrowser {
     /// What the open playlist's last export did, as its page says it: the file, and
     /// whether writing it failed, how many entries' files were missing and how many
     /// were left out.
-    fn export_report(&self) -> (SharedString, bool, i32, i32) {
+    fn export_report(&self) -> (SharedString, bool, i32, i32, i32) {
         let exported = self.exported.borrow();
         let report = exported
             .as_ref()
@@ -377,6 +379,7 @@ impl PlaylistBrowser {
             exported.is_some() && report.is_none(),
             report.map_or(0, |report| report.missing as i32),
             report.map_or(0, |report| report.left_out.len() as i32),
+            report.map_or(0, |report| report.from_servers.len() as i32),
         )
     }
 
@@ -408,7 +411,8 @@ impl PlaylistBrowser {
             .picture
             .as_ref()
             .and_then(|path| Image::load_from_path(path).ok());
-        let (exported_to, export_failed, export_missing, export_left_out) = self.export_report();
+        let (exported_to, export_failed, export_missing, export_left_out, export_from_servers) =
+            self.export_report();
         window.set_playlist_detail(PlaylistDetail {
             favourites: false,
             name: playlist.name.as_str().into(),
@@ -426,6 +430,7 @@ impl PlaylistBrowser {
             export_failed,
             export_missing,
             export_left_out,
+            export_from_servers,
         });
         // Only the owner's own picture may move, not one made from covers.
         let animation = playlist
@@ -558,6 +563,9 @@ impl PlaylistBrowser {
             Ok(report) => {
                 for path in &report.left_out {
                     log::warn!("left out of {}: {}", file.display(), path.display());
+                }
+                for name in &report.from_servers {
+                    log::info!("left out of {}, from a server: {name}", file.display());
                 }
                 Some(report)
             }
@@ -737,7 +745,7 @@ fn entry_row(entry: &PlaylistEntry) -> TrackRow {
         title: track.title.as_str().into(),
         artist: source(track).into(),
         duration: format_duration(track.duration).into(),
-        path: track.path.to_string_lossy().as_ref().into(),
+        path: track.key().into(),
         unavailable: !track.available,
         labels: crate::labels::chips(track.id),
         track_id: row_id(track.id),

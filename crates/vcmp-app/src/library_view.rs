@@ -451,7 +451,7 @@ impl LibraryView {
         let mut counts: HashMap<AlbumId, usize> = HashMap::new();
         for track in tracks {
             if let Some(album) = track.album_id
-                && shown.contains(track.path.to_string_lossy().as_ref())
+                && shown.contains(track.key().as_str())
             {
                 *counts.entry(album).or_default() += 1;
             }
@@ -615,7 +615,7 @@ impl LibraryView {
                 title: track.title.as_str().into(),
                 artist: playlists::source(track).into(),
                 duration: format_duration(track.duration).into(),
-                path: track.path.to_string_lossy().as_ref().into(),
+                path: track.key().into(),
                 labels: labels::chips(track.id),
                 track_id: favourites::row_id(track.id),
                 liked: favourites::liked(track.id),
@@ -742,7 +742,7 @@ impl LibraryView {
                     .unwrap_or_default()
                     .into(),
                 duration: format_duration(track.duration).into(),
-                path: track.path.to_string_lossy().as_ref().into(),
+                path: track.key().into(),
                 selected: false,
                 labels: labels::chips(track.id),
                 track_id: favourites::row_id(track.id),
@@ -1059,7 +1059,7 @@ fn show_artist_details(
             title: track.title.as_str().into(),
             artist: track.album.clone().unwrap_or_default().into(),
             duration: format_duration(track.duration).into(),
-            path: track.path.to_string_lossy().as_ref().into(),
+            path: track.key().into(),
             labels: labels::chips(track.id),
             track_id: favourites::row_id(track.id),
             liked: favourites::liked(track.id),
@@ -1114,7 +1114,7 @@ fn show_album(window: &AppWindow, library: &Library, album: &Album) {
                 duration: format_duration(track.duration).into(),
                 disc: disc(track) as i32,
                 disc_start,
-                path: track.path.to_string_lossy().as_ref().into(),
+                path: track.key().into(),
                 unavailable: false,
                 selected: false,
                 labels: labels::chips(track.id),
@@ -1193,7 +1193,8 @@ mod tests {
     fn track(title: &str, artist: &str, year: i32, seconds: u64) -> Track {
         Track {
             id: vcmp_library::TrackId(0),
-            path: std::path::PathBuf::from(title),
+            file: Some(std::path::PathBuf::from(title)),
+            remote: None,
             available: true,
             format: None,
             title: title.into(),

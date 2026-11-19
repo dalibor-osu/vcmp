@@ -624,7 +624,11 @@ fn a_database_from_version_11_keeps_its_change_sets() {
     // can't be of kind 'labels'.
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute_batch(
-        "UPDATE change_sets SET kind = 'tags'; DROP TABLE love_queue; DROP TABLE lyrics_lookups;
+        "UPDATE change_sets SET kind = 'tags'; DROP TABLE server_folders;
+         DROP TABLE remote_tracks; DROP TABLE servers; DROP TRIGGER tracks_revision_insert;
+         DROP TRIGGER tracks_revision_update; DROP TRIGGER albums_revision_artwork;
+         DROP INDEX tracks_revision; ALTER TABLE tracks DROP COLUMN revision;
+         DROP TABLE love_queue; DROP TABLE lyrics_lookups;
          DROP TABLE plays; DROP TABLE not_duplicates;
          DROP TABLE favourites;
          DROP TABLE change_labels; DROP TABLE track_labels; DROP TABLE labels;

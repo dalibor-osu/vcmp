@@ -769,6 +769,10 @@ field (see [Labels](#labels)).
   folders are one tab stop (arrows, Enter opens), the files another (`TrackList`).
 - **Playing:** a file plays its folder's files from that one; the queue panel names
   the folder.
+- **Servers' folders** follow the music folders on the top level, named "server ·
+  folder", and open like them. Their tree is built from each track's path inside its
+  folder as the server gave it (`Track::location`, a `vcmp-server:` path that is
+  never opened as a file).
 
 ## Now playing view
 
@@ -872,6 +876,54 @@ keeps it current and implements its callbacks.
   - While a scan runs, the bottom of the sidebar shows a progress bar on every page.
 - **Errors** reach the UI as a kind plus the system's detail. Slint words the
   sentence, so it can be translated.
+
+## Music servers
+
+`MusicServers` (`ui/music-servers.slint`) is the UI's view of the VCMP servers the
+app is connected to ([server.md](server.md)). `ServerService` (`src/servers.rs`)
+keeps it current. The agreed decisions are in the
+[server spec](specs/2026-11-11-vcmp-streaming-server.md).
+
+- **Where:** Settings, right after the music folders, as a section of its own.
+- **Adding:** an address and a token, then Connect. The address may leave out the
+  scheme: a local or private host (localhost, 192.168.x.x, 10.x, `nas.local`, a name
+  without a dot) gets `http://`, anything else `https://`. The token field hides
+  what is typed. The app asks the server for its handshake on a thread; on success
+  the server is added under the server's own id, its token goes to the OS keyring
+  (`server:<server id>` under VCMP's service name, like Last.fm's session key), and
+  the first sync starts.
+- **Plain http to a public address** (the owner's choice: warn, then allow): the
+  section explains that the token travels unencrypted and offers Connect anyway or
+  Cancel.
+- **Each server's row:** its name and address, and its state in words: connecting,
+  syncing with the count of tracks received, connected (with the admin token or
+  not), can't be reached, token refused, a different protocol version, or the
+  address now answering as another server. Sync now and Remove.
+- **Syncing** runs on a thread with its own database connection, at start, every 5
+  minutes, after Sync now, and after an admin's change ([library.md](library.md#server-tracks)).
+  The library pages reload when a sync changed something.
+- **Removing** needs no confirmation, as with music folders: the server's tracks
+  stay in the database as unavailable, and adding the same server again brings them
+  back with playlists, hearts and labels intact. Its token is deleted from the
+  keyring.
+- **Album cards** of a server's album say the server's name after the artist ("Artist
+  · Home"). While a server can't be reached (or refuses the token), its albums'
+  titles are drawn muted and the card's accessible name says the server can't be
+  reached; they stay on the pages, and tracks already downloaded still play.
+- **Downloaded music:** the size the audio cache may take (1 to 20 GB, 2 GB by
+  default, `servers.cache_limit_mb`), what it takes now, and Empty.
+- **Manage…** (only for a server connected with the admin token) opens a panel under
+  the row: the server's music folders with their whole paths (Remove for those the
+  configuration doesn't name), a field to add a folder by its path on the server,
+  the last scan's report and Rescan, and New user token and New admin token. While
+  the server scans, the panel asks again every 2 seconds, and syncs once the scan
+  ends. A new admin token is put into the keyring at once, so the app keeps its
+  connection; a new token shows in a read-only field with Copy, for other devices.
+- **Tag editing** of server tracks goes through the same editor: their edits are
+  sent to their server's API instead of written here, and the editor's thread syncs
+  that server before it reports, so the page shows the new values. Without the
+  admin token, or when the server can't write, each file is reported as not
+  written (read-only). The editor can't show a server track's current cover.
 
 The Albums page tells apart why it is empty:
 - the library could not be opened;

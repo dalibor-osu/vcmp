@@ -26,6 +26,8 @@ pub enum Error {
     EmptyChangeSet,
     #[error("track {0:?} is not in the library")]
     UnknownTrack(crate::TrackId),
+    #[error("server {0:?} is not connected")]
+    UnknownServer(crate::ServerId),
     #[error("the file of track {0:?} is not available")]
     UnavailableTrack(crate::TrackId),
     #[error("track {0:?} appears twice in one change set")]

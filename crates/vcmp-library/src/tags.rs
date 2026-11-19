@@ -61,7 +61,7 @@ impl Format {
             })
     }
 
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Mp3 => "mp3",
             Self::Flac => "flac",
@@ -92,7 +92,7 @@ impl Format {
         }
     }
 
-    pub(crate) fn parse(text: &str) -> Option<Self> {
+    pub fn parse(text: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|format| format.as_str() == text)
     }
 }
