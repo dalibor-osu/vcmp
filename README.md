@@ -80,7 +80,8 @@ and run on them, but you have to do that yourself (see
 The first time VCMP opens, a short setup asks for your music folders, the theme,
 zoom and motion, and what VCMP may send online. Showing what you play on Discord
 and the update check are on unless you turn them off there. Every choice is in
-Settings too, and "Run setup again" at the top of Settings opens the setup again.
+Settings too, and "Run setup again" in Settings' General section opens the setup
+again.
 Libraries that already have music folders don't see it after an update.
 
 ### The first start on Windows
@@ -94,7 +95,7 @@ Run anyway.
 A version is the date of its release: 26.10.0 is the first release of October 2026,
 26.10.1 a fix later that month and 26.11.0 the release in November. Releases marked
 as pre-releases on GitHub are for trying out, and VCMP's update check doesn't
-offer them unless "Include pre-releases" is on (Settings, Updates).
+offer them unless "Include pre-releases" is on (Settings, General).
 
 ### Updating
 

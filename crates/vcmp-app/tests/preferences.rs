@@ -4,7 +4,10 @@ use std::rc::Rc;
 
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
 use slint::ComponentHandle;
-use vcmp_app::{AppWindow, Page, ReduceMotion, SidebarSections, Theme, preferences};
+use vcmp_app::{
+    AppWindow, Page, ReduceMotion, SettingsNav, SettingsSection, SidebarSections, Theme,
+    preferences,
+};
 use vcmp_library::Library;
 
 fn click(window: &AppWindow, role: AccessibleRole, label: &str) {
@@ -61,6 +64,7 @@ fn choices_are_saved_and_restored() {
         "nothing saved yet"
     );
     click(&window, AccessibleRole::Tab, "Settings");
+    click(&window, AccessibleRole::Tab, "Appearance");
     click_motion(&window, "On");
     drop(window);
 
@@ -73,11 +77,25 @@ fn choices_are_saved_and_restored() {
         Some("on")
     );
 
+    assert_eq!(
+        library
+            .setting(preferences::SETTINGS_SECTION)
+            .unwrap()
+            .as_deref(),
+        Some("appearance"),
+        "the section Settings showed"
+    );
+
     let restarted = vcmp_app::create_window().unwrap();
     preferences::connect(&restarted, Rc::new(library)).unwrap();
     let theme = restarted.global::<Theme>();
     assert_eq!(theme.get_motion_choice(), ReduceMotion::On);
     assert!(theme.get_reduced_motion());
+    assert_eq!(
+        restarted.global::<SettingsNav>().get_section(),
+        SettingsSection::Appearance,
+        "Settings opens where it was left"
+    );
 }
 
 #[test]
@@ -88,6 +106,7 @@ fn the_zoom_scales_the_window_and_is_restored() {
     preferences::connect(&window, Rc::new(open_library(&dir))).unwrap();
     assert_eq!(window.window().scale_factor(), 1.0);
     click(&window, AccessibleRole::Tab, "Settings");
+    click(&window, AccessibleRole::Tab, "Appearance");
     click(&window, AccessibleRole::Button, "Zoom in");
     click(&window, AccessibleRole::Button, "Zoom in");
     assert_eq!(window.global::<Theme>().get_zoom(), 1.25);
@@ -145,6 +164,7 @@ fn the_system_setting_is_not_saved_as_a_choice() {
     preferences::connect(&window, Rc::new(open_library(&dir))).unwrap();
     window.global::<Theme>().set_system_reduces_motion(true);
     click(&window, AccessibleRole::Tab, "Settings");
+    click(&window, AccessibleRole::Tab, "Appearance");
     click(&window, AccessibleRole::Button, "Zoom in");
     drop(window);
 

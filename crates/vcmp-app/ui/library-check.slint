@@ -2,6 +2,7 @@ import { Theme } from "theme.slint";
 import { Button, IconButton, ScrollArea, SectionHeading, SegmentedChoice, Toggle } from "components.slint";
 import { Glyph } from "icons.slint";
 import { BackButton } from "album-page.slint";
+import { SettingsNav, SettingsSection } from "settings-nav.slint";
 
 // The Library check's tabs.
 export enum CheckTab { duplicates, missing-tags, missing-covers }
@@ -315,9 +316,11 @@ export component LibraryCheckPage {
                 HorizontalLayout {
                     alignment: start;
 
+                    // Back to Settings, on the Library section the check is in.
                     back-button := BackButton {
                         label: @tr("Settings");
                         clicked => {
+                            SettingsNav.show(SettingsSection.library);
                             LibraryCheck.open = false;
                         }
                     }

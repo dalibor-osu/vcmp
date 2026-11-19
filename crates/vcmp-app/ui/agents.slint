@@ -4,7 +4,7 @@
 // (src/agents.rs).
 
 import { Theme } from "theme.slint";
-import { Button, Modal, ProgressBar, ScrollArea, SectionHeading, SettingRow, TextField, TextLink, Toggle } from "components.slint";
+import { Button, Modal, ProgressBar, ScrollArea, SettingRow, TextField, TextLink, Toggle } from "components.slint";
 import { Confirmation } from "confirmation.slint";
 
 export enum ServerStatus { off, running, failed }
@@ -256,157 +256,148 @@ export component AgentsSwitchRow inherits SettingRow {
     }
 }
 
-// The AI agents section of Settings: the switch, how to connect while it is on and
-// whether agents may control playback then, the changes agents asked for, and the
-// backups that keep them undoable.
-export component AgentsSection inherits VerticalLayout {
-    // The dialog asks about deleting the backups.
-    private property <bool> asked;
+// How an agent connects, shown in Settings while the switch is on: the address, the
+// token, and the commands that add VCMP to Claude Code and Claude Desktop.
+export component AgentsConnection inherits VerticalLayout {
+    spacing: Theme.space-m;
+    padding-top: Theme.space-s;
+    padding-bottom: Theme.space-m;
 
-    spacing: Theme.space-xs;
-
-    SectionHeading {
-        text: @tr("AI agents");
+    Text {
+        text: AgentState.status == ServerStatus.failed ? @tr("Port {} is in use by another program, so agents can't connect. Choose another port below.", AgentState.port)
+            : @tr("Agents connect to this address with the token. Anyone with the token can read your library and edit your playlists while VCMP is open, so keep it to yourself.");
+        color: AgentState.status == ServerStatus.failed ? Theme.colors.error : Theme.colors.text-muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
     }
 
-    AgentsSwitchRow { }
+    if AgentState.status == ServerStatus.running: CopyField {
+        label: @tr("Address");
+        text: AgentState.address;
+        copy-label: @tr("Copy the address");
+    }
 
-    // How an agent connects, while the switch is on.
-    if AgentState.enabled: VerticalLayout {
+    HorizontalLayout {
         spacing: Theme.space-m;
-        padding-top: Theme.space-s;
-        padding-bottom: Theme.space-m;
+
+        CopyField {
+            horizontal-stretch: 1;
+            label: @tr("Token");
+            text: AgentState.token;
+            copy-label: @tr("Copy the token");
+        }
+        Button {
+            text: @tr("New token");
+            label: @tr("Make a new token; agents with the old one can't connect any more");
+            clicked => {
+                AgentState.new-token();
+            }
+        }
+    }
+
+    if AgentState.status == ServerStatus.running: VerticalLayout {
+        spacing: Theme.space-s;
 
         Text {
-            text: AgentState.status == ServerStatus.failed ? @tr("Port {} is in use by another program, so agents can't connect. Choose another port below.", AgentState.port)
-                : @tr("Agents connect to this address with the token. Anyone with the token can read your library and edit your playlists while VCMP is open, so keep it to yourself.");
-            color: AgentState.status == ServerStatus.failed ? Theme.colors.error : Theme.colors.text-muted;
+            text: @tr("To add VCMP to Claude Code, run:");
+            color: Theme.colors.text-muted;
             font-size: Theme.font-small;
             wrap: word-wrap;
             min-height: self.preferred-height;
         }
-
-        if AgentState.status == ServerStatus.running: CopyField {
-            label: @tr("Address");
-            text: AgentState.address;
-            copy-label: @tr("Copy the address");
+        CopyField {
+            label: @tr("Command for Claude Code");
+            text: AgentState.setup-command;
+            copy-label: @tr("Copy the command for Claude Code");
         }
-
-        HorizontalLayout {
-            spacing: Theme.space-m;
-
-            CopyField {
-                horizontal-stretch: 1;
-                label: @tr("Token");
-                text: AgentState.token;
-                copy-label: @tr("Copy the token");
-            }
-            Button {
-                text: @tr("New token");
-                label: @tr("Make a new token; agents with the old one can't connect any more");
-                clicked => {
-                    AgentState.new-token();
-                }
-            }
+        Text {
+            text: @tr("For Claude Desktop, which starts VCMP's relay itself, add this inside \"mcpServers\" in its configuration file:");
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
         }
-
-        if AgentState.status == ServerStatus.running: VerticalLayout {
-            spacing: Theme.space-s;
-
-            Text {
-                text: @tr("To add VCMP to Claude Code, run:");
-                color: Theme.colors.text-muted;
-                font-size: Theme.font-small;
-                wrap: word-wrap;
-                min-height: self.preferred-height;
-            }
-            CopyField {
-                label: @tr("Command for Claude Code");
-                text: AgentState.setup-command;
-                copy-label: @tr("Copy the command for Claude Code");
-            }
-            Text {
-                text: @tr("For Claude Desktop, which starts VCMP's relay itself, add this inside \"mcpServers\" in its configuration file:");
-                color: Theme.colors.text-muted;
-                font-size: Theme.font-small;
-                wrap: word-wrap;
-                min-height: self.preferred-height;
-            }
-            CopyField {
-                label: @tr("Configuration for Claude Desktop");
-                text: AgentState.desktop-config;
-                copy-label: @tr("Copy the configuration for Claude Desktop");
-            }
-        }
-
-        SettingRow {
-            title: @tr("Let AI agents control playback");
-            description: @tr("Agents can play and queue music, pause, skip, change the volume and the output device, and set the sleep timer. Off, they can still read your library.");
-
-            Toggle {
-                label: @tr("Let AI agents control playback");
-                checked: AgentState.playback-enabled;
-                toggled(on) => {
-                    AgentState.set-playback-enabled(on);
-                }
-            }
-        }
-
-        SettingRow {
-            title: @tr("Port");
-            description: @tr("The port on this computer agents connect to. Change it if another program uses it.");
-
-            TextField {
-                width: 96px;
-                label: @tr("Port");
-                text: AgentState.port;
-                accepted(text) => {
-                    AgentState.set-port(text);
-                }
-            }
+        CopyField {
+            label: @tr("Configuration for Claude Desktop");
+            text: AgentState.desktop-config;
+            copy-label: @tr("Copy the configuration for Claude Desktop");
         }
     }
+}
 
-    // The changes agents asked for, in a dialog of their own so a long history doesn't
-    // fill Settings.
-    SettingRow {
-        title: @tr("Changes by agents");
-        description: AgentState.history.length == 0 ? @tr("Changes agents ask for are kept here for 30 days, and a written change can be undone in that time.")
-            : @tr("{n} change from the last 30 days. Review it while it waits, or undo it once written." | "{n} changes from the last 30 days. Review the ones waiting, or undo written ones." % AgentState.history.length);
+// Whether agents may control playback, shown while the switch is on.
+export component AgentsPlaybackRow inherits SettingRow {
+    title: @tr("Let AI agents control playback");
+    description: @tr("Agents can play and queue music, pause, skip, change the volume and the output device, and set the sleep timer. Off, they can still read your library.");
 
-        Button {
-            text: @tr("Show changes…");
-            label: @tr("Show the changes by agents");
-            enabled: AgentState.history.length > 0;
-            clicked => {
-                AgentState.history-open = true;
-            }
+    Toggle {
+        label: @tr("Let AI agents control playback");
+        checked: AgentState.playback-enabled;
+        toggled(on) => {
+            AgentState.set-playback-enabled(on);
         }
     }
+}
 
-    SettingRow {
-        title: @tr("Backups for undo");
-        description: AgentState.backups-size == "" ? @tr("A written change can be undone for 30 days, with the covers it replaced. Deleting the backups frees their room, and those changes can't be undone after.")
-            : @tr("A written change can be undone for 30 days, with the covers it replaced. The covers kept now take {}. Deleting the backups frees that room, and those changes can't be undone after.", AgentState.backups-size);
+// The port agents connect to, shown while the switch is on.
+export component AgentsPortRow inherits SettingRow {
+    title: @tr("Port");
+    description: @tr("The port on this computer agents connect to. Change it if another program uses it.");
 
-        // Asks first, in a dialog (`Confirmation`).
-        Button {
-            property <int> answers: Confirmation.answers;
-            changed answers => {
-                if root.asked {
-                    root.asked = false;
-                    if Confirmation.accepted {
-                        AgentState.delete-backups();
-                    }
-                    self.focus();
+    TextField {
+        width: 96px;
+        label: @tr("Port");
+        text: AgentState.port;
+        accepted(text) => {
+            AgentState.set-port(text);
+        }
+    }
+}
+
+// The changes agents asked for, in a dialog of their own so a long history doesn't
+// fill Settings.
+export component AgentsChangesRow inherits SettingRow {
+    title: @tr("Changes by agents");
+    description: AgentState.history.length == 0 ? @tr("Changes agents ask for are kept here for 30 days, and a written change can be undone in that time.")
+        : @tr("{n} change from the last 30 days. Review it while it waits, or undo it once written." | "{n} changes from the last 30 days. Review the ones waiting, or undo written ones." % AgentState.history.length);
+
+    Button {
+        text: @tr("Show changes…");
+        label: @tr("Show the changes by agents");
+        enabled: AgentState.history.length > 0;
+        clicked => {
+            AgentState.history-open = true;
+        }
+    }
+}
+
+// Deleting the backups that keep written changes undoable, after asking.
+export component AgentsBackupsRow inherits SettingRow {
+    // The dialog asks about deleting the backups.
+    private property <bool> asked;
+
+    title: @tr("Backups for undo");
+    description: AgentState.backups-size == "" ? @tr("A written change can be undone for 30 days, with the covers it replaced. Deleting the backups frees their room, and those changes can't be undone after.")
+        : @tr("A written change can be undone for 30 days, with the covers it replaced. The covers kept now take {}. Deleting the backups frees that room, and those changes can't be undone after.", AgentState.backups-size);
+
+    // Asks first, in a dialog (`Confirmation`).
+    Button {
+        property <int> answers: Confirmation.answers;
+        changed answers => {
+            if root.asked {
+                root.asked = false;
+                if Confirmation.accepted {
+                    AgentState.delete-backups();
                 }
+                self.focus();
             }
-            text: @tr("Delete backups…");
-            enabled: AgentState.has-finished;
-            clicked => {
-                root.asked = true;
-                Confirmation.ask(@tr("Delete the backups of every finished change?"), @tr("None of them can be undone afterwards. Changes waiting for review stay."), @tr("Delete backups"), @tr("Delete backups"), @tr("Keep the backups"));
-            }
+        }
+        text: @tr("Delete backups…");
+        enabled: AgentState.has-finished;
+        clicked => {
+            root.asked = true;
+            Confirmation.ask(@tr("Delete the backups of every finished change?"), @tr("None of them can be undone afterwards. Changes waiting for review stay."), @tr("Delete backups"), @tr("Delete backups"), @tr("Keep the backups"));
         }
     }
 }

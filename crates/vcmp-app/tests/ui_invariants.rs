@@ -401,3 +401,35 @@ fn the_library_check_changes_no_file() {
         found.join("\n")
     );
 }
+
+/// Settings' search knows every block the page shows: each entry of `SettingsPage`'s
+/// list has one block that shows through `root.shows` with its place, and no block
+/// shows through a place the list doesn't have. Otherwise a row added later would
+/// show in its section but never be found, or show for the wrong entry.
+#[test]
+fn every_settings_block_can_be_found() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/pages.slint");
+    let lines = code_lines(&path);
+    let entries = lines
+        .iter()
+        .filter(|(_, line)| line.trim_start().starts_with("{ section: SettingsSection."))
+        .count();
+    assert!(entries >= 20, "found only {entries} entries in the list");
+
+    let mut places = Vec::new();
+    for (_, line) in &lines {
+        let mut rest = line.as_str();
+        while let Some(start) = rest.find("root.shows(") {
+            let after = &rest[start + "root.shows(".len()..];
+            let end = after.find(')').expect("closing parenthesis");
+            places.push(after[..end].trim().parse::<usize>().expect("a number"));
+            rest = &after[end..];
+        }
+    }
+    places.sort_unstable();
+    let expected: Vec<usize> = (0..entries).collect();
+    assert_eq!(
+        places, expected,
+        "each of the {entries} entries needs exactly one block"
+    );
+}

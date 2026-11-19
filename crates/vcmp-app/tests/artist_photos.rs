@@ -15,7 +15,9 @@ use slint::{ComponentHandle, LogicalSize, Model, SharedString};
 use tempfile::TempDir;
 use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::library_view::LibraryView;
-use vcmp_app::{AppWindow, ArtworkState, Page, PhotoSearch, PhotoSearchStatus};
+use vcmp_app::{
+    AppWindow, ArtworkState, Page, PhotoSearch, PhotoSearchStatus, SettingsNav, SettingsSection,
+};
 use vcmp_integrations::fanart::{ArtistQuery, Photo, PhotoEvent, SearchError};
 use vcmp_library::Library;
 
@@ -326,11 +328,15 @@ fn a_personal_key_is_kept_and_goes_with_each_search() {
 
 /// Whether Settings shows the personal key field.
 fn key_field_shown(app: &App) -> bool {
-    // Tall enough for the Artist photos section: the finder skips what is out of view.
+    // Tall enough for the Online services section: the finder skips what is out of
+    // view.
     app.window
         .window()
         .set_size(LogicalSize::new(1100.0, 2400.0));
     app.window.set_section(Page::Settings);
+    app.window
+        .global::<SettingsNav>()
+        .invoke_show(SettingsSection::OnlineServices);
     app.frame();
     ElementHandle::find_by_accessible_label(&app.window, "fanart.tv personal API key")
         .next()
@@ -341,10 +347,10 @@ fn key_field_shown(app: &App) -> bool {
 fn settings_tells_where_photos_come_from() {
     let app = open(true);
     assert!(key_field_shown(&app), "Settings offers the personal key");
-    // Tall enough for its About section, at the end.
+    // Its About section names where the photos come from.
     app.window
-        .window()
-        .set_size(LogicalSize::new(1100.0, 4000.0));
+        .global::<SettingsNav>()
+        .invoke_show(SettingsSection::About);
     app.frame();
     assert!(app.button("fanart.tv, opens the website").is_some());
     assert!(app.button("Cover Art Archive, opens the website").is_some());

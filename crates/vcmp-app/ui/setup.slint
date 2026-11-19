@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { Button, Modal, ScrollArea } from "components.slint";
+import { Button, Modal, ScrollArea, TextLink } from "components.slint";
 import { LibraryState } from "library-state.slint";
 import { LibrarySection } from "library-settings.slint";
 import { LastfmRow } from "lastfm-settings.slint";
@@ -11,6 +11,7 @@ import { UpdateCheckRow } from "updates.slint";
 import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
 import { AgentState, AgentsSwitchRow } from "agents.slint";
 import { Confirmation } from "confirmation.slint";
+import { SettingsNav, SettingsSection } from "settings-nav.slint";
 
 // The first-run setup wizard (src/setup.rs decides when it opens at the start).
 // Every control is Settings' own, so a choice applies and saves at once and leaving
@@ -90,7 +91,7 @@ export component SetupWizard inherits Modal {
             Setup.close();
         } else {
             root.asked = true;
-            Confirmation.ask(@tr("Close the setup?"), @tr("What you have set so far stays. Run setup again, at the top of Settings, opens it again."), @tr("Close setup"), @tr("Close the setup"), @tr("Continue the setup"));
+            Confirmation.ask(@tr("Close the setup?"), @tr("What you have set so far stays. Run setup again, in Settings under General, opens it again."), @tr("Close setup"), @tr("Close the setup"), @tr("Continue the setup"));
         }
     }
 
@@ -190,7 +191,6 @@ export component SetupWizard inherits Modal {
                     text: @tr("Changes show behind this dialog as you make them.");
                 }
                 ThemeRows {
-                    files: false;
                     property <int> wrap: root.wrap-first;
                     changed wrap => {
                         self.focus();
@@ -238,12 +238,29 @@ export component SetupWizard inherits Modal {
                 }
                 if PhotoSearch.available: PhotoKeyRow { }
                 AgentsSwitchRow { }
-                if AgentState.enabled: Text {
-                    text: @tr("To connect an agent, open Settings: the token and the setup commands are under AI agents.");
-                    color: Theme.colors.text-muted;
-                    font-size: Theme.font-small;
-                    wrap: word-wrap;
-                    min-height: self.preferred-height;
+                // Opens Settings on its AI agents section, closing the wizard.
+                if AgentState.enabled: VerticalLayout {
+                    spacing: Theme.space-xs;
+
+                    Text {
+                        text: @tr("To connect an agent, open Settings: the token and the setup commands are under AI agents.");
+                        color: Theme.colors.text-muted;
+                        font-size: Theme.font-small;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+
+                        TextLink {
+                            text: @tr("Open AI agents settings");
+                            label: @tr("Open AI agents settings, closes the setup");
+                            font-size: Theme.font-small;
+                            clicked => {
+                                SettingsNav.open(SettingsSection.agents);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -264,7 +281,7 @@ export component SetupWizard inherits Modal {
                         : @tr("{n} track is in your library." | "{n} tracks are in your library." % LibraryState.track-count);
                 }
                 Paragraph {
-                    text: @tr("Everything you set here is in Settings, with more besides. Run setup again, at the top of Settings, opens this again.");
+                    text: @tr("Everything you set here is in Settings, with more besides. Run setup again, in Settings under General, opens this again.");
                 }
             }
         }

@@ -137,8 +137,11 @@ impl App {
             .invoke_accessible_default_action();
     }
 
+    /// Settings, on its AI agents section.
     fn open_settings(&self) {
         self.find(AccessibleRole::Tab, "Settings")
+            .invoke_accessible_default_action();
+        self.find(AccessibleRole::Tab, "AI agents")
             .invoke_accessible_default_action();
     }
 

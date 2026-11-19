@@ -1304,6 +1304,7 @@ fn the_output_device_is_chosen_and_remembered() {
     app.service
         .set_device_lister(|| Ok(vec!["Speakers".into(), "Headphones".into()]));
     app.press(AccessibleRole::Tab, "Settings");
+    app.press(AccessibleRole::Tab, "Playback");
     let dropdown = ElementHandle::find_by_accessible_label(&app.window, "Output device")
         .find(|element| element.accessible_role() == Some(AccessibleRole::Combobox))
         .expect("the output device choice");

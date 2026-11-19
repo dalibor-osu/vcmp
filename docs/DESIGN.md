@@ -168,6 +168,22 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
     Settings always show. Hiding Playlists or Labels hides its list too; links into
     a hidden section still work; the app opens on the first section shown.
   - About is no longer in the sidebar: it is the last section of Settings.
+- 2026-11-19, Settings in sections (chosen from offered options, issue #108,
+  `docs/specs/2026-11-19-settings-sections.md`): Settings shows one section at a
+  time beside a list of the sections; in a page too narrow for both, a dropdown
+  above the section takes the list's place. The rows are regrouped into six
+  sections, with About (issue #107) as a seventh at the end: General (Run setup
+  again, Check for updates), Library (music folders,
+  Update automatically, Library check, Play history, Labels), Playback (Shuffle,
+  Output device), Appearance (theme, accent, theme files, zoom, reduce motion,
+  and the sidebar's sections from issue #107),
+  Online services (lyrics, Discord, Last.fm, the fanart.tv key) and AI agents.
+  Settings opens on the section last shown, even after a restart: an exception to
+  "choosing a section always goes to its full view" (2026-10-18). Each section is a
+  place in back and forward. The setup wizard's agents line and the photo picker's
+  refused-key message are links that open their section. A search across the
+  sections shows the rows it finds themselves, working; it matches row titles,
+  section names and a few keywords per row.
 
 ## Awaiting the owner's review
 
@@ -225,3 +241,15 @@ the owner's until reviewed; keep, change or drop each.
   sit right-aligned over the 52 px time column, Lossless first, and show from a
   controls width of about 360 px (a window of about 930 px). About in Settings
   reads "VCMP, version ..." under an "About" heading.
+- 2026-11-19, the details of Settings' sections (issue #108): the list of sections
+  is 200 px wide and uses the sidebar's own entries (a surface fill and bold name on
+  the chosen one), with the search field above it; it becomes the dropdown when the
+  section would get less than 480 px beside it. The section has no heading of its
+  own, as the list names it; the music folders and the labels keep theirs inside
+  Library. Search results are grouped under their sections' names, no section is
+  marked in the list while searching, choosing a section ends the search, and a
+  search is not a place in back and forward. The links read "Open AI agents
+  settings" and "Open Online services settings". "Include pre-releases", added with
+  self-update meanwhile, sits in General under "Check for updates". About, from
+  issue #107, is the last section in the list, and drops its own "About" heading
+  like the other sections.

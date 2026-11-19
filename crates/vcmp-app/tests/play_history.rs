@@ -308,6 +308,7 @@ fn clearing_the_history_from_settings_keeps_waiting_scrobbles() {
 
     app.open("Settings");
     assert_eq!(app.window.get_current_page(), Page::Settings);
+    app.open("Library");
     let press = |label: &str| {
         ElementHandle::find_by_accessible_label(&app.window, label)
             .find(|element| element.accessible_role() == Some(AccessibleRole::Button))

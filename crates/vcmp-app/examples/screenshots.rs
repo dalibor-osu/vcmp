@@ -35,9 +35,9 @@ use vcmp_app::{
     ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, CheckTab, Confirmation,
     CoverSearch as CoverPicker, CoverSearchStatus, LastfmState, LastfmStatus, LibraryCheck,
     Overlay, Page, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, ReviewStatus,
-    SelectionChange, ServerStatus, Setup, SleepTimer, TagChange, TagEditorState, TagEditorStatus,
-    TagField, Theme, ThemeKind, Themes as ThemesState, TrackSelection, UpdateBlocker, UpdatePhase,
-    UpdateState,
+    SelectionChange, ServerStatus, SettingsNav, SettingsSection, Setup, SleepTimer, TagChange,
+    TagEditorState, TagEditorStatus, TagField, Theme, ThemeKind, Themes as ThemesState,
+    TrackSelection, UpdateBlocker, UpdatePhase, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -94,6 +94,12 @@ struct Shot {
     tall: bool,
     // The Library check is open in place of Settings, on this tab.
     check: Option<CheckTab>,
+    // The section Settings shows.
+    section: SettingsSection,
+    // Typed in Settings' search field.
+    settings_search: &'static str,
+    // The window is too narrow for Settings' list of sections.
+    narrow: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -137,6 +143,9 @@ const fn shot(
         setup: None,
         tall: false,
         check: None,
+        section: SettingsSection::General,
+        settings_search: "",
+        narrow: false,
     }
 }
 
@@ -145,26 +154,52 @@ const fn shot(
 const fn appearance(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         tall: true,
+        section: SettingsSection::Appearance,
         ..shot(name, theme, 7, None, 0)
     }
 }
 
-/// Settings opens on its top; the AI agents section shows in the taller window these
-/// shots ask for.
+/// Settings on its AI agents section, in the taller window these shots ask for.
 const fn agents(name: &'static str, theme: &'static str, agents: Agents) -> Shot {
     Shot {
         agents: Some(agents),
+        section: SettingsSection::Agents,
         ..shot(
             name,
             theme,
             if matches!(agents, Agents::Settings | Agents::History) {
-                6
+                7
             } else {
                 1
             },
             None,
             0,
         )
+    }
+}
+
+/// Settings on one of its sections.
+const fn settings(name: &'static str, theme: &'static str, section: SettingsSection) -> Shot {
+    Shot {
+        section,
+        ..shot(name, theme, 7, None, 0)
+    }
+}
+
+/// Settings showing what a search found, across its sections.
+const fn settings_search(name: &'static str, theme: &'static str) -> Shot {
+    Shot {
+        settings_search: "last",
+        ..shot(name, theme, 7, None, 0)
+    }
+}
+
+/// Settings in the narrowest window: its sections in a dropdown above the section.
+const fn settings_narrow(name: &'static str, theme: &'static str) -> Shot {
+    Shot {
+        narrow: true,
+        section: SettingsSection::Playback,
+        ..shot(name, theme, 7, None, 0)
     }
 }
 
@@ -227,16 +262,18 @@ const fn lyrics(name: &'static str, theme: &'static str) -> Shot {
 const fn lastfm(name: &'static str, theme: &'static str, status: LastfmStatus) -> Shot {
     Shot {
         lastfm: Some(status),
+        section: SettingsSection::OnlineServices,
         ..shot(name, theme, 7, None, 0)
     }
 }
 
-/// The whole Settings page, with the note that a newer VCMP is out in its About
-/// section and in the sidebar.
+/// Settings' About section, with the note that a newer VCMP is out there and in the
+/// sidebar.
 const fn update(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         update: true,
         tall: true,
+        section: SettingsSection::About,
         ..shot(name, theme, 7, None, 0)
     }
 }
@@ -252,6 +289,7 @@ const fn update_dialog(name: &'static str, theme: &'static str, phase: UpdatePha
 const fn confirm(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         confirm: true,
+        section: SettingsSection::Agents,
         ..shot(name, theme, 7, None, 0)
     }
 }
@@ -347,6 +385,28 @@ const SHOTS: &[Shot] = &[
     shot("settings-dark", "dark", 7, None, 0),
     shot("settings-darker", "darker", 7, None, 0),
     shot("settings-midnight", "midnight", 7, None, 0),
+    settings("settings-library-light", "light", SettingsSection::Library),
+    settings("settings-library-dark", "dark", SettingsSection::Library),
+    settings(
+        "settings-playback-light",
+        "light",
+        SettingsSection::Playback,
+    ),
+    settings("settings-playback-dark", "dark", SettingsSection::Playback),
+    settings(
+        "settings-online-light",
+        "light",
+        SettingsSection::OnlineServices,
+    ),
+    settings(
+        "settings-online-dark",
+        "dark",
+        SettingsSection::OnlineServices,
+    ),
+    settings_search("settings-search-light", "light"),
+    settings_search("settings-search-dark", "dark"),
+    settings_narrow("settings-narrow-light", "light"),
+    settings_narrow("settings-narrow-dark", "dark"),
     appearance("appearance-light", "light"),
     appearance("appearance-dark", "dark"),
     lastfm("lastfm-light", "light", LastfmStatus::Connected),
@@ -359,7 +419,10 @@ const SHOTS: &[Shot] = &[
     update_dialog("update-dialog-dark", "dark", UpdatePhase::Offer),
     update_dialog("update-downloading-dark", "dark", UpdatePhase::Downloading),
     shot("focus-nav-light", "light", 7, None, 1),
-    shot("focus-theme-dark", "dark", 7, None, 3),
+    Shot {
+        section: SettingsSection::Appearance,
+        ..shot("focus-theme-dark", "dark", 7, None, 3)
+    },
     shot("focus-switch-light", "light", 7, None, 1),
     agents("agents-light", "light", Agents::Settings),
     agents("agents-dark", "dark", Agents::Settings),
@@ -452,6 +515,9 @@ fn prepare(window: &AppWindow, shot: &Shot) {
         .global::<ThemesState>()
         .invoke_choose(shot.theme.into());
     window.set_section(section(shot.page));
+    let nav = window.global::<SettingsNav>();
+    nav.invoke_show(shot.section);
+    nav.set_query(shot.settings_search.into());
     let player = window.global::<PlayerState>();
     player.set_overlay(if shot.lyrics {
         Overlay::Lyrics
@@ -613,6 +679,9 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     show_agents(window, shot.agents);
     if shot.tall {
         window.window().set_size(LogicalSize::new(1100.0, 2600.0));
+    }
+    if shot.narrow {
+        window.window().set_size(LogicalSize::new(720.0, 720.0));
     }
     let wizard = window.global::<Setup>();
     match shot.setup {

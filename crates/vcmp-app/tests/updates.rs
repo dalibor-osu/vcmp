@@ -47,6 +47,7 @@ fn open_page(window: &AppWindow, label: &str) {
 
 fn flip_switch(window: &AppWindow) {
     open_page(window, "Settings");
+    open_page(window, "General");
     find(window, AccessibleRole::Switch, "Check for updates").invoke_accessible_default_action();
 }
 
@@ -148,6 +149,7 @@ fn a_newer_release_shows_a_note_in_the_sidebar_and_on_about() {
     assert_eq!(notes(&window), 1, "the sidebar's note");
 
     open_page(&window, "Settings");
+    open_page(&window, "About");
     assert_eq!(notes(&window), 2, "the sidebar's and the About section's");
 
     // A scan takes the sidebar's foot while it runs.

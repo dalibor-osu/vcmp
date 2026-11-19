@@ -47,7 +47,7 @@ impl Fixture {
         std::fs::write(self.folder().join(file_name), text).unwrap();
     }
 
-    /// The window on its Settings page, tall enough for the Appearance section.
+    /// The window on Settings' Appearance section, tall enough for all of it.
     fn open(&self) -> AppWindow {
         let window = vcmp_app::create_window().unwrap();
         window
@@ -56,6 +56,7 @@ impl Fixture {
         window.show().unwrap();
         Themes::connect(&window, Some(Rc::new(self.library())), Some(self.folder()));
         click(&window, AccessibleRole::Tab, "Settings");
+        click(&window, AccessibleRole::Tab, "Appearance");
         window
     }
 

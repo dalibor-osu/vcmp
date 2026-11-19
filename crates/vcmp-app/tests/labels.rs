@@ -16,8 +16,8 @@ use slint::{ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc, Share
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{PlayerControl, PlayerService};
 use vcmp_app::{
-    AppWindow, Confirmation, LabelFilterPage, LabelProblem, Labels, Page, SongSelection, TrackRow,
-    TrackSelection,
+    AppWindow, Confirmation, LabelFilterPage, LabelProblem, Labels, Page, SettingsNav,
+    SettingsSection, SongSelection, TrackRow, TrackSelection,
 };
 use vcmp_library::{AlbumId, LabelId, Library, TrackId};
 use vcmp_playback::Command;
@@ -446,6 +446,9 @@ fn the_sidebar_and_settings_list_the_labels() {
     assert!(app.window.get_label_open());
 
     app.window.set_section(Page::Settings);
+    app.window
+        .global::<SettingsNav>()
+        .invoke_show(SettingsSection::Library);
     assert_eq!(app.window.get_current_page(), Page::Settings);
     assert!(app.find(AccessibleRole::Button, "Edit chill").is_some());
     app.find(AccessibleRole::Button, "Delete rainy")
@@ -466,6 +469,9 @@ fn the_delete_question_is_a_dialog_that_keeps_the_keyboard() {
     let app = start();
     app.make("rainy", 8);
     app.window.set_section(Page::Settings);
+    app.window
+        .global::<SettingsNav>()
+        .invoke_show(SettingsSection::Library);
     let question = app.window.global::<Confirmation>();
     let ask = || {
         app.find(AccessibleRole::Button, "Delete rainy")

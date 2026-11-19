@@ -4,7 +4,7 @@
 // callbacks (src/updates.rs).
 
 import { Theme } from "theme.slint";
-import { Button, Modal, ProgressBar, SectionHeading, SettingRow, TextLink, Toggle } from "components.slint";
+import { Button, Modal, ProgressBar, SettingRow, TextLink, Toggle } from "components.slint";
 
 // Where the update dialog is.
 export enum UpdatePhase {
@@ -277,14 +277,3 @@ export component PrereleaseRow inherits SettingRow {
     }
 }
 
-// The Updates section of Settings.
-export component UpdatesSection inherits VerticalLayout {
-    spacing: Theme.space-xs;
-
-    SectionHeading {
-        text: @tr("Updates");
-    }
-
-    UpdateCheckRow { }
-    PrereleaseRow { }
-}

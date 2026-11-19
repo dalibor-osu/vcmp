@@ -23,6 +23,7 @@ pub mod playlists;
 pub mod preferences;
 pub mod saved_queue;
 pub mod selection;
+pub mod settings_nav;
 pub mod setup;
 pub mod shortcuts;
 pub mod tag_editor;
@@ -45,6 +46,7 @@ pub fn create_window() -> Result<AppWindow, slint::PlatformError> {
     zoom::install(&window);
     title_bar::install(&window);
     moving_pictures::install(&window);
+    settings_nav::install(&window);
     window.set_version(env!("CARGO_PKG_VERSION").into());
     Ok(window)
 }

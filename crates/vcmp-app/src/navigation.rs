@@ -1,7 +1,8 @@
 //! Back and forward through the places the window showed, as a browser does: the
 //! mouse's back and forward buttons (caught in `src/shortcuts.rs`) and Alt+Left and
 //! Alt+Right. A place is a section on its grid, or the album, artist, playlist or
-//! label page open in it, or the Library check open in place of Settings.
+//! label page open in it, a section of Settings, or the Library check open in place
+//! of Settings.
 //!
 //! The window calls `navigated` whenever the section or the page open in it changes,
 //! however that came about (the sidebar, a card, a back button, Escape, a link in the
@@ -18,7 +19,7 @@ use vcmp_library::{AlbumId, ArtistId, LabelId};
 
 use crate::library_view::LibraryView;
 use crate::playlists::PlaylistKey;
-use crate::{AppWindow, LibraryCheck, Page};
+use crate::{AppWindow, LibraryCheck, Page, SettingsNav, SettingsSection};
 
 /// The most places kept behind.
 const LIMIT: usize = 100;
@@ -34,6 +35,8 @@ pub enum Place {
     /// A playlist's page, or the favourites'.
     Playlist(PlaylistKey),
     Label(LabelId),
+    /// Settings, on one of its sections.
+    Settings(SettingsSection),
     /// The Library check, opened from Settings.
     LibraryCheck,
 }
@@ -95,6 +98,7 @@ impl History {
             }
             Page::Labels if window.get_label_open() => Place::Label(self.view.labels().shown()?.id),
             Page::Settings if window.global::<LibraryCheck>().get_open() => Place::LibraryCheck,
+            Page::Settings => Place::Settings(window.global::<SettingsNav>().get_section()),
             other => Place::Section(other),
         };
         Some(place)
@@ -164,7 +168,14 @@ impl History {
                 window.invoke_show_section(Page::Labels);
                 self.view.labels().open(label);
             }
+            Place::Settings(settings_section) => {
+                window.global::<SettingsNav>().invoke_show(settings_section);
+                window.invoke_show_section(Page::Settings);
+            }
             Place::LibraryCheck => {
+                window
+                    .global::<SettingsNav>()
+                    .invoke_show(SettingsSection::Library);
                 window.invoke_show_section(Page::Settings);
                 self.view.check().open();
             }
