@@ -223,6 +223,7 @@ fn the_sidebar_sections_are_saved_and_the_window_opens_on_the_first_shown() {
     preferences::connect_sidebar(&window, open()).unwrap();
     assert_eq!(window.get_current_page(), Page::Albums);
     window.invoke_show_section(Page::Settings);
+    click(&window, AccessibleRole::Tab, "Appearance");
     click(
         &window,
         AccessibleRole::Switch,

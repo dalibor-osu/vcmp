@@ -38,11 +38,14 @@ thread_local! {
 /// Asks for a newer release; given the window to show it in.
 type Check = Rc<dyn Fn(slint::Weak<AppWindow>)>;
 
+/// Runs the check in a window, `true` to run it again after it has run.
+type Run = Rc<dyn Fn(&AppWindow, bool)>;
+
 /// A check that waits, while the setup wizard is open on the first start, until
 /// [`HeldCheck::release`]: nothing goes to GitHub before the user has seen the switch.
 pub struct HeldCheck {
     held: Rc<Cell<bool>>,
-    run: Rc<dyn Fn(&AppWindow, bool)>,
+    run: Run,
 }
 
 impl HeldCheck {
@@ -94,7 +97,7 @@ pub fn connect_held(
     let check: Check = Rc::new(check);
     let ran = Rc::new(Cell::new(false));
     let held = Rc::new(Cell::new(held));
-    let run: Rc<dyn Fn(&AppWindow, bool)> = Rc::new({
+    let run: Run = Rc::new({
         let held = held.clone();
         move |window: &AppWindow, again: bool| {
             if held.get() || (ran.get() && !again) {
