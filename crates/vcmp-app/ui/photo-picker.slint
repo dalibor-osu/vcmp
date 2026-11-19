@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 import { Button, Modal, ScrollArea, TextField, TextLink } from "components.slint";
 import { AlbumTile, CardGrid } from "album-grid.slint";
+import { SettingsNav, SettingsSection } from "settings-nav.slint";
 
 // Where a photo search stands; the picker words it.
 export enum PhotoSearchStatus {
@@ -145,6 +146,18 @@ export component PhotoPicker inherits Modal {
                     font-size: Theme.font-body;
                     wrap: word-wrap;
                     min-height: self.preferred-height;
+                }
+                // The key that was refused is in Settings → Online services.
+                if PhotoSearch.status == PhotoSearchStatus.refused && PhotoSearch.personal-key != "": HorizontalLayout {
+                    alignment: start;
+
+                    TextLink {
+                        text: @tr("Open Online services settings");
+                        label: @tr("Open Online services settings, closes this dialog");
+                        clicked => {
+                            SettingsNav.open(SettingsSection.online-services);
+                        }
+                    }
                 }
             }
 

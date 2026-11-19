@@ -400,126 +400,136 @@ component Note inherits Text {
     min-height: self.preferred-height;
 }
 
-// The theme and the accent, as Settings and the setup wizard show them. With `files`
-// (Settings), also the theme files: their buttons, the files that can't be used and
-// the contrast warning for the chosen one.
-export component ThemeRows inherits VerticalLayout {
+// The theme: the tiles of the built-in themes and, with `files` (Settings), of the
+// theme files, the file that can't be used and the contrast warning for the chosen one.
+export component ThemeRow inherits VerticalLayout {
     in property <bool> files: true;
 
-    spacing: Theme.space-xs;
     forward-focus: choice;
+    spacing: Theme.space-m;
+    padding-top: Theme.space-m;
+    padding-bottom: Theme.space-m;
 
-    VerticalLayout {
-        spacing: Theme.space-m;
-        padding-top: Theme.space-m;
-        padding-bottom: Theme.space-m;
+    RowText {
+        title: @tr("Theme");
+        description: root.files ? @tr("The built-in themes, then your own theme files from the themes folder.") : @tr("You can change it, and add your own themes, in Settings later.");
+    }
 
-        RowText {
-            title: @tr("Theme");
-            description: root.files ? @tr("The built-in themes, then your own theme files from the themes folder.") : @tr("You can change it, and add your own themes, in Settings later.");
+    choice := ThemeChoice {
+        files: root.files;
+    }
+
+    if root.files && Themes.missing != "": Text {
+        text: @tr("The theme file {0} is gone or can't be used, so VCMP shows {1} instead.", Themes.missing, ThemeWords.name(Themes.tiles[Themes.current-index]));
+        color: Theme.colors.text;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+
+    if root.files && Themes.failures.length > 0: VerticalLayout {
+        spacing: Theme.space-xs;
+
+        Text {
+            text: @tr("Some colours of this theme are hard to read (WCAG AA):");
+            color: Theme.colors.text;
+            font-size: Theme.font-small;
+            font-weight: Theme.weight-strong;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
         }
-
-        choice := ThemeChoice {
-            files: root.files;
-        }
-
-        if root.files && Themes.missing != "": Text {
-            text: @tr("The theme file {0} is gone or can't be used, so VCMP shows {1} instead.", Themes.missing, ThemeWords.name(Themes.tiles[Themes.current-index]));
+        for failure in Themes.failures: Text {
+            text: ThemeWords.failure(failure);
             color: Theme.colors.text;
             font-size: Theme.font-small;
             wrap: word-wrap;
             min-height: self.preferred-height;
         }
+    }
+}
 
-        if root.files && Themes.failures.length > 0: VerticalLayout {
-            spacing: Theme.space-xs;
+// The accent, picked from its dots; a theme file brings its own.
+export component AccentRow inherits HorizontalLayout {
+    spacing: Theme.space-xl;
+    padding-top: Theme.space-m;
+    padding-bottom: Theme.space-m;
 
-            Text {
-                text: @tr("Some colours of this theme are hard to read (WCAG AA):");
-                color: Theme.colors.text;
-                font-size: Theme.font-small;
-                font-weight: Theme.weight-strong;
-                wrap: word-wrap;
-                min-height: self.preferred-height;
-            }
-            for failure in Themes.failures: Text {
-                text: ThemeWords.failure(failure);
-                color: Theme.colors.text;
-                font-size: Theme.font-small;
-                wrap: word-wrap;
-                min-height: self.preferred-height;
-            }
-        }
+    RowText {
+        horizontal-stretch: 1;
+        title: @tr("Accent");
+        description: Themes.file-chosen ? @tr("A theme file brings its own accent.") : @tr("Marks what is active: the current page, a chosen option, a switch that is on.");
+    }
+
+    if !Themes.file-chosen: VerticalLayout {
+        alignment: center;
+        horizontal-stretch: 0;
+
+        AccentChoice { }
+    }
+}
+
+// The theme files' buttons, what was saved and the files that can't be used.
+export component ThemeFilesRow inherits VerticalLayout {
+    spacing: Theme.space-m;
+    padding-top: Theme.space-m;
+    padding-bottom: Theme.space-m;
+
+    RowText {
+        title: @tr("Theme files");
+        description: @tr("A theme file sets every colour of a theme. Save a built-in theme as a file to start from, edit it, then reload.");
     }
 
     HorizontalLayout {
-        spacing: Theme.space-xl;
-        padding-top: Theme.space-m;
-        padding-bottom: Theme.space-m;
+        spacing: Theme.space-s;
+        alignment: start;
 
-        RowText {
-            horizontal-stretch: 1;
-            title: @tr("Accent");
-            description: Themes.file-chosen ? @tr("A theme file brings its own accent.") : @tr("Marks what is active: the current page, a chosen option, a switch that is on.");
+        Button {
+            text: @tr("Open themes folder");
+            clicked => {
+                Themes.open-folder();
+            }
         }
-
-        if !Themes.file-chosen: VerticalLayout {
-            alignment: center;
-            horizontal-stretch: 0;
-
-            AccentChoice { }
+        Button {
+            text: @tr("Save as theme file");
+            label: @tr("Save the current theme as a theme file");
+            enabled: !Themes.file-chosen;
+            clicked => {
+                Themes.save-copy();
+            }
+        }
+        Button {
+            text: @tr("Reload");
+            label: @tr("Reload theme files");
+            clicked => {
+                Themes.reload();
+            }
         }
     }
 
-    if root.files && Themes.folder-available: VerticalLayout {
-        spacing: Theme.space-m;
-        padding-top: Theme.space-m;
-        padding-bottom: Theme.space-m;
-
-        RowText {
-            title: @tr("Theme files");
-            description: @tr("A theme file sets every colour of a theme. Save a built-in theme as a file to start from, edit it, then reload.");
-        }
-
-        HorizontalLayout {
-            spacing: Theme.space-s;
-            alignment: start;
-
-            Button {
-                text: @tr("Open themes folder");
-                clicked => {
-                    Themes.open-folder();
-                }
-            }
-            Button {
-                text: @tr("Save as theme file");
-                label: @tr("Save the current theme as a theme file");
-                enabled: !Themes.file-chosen;
-                clicked => {
-                    Themes.save-copy();
-                }
-            }
-            Button {
-                text: @tr("Reload");
-                label: @tr("Reload theme files");
-                clicked => {
-                    Themes.reload();
-                }
-            }
-        }
-
-        if Themes.saved-as != "": Note {
-            text: @tr("Saved as {} in the themes folder.", Themes.saved-as);
-        }
-        if Themes.folder-error != "": Text {
-            text: Themes.folder-error;
-            color: Theme.colors.error;
-            font-size: Theme.font-small;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-        for file in Themes.invalid: Note {
-            text: ThemeWords.problem(file);
-        }
+    if Themes.saved-as != "": Note {
+        text: @tr("Saved as {} in the themes folder.", Themes.saved-as);
     }
+    if Themes.folder-error != "": Text {
+        text: Themes.folder-error;
+        color: Theme.colors.error;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+        min-height: self.preferred-height;
+    }
+    for file in Themes.invalid: Note {
+        text: ThemeWords.problem(file);
+    }
+}
+
+// The theme and the accent, as the setup wizard shows them: the built-in themes
+// only, as theme files are for Settings.
+export component ThemeRows inherits VerticalLayout {
+    spacing: Theme.space-xs;
+    forward-focus: theme;
+
+    theme := ThemeRow {
+        files: false;
+    }
+
+    AccentRow { }
 }

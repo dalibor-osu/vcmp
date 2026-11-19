@@ -1,13 +1,13 @@
 import { AboutSlint, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
-import { Button, Dropdown, FocusRing, ScrollArea, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
+import { Button, Dropdown, FocusRing, NavItem, ScrollArea, SearchField, SectionHeading, SegmentedChoice, SettingRow, TextLink, Toggle } from "components.slint";
 import { Setup } from "setup.slint";
 import { Confirmation } from "confirmation.slint";
 import { LibraryState } from "library-state.slint";
 import { AddFolderButton, LibrarySection } from "library-settings.slint";
 import { LastfmImportRow, LastfmLoveRow, LastfmRow } from "lastfm-settings.slint";
 import { DiscordRow, LyricsOnlineRow, MotionRow, ZoomRow } from "setting-rows.slint";
-import { ThemeRows } from "themes.slint";
+import { AccentRow, ThemeFilesRow, ThemeRow, Themes } from "themes.slint";
 import { LastfmState, LastfmStatus } from "lastfm-state.slint";
 import { PlayerState, ShuffleKind } from "player-state.slint";
 import { AlbumGrid, AlbumTile, CardGrid } from "album-grid.slint";
@@ -15,19 +15,20 @@ import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
 import { ArtistDetail, ArtistView } from "artist-page.slint";
 import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 import { FolderBrowser, FolderRow } from "folders-page.slint";
-import { UpdateLink, UpdatesSection, UpdateState } from "updates.slint";
+import { UpdateCheckRow, UpdateLink, UpdateState } from "updates.slint";
 import { PictureSlot } from "picture.slint";
 import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
 import { Playlists } from "playlist-state.slint";
 import { PlaylistImport } from "playlist-import.slint";
 import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
-import { AgentsSection } from "agents.slint";
+import { AgentsBackupsRow, AgentsChangesRow, AgentsConnection, AgentsPlaybackRow, AgentsPortRow, AgentsSwitchRow, AgentState } from "agents.slint";
 import { LabelFilter, LabelFilterPage, Labels, LabelsSection } from "labels.slint";
 import { LibraryCheck } from "library-check.slint";
+import { SettingEntry, SettingsNav, SettingsSection } from "settings-nav.slint";
 
-// Shared frame of Settings and About: title plus content in a column in the middle of
-// the page, fading in when the page is opened. The column takes 60 % of a wide page,
-// from the reading width up to `column-max-width`, and all of a narrow one.
+// About's frame: title plus content in a column in the middle of the page, fading in
+// when the page is opened. The column takes 60 % of a wide page, from the reading
+// width up to `column-max-width`, and all of a narrow one. Settings shares its width.
 component Page inherits HorizontalLayout {
     in property <string> title;
 
@@ -59,175 +60,375 @@ component Page inherits HorizontalLayout {
 }
 
 
-export component SettingsPage inherits Page {
-    title: @tr("Settings");
+// A section's name over what a search found in it.
+component ResultHeading inherits VerticalLayout {
+    in property <SettingsSection> section;
 
-    // Devices come and go; list them each time the page opens.
+    padding-top: Theme.space-l;
+
+    SectionHeading {
+        text: SettingsNav.name(root.section);
+    }
+}
+
+// Settings: the title, then the list of sections with the search field above it,
+// beside the section shown, which scrolls on its own. In a page too narrow for both,
+// the search field and a dropdown of the sections sit above the section. While the
+// search field holds text, the page shows the blocks it found in every section,
+// under their sections' names, instead.
+export component SettingsPage inherits HorizontalLayout {
+    // Every block of Settings, in the order the page shows them, for the search
+    // (`SettingsNav.found` follows this order). Each block below shows through
+    // `root.shows` with its place here; tests/ui_invariants.rs checks that each place
+    // is used once.
+    private property <[SettingEntry]> entries: [
+        { section: SettingsSection.general, title: @tr("Setup"), keywords: @tr("run setup again wizard first start"), available: true },
+        { section: SettingsSection.general, title: @tr("Check for updates"), keywords: @tr("updates new version release github"), available: true },
+        { section: SettingsSection.library, title: @tr("Music folders"), keywords: @tr("folders add remove rescan scan subfolders"), available: true },
+        { section: SettingsSection.library, title: @tr("Update automatically"), keywords: @tr("scan watch changes automatic"), available: true },
+        { section: SettingsSection.library, title: @tr("Library check"), keywords: @tr("duplicates missing tags covers"), available: LibraryState.folders.length > 0 },
+        { section: SettingsSection.library, title: @tr("Play history"), keywords: @tr("clear plays play counts last played"), available: true },
+        { section: SettingsSection.library, title: @tr("Labels"), keywords: @tr("tags colours names"), available: true },
+        { section: SettingsSection.playback, title: @tr("Shuffle"), keywords: @tr("random fewer repeats"), available: true },
+        { section: SettingsSection.playback, title: @tr("Output device"), keywords: @tr("speakers headphones sound audio"), available: true },
+        { section: SettingsSection.appearance, title: @tr("Theme"), keywords: @tr("dark light colours"), available: true },
+        { section: SettingsSection.appearance, title: @tr("Accent"), keywords: @tr("colour color"), available: true },
+        { section: SettingsSection.appearance, title: @tr("Theme files"), keywords: @tr("custom own folder reload save"), available: Themes.folder-available },
+        { section: SettingsSection.appearance, title: @tr("Zoom"), keywords: @tr("scale size bigger smaller larger"), available: true },
+        { section: SettingsSection.appearance, title: @tr("Reduce motion"), keywords: @tr("animation animations transitions"), available: true },
+        { section: SettingsSection.online-services, title: @tr("Find lyrics online"), keywords: @tr("lyrics lrclib internet"), available: true },
+        { section: SettingsSection.online-services, title: @tr("Show on Discord"), keywords: @tr("rich presence status"), available: PlayerState.discord-available },
+        { section: SettingsSection.online-services, title: @tr("Last.fm"), keywords: @tr("scrobble scrobbling connect account lastfm"), available: LastfmState.available },
+        { section: SettingsSection.online-services, title: @tr("Love on Last.fm"), keywords: @tr("hearts favourites lastfm"), available: LastfmState.available && LastfmState.status == LastfmStatus.connected },
+        { section: SettingsSection.online-services, title: @tr("Import loved tracks from Last.fm"), keywords: @tr("hearts favourites lastfm"), available: LastfmState.available && LastfmState.status == LastfmStatus.connected },
+        { section: SettingsSection.online-services, title: @tr("fanart.tv personal API key"), keywords: @tr("artist photos pictures"), available: PhotoSearch.available },
+        { section: SettingsSection.agents, title: @tr("Let AI agents use your library"), keywords: @tr("mcp claude server"), available: true },
+        { section: SettingsSection.agents, title: @tr("Address and token"), keywords: @tr("connect connection token address claude code desktop command configuration"), available: AgentState.enabled },
+        { section: SettingsSection.agents, title: @tr("Let AI agents control playback"), keywords: @tr("play queue volume"), available: AgentState.enabled },
+        { section: SettingsSection.agents, title: @tr("Port"), keywords: @tr("network connection"), available: AgentState.enabled },
+        { section: SettingsSection.agents, title: @tr("Changes by agents"), keywords: @tr("review undo history"), available: true },
+        { section: SettingsSection.agents, title: @tr("Backups for undo"), keywords: @tr("delete covers"), available: true },
+    ];
+    // What is typed changes what the search finds, and so does a row that appears
+    // or goes (Last.fm connected, agents switched on).
+    private property <string> query: SettingsNav.query;
+    changed query => {
+        SettingsNav.search(SettingsNav.query, root.entries);
+    }
+    changed entries => {
+        if SettingsNav.searching {
+            SettingsNav.search(SettingsNav.query, root.entries);
+        }
+    }
+
+    pure function shows(entry: int) -> bool {
+        root.entries[entry].available && (SettingsNav.searching ? SettingsNav.found[entry] : root.entries[entry].section == SettingsNav.section)
+    }
+
+    private property <length> room: root.width - 2 * Theme.space-xxl;
+    // Room for the list beside the section.
+    private property <bool> wide: root.room >= Theme.settings-list-width + Theme.space-xl + Theme.settings-section-min-width;
+    // As About's column, with the list beside it when there is room.
+    private property <length> column-width: min(root.room, max(Theme.content-max-width, min(Theme.column-max-width, root.room * 0.6)) + (root.wide ? Theme.settings-list-width + Theme.space-xl : 0px));
+
+    // Another section, or a search, starts at its top.
+    private property <SettingsSection> section: SettingsNav.section;
+    changed section => {
+        scroll.content-y = 0;
+    }
+    private property <bool> searching: SettingsNav.searching;
+    changed searching => {
+        scroll.content-y = 0;
+    }
+
+    // Devices come and go; list them each time the page opens. A search left typed
+    // is matched again, as rows may have come or gone meanwhile.
     init => {
         PlayerState.refresh-output-devices();
-    }
-
-    SettingRow {
-        title: @tr("Setup");
-        description: @tr("Goes through the music folders, the look and the online services again, starting from what is set now.");
-
-        // The focus comes back here when the wizard it opened closes.
-        Button {
-            property <bool> opened;
-            property <bool> open: Setup.open;
-            changed open => {
-                if !self.open && self.opened {
-                    self.opened = false;
-                    self.focus();
-                }
-            }
-            text: @tr("Run setup again…");
-            clicked => {
-                self.opened = true;
-                Setup.start();
-            }
+        if SettingsNav.searching {
+            SettingsNav.search(SettingsNav.query, root.entries);
         }
+        self.opacity = 1;
     }
 
-    LibrarySection { }
+    opacity: 0;
+    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
 
-    // The Library check opens in place of Settings, as a page of its own.
-    if LibraryState.folders.length > 0: SettingRow {
-        title: @tr("Library check");
-        description: @tr("Finds duplicate tracks, tracks with missing tags and albums without a cover. It changes nothing by itself.");
-
-        Button {
-            text: @tr("Check library…");
-            clicked => {
-                LibraryCheck.show();
-            }
-        }
-    }
+    padding: Theme.space-xxl;
+    padding-bottom: 0;
+    alignment: center;
 
     VerticalLayout {
-        spacing: Theme.space-xs;
+        width: root.column-width;
+        spacing: Theme.space-xl;
 
-        SettingRow {
-            title: @tr("Update automatically");
-            description: @tr("Scan the music folders when VCMP starts, and whenever their contents change.");
+        Text {
+            text: @tr("Settings");
+            color: Theme.colors.text;
+            font-size: Theme.font-title;
+            font-weight: Theme.weight-strong;
+        }
 
-            Toggle {
-                label: @tr("Update automatically");
-                checked: LibraryState.auto-update;
-                toggled(on) => {
-                    LibraryState.set-auto-update(on);
-                }
+        if !root.wide: VerticalLayout {
+            spacing: Theme.space-m;
+
+            SearchField {
+                compact: true;
+                label: @tr("Search settings");
+                placeholder: @tr("Search settings");
+                text <=> SettingsNav.query;
             }
-        }
-    }
 
-    VerticalLayout {
-        spacing: Theme.space-xs;
+            // The first section is the dropdown's fixed first entry.
+            HorizontalLayout {
+                alignment: start;
 
-        SectionHeading {
-            text: @tr("Playback");
-        }
-
-        SettingRow {
-            title: @tr("Shuffle");
-            description: @tr("Fewer repeats plays every track once before any comes back, and keeps the same artist apart. Fully random may play a track again soon.");
-
-            SegmentedChoice {
-                label: @tr("Shuffle");
-                segment-min: 128px;
-                options: [@tr("Fewer repeats"), @tr("Fully random")];
-                current-index: PlayerState.shuffle-kind == ShuffleKind.true-random ? 1 : 0;
-                selected(index) => {
-                    PlayerState.set-shuffle-kind(index == 1 ? ShuffleKind.true-random : ShuffleKind.fewer-repeats);
-                }
-            }
-        }
-
-        SettingRow {
-            title: @tr("Output device");
-            description: PlayerState.output-fallback != "" ? @tr("The chosen device isn't connected, so sound plays through {} until it is.", PlayerState.output-fallback)
-                : @tr("Where VCMP plays its sound. The system default follows your operating system's choice.");
-
-            Dropdown {
-                label: @tr("Output device");
-                first-option: @tr("System default");
-                options: PlayerState.output-devices;
-                current-index: PlayerState.output-device;
-                selected(index) => {
-                    PlayerState.set-output-device(index);
-                }
-                opening => {
-                    PlayerState.refresh-output-devices();
-                }
-            }
-        }
-
-        if PlayerState.discord-available: DiscordRow { }
-
-        LyricsOnlineRow { }
-
-        if LastfmState.available: LastfmRow { }
-
-        if LastfmState.available && LastfmState.status == LastfmStatus.connected: LastfmLoveRow { }
-
-        if LastfmState.available && LastfmState.status == LastfmStatus.connected: LastfmImportRow { }
-
-        SettingRow {
-            title: @tr("Play history");
-            description: @tr("The play counts and last played dates in Songs come from every play VCMP has counted.");
-
-            // Asks first, in a dialog (`Confirmation`).
-            Button {
-                property <bool> asked;
-                property <int> answers: Confirmation.answers;
-                changed answers => {
-                    if self.asked {
-                        self.asked = false;
-                        if Confirmation.accepted {
-                            PlayerState.clear-play-history();
-                        }
-                        self.focus();
+                Dropdown {
+                    label: @tr("Settings section");
+                    first-option: SettingsNav.name(SettingsSection.general);
+                    options: [
+                        SettingsNav.name(SettingsSection.library),
+                        SettingsNav.name(SettingsSection.playback),
+                        SettingsNav.name(SettingsSection.appearance),
+                        SettingsNav.name(SettingsSection.online-services),
+                        SettingsNav.name(SettingsSection.agents),
+                    ];
+                    current-index: SettingsNav.index(SettingsNav.section) - 1;
+                    selected(index) => {
+                        SettingsNav.show(SettingsNav.sections[index + 1]);
                     }
                 }
-                text: @tr("Clear play history…");
-                clicked => {
-                    self.asked = true;
-                    Confirmation.ask(@tr("Clear the play history?"), @tr("Every play count and last played date is deleted, and this can't be undone. Plays waiting to be scrobbled and the dates tracks were added stay."), @tr("Clear history"), @tr("Clear play history"), @tr("Keep the play history"));
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-xl;
+            vertical-stretch: 1;
+
+            if root.wide: VerticalLayout {
+                width: Theme.settings-list-width;
+                spacing: Theme.space-xs;
+                alignment: start;
+
+                VerticalLayout {
+                    padding-bottom: Theme.space-m;
+
+                    SearchField {
+                        compact: true;
+                        label: @tr("Search settings");
+                        placeholder: @tr("Search settings");
+                        text <=> SettingsNav.query;
+                    }
+                }
+
+                for section in SettingsNav.sections: NavItem {
+                    label: SettingsNav.name(section);
+                    selected: !SettingsNav.searching && section == SettingsNav.section;
+                    activated => {
+                        SettingsNav.show(section);
+                    }
+                }
+            }
+
+            scroll := ScrollArea {
+                VerticalLayout {
+                    width: parent.width;
+                    padding-bottom: Theme.space-xxl;
+                    spacing: Theme.space-xs;
+                    alignment: start;
+
+                    if SettingsNav.searching && SettingsNav.found-count == 0: Text {
+                        text: @tr("No settings match “{}”.", SettingsNav.query);
+                        color: Theme.colors.text;
+                        font-size: Theme.font-body;
+                        wrap: word-wrap;
+                        min-height: self.preferred-height;
+                    }
+
+                    // General
+                    if SettingsNav.section-found(SettingsSection.general): ResultHeading {
+                        section: SettingsSection.general;
+                    }
+
+                    if root.shows(0): SettingRow {
+                        title: @tr("Setup");
+                        description: @tr("Goes through the music folders, the look and the online services again, starting from what is set now.");
+
+                        // The focus comes back here when the wizard it opened closes.
+                        Button {
+                            property <bool> opened;
+                            property <bool> open: Setup.open;
+                            changed open => {
+                                if !self.open && self.opened {
+                                    self.opened = false;
+                                    self.focus();
+                                }
+                            }
+                            text: @tr("Run setup again…");
+                            clicked => {
+                                self.opened = true;
+                                Setup.start();
+                            }
+                        }
+                    }
+
+                    if root.shows(1): UpdateCheckRow { }
+
+                    // Library
+                    if SettingsNav.section-found(SettingsSection.library): ResultHeading {
+                        section: SettingsSection.library;
+                    }
+
+                    if root.shows(2): LibrarySection { }
+
+                    if root.shows(3): SettingRow {
+                        title: @tr("Update automatically");
+                        description: @tr("Scan the music folders when VCMP starts, and whenever their contents change.");
+
+                        Toggle {
+                            label: @tr("Update automatically");
+                            checked: LibraryState.auto-update;
+                            toggled(on) => {
+                                LibraryState.set-auto-update(on);
+                            }
+                        }
+                    }
+
+                    // The Library check opens in place of Settings, as a page of its own.
+                    if root.shows(4): SettingRow {
+                        title: @tr("Library check");
+                        description: @tr("Finds duplicate tracks, tracks with missing tags and albums without a cover. It changes nothing by itself.");
+
+                        Button {
+                            text: @tr("Check library…");
+                            clicked => {
+                                LibraryCheck.show();
+                            }
+                        }
+                    }
+
+                    if root.shows(5): SettingRow {
+                        title: @tr("Play history");
+                        description: @tr("The play counts and last played dates in Songs come from every play VCMP has counted.");
+
+                        // Asks first, in a dialog (`Confirmation`).
+                        Button {
+                            property <bool> asked;
+                            property <int> answers: Confirmation.answers;
+                            changed answers => {
+                                if self.asked {
+                                    self.asked = false;
+                                    if Confirmation.accepted {
+                                        PlayerState.clear-play-history();
+                                    }
+                                    self.focus();
+                                }
+                            }
+                            text: @tr("Clear play history…");
+                            clicked => {
+                                self.asked = true;
+                                Confirmation.ask(@tr("Clear the play history?"), @tr("Every play count and last played date is deleted, and this can't be undone. Plays waiting to be scrobbled and the dates tracks were added stay."), @tr("Clear history"), @tr("Clear play history"), @tr("Keep the play history"));
+                            }
+                        }
+                    }
+
+                    if root.shows(6): VerticalLayout {
+                        padding-top: Theme.space-l;
+
+                        LabelsSection { }
+                    }
+
+                    // Playback
+                    if SettingsNav.section-found(SettingsSection.playback): ResultHeading {
+                        section: SettingsSection.playback;
+                    }
+
+                    if root.shows(7): SettingRow {
+                        title: @tr("Shuffle");
+                        description: @tr("Fewer repeats plays every track once before any comes back, and keeps the same artist apart. Fully random may play a track again soon.");
+
+                        SegmentedChoice {
+                            label: @tr("Shuffle");
+                            segment-min: 128px;
+                            options: [@tr("Fewer repeats"), @tr("Fully random")];
+                            current-index: PlayerState.shuffle-kind == ShuffleKind.true-random ? 1 : 0;
+                            selected(index) => {
+                                PlayerState.set-shuffle-kind(index == 1 ? ShuffleKind.true-random : ShuffleKind.fewer-repeats);
+                            }
+                        }
+                    }
+
+                    if root.shows(8): SettingRow {
+                        title: @tr("Output device");
+                        description: PlayerState.output-fallback != "" ? @tr("The chosen device isn't connected, so sound plays through {} until it is.", PlayerState.output-fallback)
+                            : @tr("Where VCMP plays its sound. The system default follows your operating system's choice.");
+
+                        Dropdown {
+                            label: @tr("Output device");
+                            first-option: @tr("System default");
+                            options: PlayerState.output-devices;
+                            current-index: PlayerState.output-device;
+                            selected(index) => {
+                                PlayerState.set-output-device(index);
+                            }
+                            opening => {
+                                PlayerState.refresh-output-devices();
+                            }
+                        }
+                    }
+
+                    // Appearance
+                    if SettingsNav.section-found(SettingsSection.appearance): ResultHeading {
+                        section: SettingsSection.appearance;
+                    }
+
+                    if root.shows(9): ThemeRow { }
+
+                    if root.shows(10): AccentRow { }
+
+                    if root.shows(11): ThemeFilesRow { }
+
+                    if root.shows(12): ZoomRow { }
+
+                    if root.shows(13): MotionRow { }
+
+                    // Online services
+                    if SettingsNav.section-found(SettingsSection.online-services): ResultHeading {
+                        section: SettingsSection.online-services;
+                    }
+
+                    if root.shows(14): LyricsOnlineRow { }
+
+                    if root.shows(15): DiscordRow { }
+
+                    if root.shows(16): LastfmRow { }
+
+                    if root.shows(17): LastfmLoveRow { }
+
+                    if root.shows(18): LastfmImportRow { }
+
+                    if root.shows(19): PhotoKeyRow { }
+
+                    // AI agents
+                    if SettingsNav.section-found(SettingsSection.agents): ResultHeading {
+                        section: SettingsSection.agents;
+                    }
+
+                    if root.shows(20): AgentsSwitchRow { }
+
+                    if root.shows(21): AgentsConnection { }
+
+                    if root.shows(22): AgentsPlaybackRow { }
+
+                    if root.shows(23): AgentsPortRow { }
+
+                    if root.shows(24): AgentsChangesRow { }
+
+                    if root.shows(25): AgentsBackupsRow { }
                 }
             }
         }
     }
-
-    // Only in builds that can search fanart.tv at all.
-    if PhotoSearch.available: VerticalLayout {
-        spacing: Theme.space-xs;
-
-        SectionHeading {
-            text: @tr("Artist photos");
-        }
-
-        PhotoKeyRow { }
-    }
-
-    VerticalLayout {
-        spacing: Theme.space-xs;
-
-        SectionHeading {
-            text: @tr("Appearance");
-        }
-
-        ThemeRows { }
-
-        ZoomRow { }
-
-        MotionRow { }
-    }
-
-    LabelsSection { }
-
-    AgentsSection { }
-
-    UpdatesSection { }
 }
 
 export component AboutPage inherits Page {

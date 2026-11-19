@@ -34,6 +34,7 @@ import { Setup, SetupWizard } from "setup.slint";
 import { Favourites } from "favourites.slint";
 import { CheckList, CheckTab, CheckTrack, CoverlessAlbum, DuplicateBlock, GapBlock, LibraryCheck, LibraryCheckPage } from "library-check.slint";
 import { AccentTile, ContrastFailure, InvalidThemeFile, ThemeFileProblem, Themes, ThemeTile } from "themes.slint";
+import { SettingEntry, SettingsNav, SettingsSection } from "settings-nav.slint";
 
 export { Confirmation, Favourites, Setup, WindowFrame }
 export { AccentTile, ContrastFailure, InvalidThemeFile, ThemeFileProblem, Themes, ThemeTile }
@@ -49,6 +50,7 @@ export { SelectionChange }
 export { MovingPictures, PictureFrame, PictureSlot }
 export { ColumnWidths, SongColumns }
 export { UpdateState }
+export { SettingEntry, SettingsNav, SettingsSection }
 export { TrackSelection }
 export { AlbumDetail, AlbumTile, ArtistDetail, ArtworkState, LibraryError, LibraryState, ReduceMotion, ScanPhase, SourceFolder, Theme, ThemeKind, ThemePalette, TrackRow, UnreadableFile }
 
@@ -232,6 +234,12 @@ export component AppWindow inherits Window {
     private property <bool> check-open: LibraryCheck.open;
     changed check-open => {
         root.navigated();
+    }
+    // The section Settings shows, kept for the next start.
+    private property <SettingsSection> settings-section: SettingsNav.section;
+    changed settings-section => {
+        root.navigated();
+        Theme.preferences-changed();
     }
 
     // Shows a section on its grid, not on the album, artist or playlist it last
@@ -897,12 +905,10 @@ export component AppWindow inherits Window {
                                 root.queue-folder-file(index, next);
                             }
                         }
-                        if root.current-page == Page.settings && !LibraryCheck.open: ScrollArea {
+                        if root.current-page == Page.settings && !LibraryCheck.open: SettingsPage {
                             x: 0;
                             width: root.page-width;
-                            SettingsPage {
-                                width: parent.width;
-                            }
+                            height: parent.height;
                         }
                         if root.current-page == Page.settings && LibraryCheck.open: LibraryCheckPage {
                             x: 0;

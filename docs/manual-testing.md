@@ -77,9 +77,10 @@ Use an empty `VCMP_HOME`, such as `VCMP_HOME=target/first-start cargo run -p vcm
       image editor: the new cover shows.
 - [ ] Remove a music folder: its albums go, and playlist entries from it stay,
       dimmed.
-- [ ] Settings → Library check → Check library…: the page opens with three tabs and
+- [ ] Settings → Library → Check library…: the page opens with three tabs and
       their counts. Back, Escape, the mouse's back button and the Settings entry in
-      the sidebar all return to Settings; the forward button opens the check again.
+      the sidebar all return to Settings' Library section; the forward button opens
+      the check again.
 - [ ] Copy a track into a second folder (on a `VCMP_HOME` library of copies): it
       shows under Duplicates with both paths. Play plays both, one after the other.
       Not duplicates hides the group; the switch shows it again, and Show again
@@ -311,7 +312,7 @@ but the `.lrc` files below are yours to add and remove.
 
 ### Labels
 
-- [ ] Settings → Labels → New label…: name it, pick a palette colour, Make label.
+- [ ] Settings → Library → New label…: name it, pick a palette colour, Make label.
       Make another with Custom: drag in the shades and the hue strip, type a hex
       code; a wrong code says so. Both show in Settings, the sidebar and the Labels
       page with their dots, in the light and the dark theme.
@@ -389,7 +390,7 @@ but the `.lrc` files below are yours to add and remove.
       edit a track's mtime later and rescan: its date doesn't change again.
 - [ ] Leave Songs open over midnight with Last played shown: "Today" turns into
       "Yesterday" within a minute; the same after the computer slept through it.
-- [ ] Settings, Playback, "Clear play history…": the dialog says what is lost.
+- [ ] Settings, Library, "Clear play history…": the dialog says what is lost.
       Keep: nothing changes. Clear: every Plays is 0 and Last played empty; Added
       stays, and plays waiting for Last.fm are still sent.
 - [ ] A 720 px window with every Songs column turned on: note how the text columns
@@ -417,9 +418,10 @@ but the `.lrc` files below are yours to add and remove.
 - [ ] A photo picked there says "Photo from fanart.tv" under it, and the link
       opens fanart.tv; a photo from a file says nothing. About names fanart.tv,
       the Cover Art Archive and MusicBrainz, and each link opens its site.
-- [ ] Settings → Artist photos: paste your fanart.tv personal key, Save, and
+- [ ] Settings → Online services: paste your fanart.tv personal key, Save, and
       search again; photos still come. Type a wrong key: the picker says fanart.tv
-      didn't accept the personal key. Remove it: searches work with VCMP's key
+      didn't accept the personal key, and its "Open Online services settings" link
+      closes the picker and shows that section. Remove it: searches work with VCMP's key
       alone. The key is kept after a restart.
 
 ### Animated pictures
@@ -504,6 +506,21 @@ animated WebP and an APNG. For album covers, edit copies only.
       it into view.
 - [ ] On a full screen, Settings and About sit in a column in the middle of the
       page, and the column narrows with the window down to 720 px.
+- [ ] Settings shows one section at a time, its list at the left: click each of
+      General, Library, Playback, Appearance, Online services and AI agents. The
+      list stays put while a long section (Library with many labels, AI agents
+      switched on) scrolls, and a new section starts at its top. Narrow the window
+      (or zoom to 200 %): the list turns into a dropdown above the section, which
+      Up and Down change.
+- [ ] Settings' search: type "zoom", "last", "token" (with agents on) and
+      "appearance": the rows found show under their sections' names and work where
+      they are; nothing found says so. Escape, the clear button or a section in the
+      list ends the search.
+- [ ] Settings remembers its section: open Online services, quit and start VCMP,
+      open Settings: Online services shows. Click Playback, then Appearance, then
+      the mouse's back button: Playback; forward: Appearance.
+- [ ] Setup wizard with agents on, Online services step: "Open AI agents settings"
+      closes the wizard and shows Settings → AI agents with the token.
 - [ ] Long texts wrap without losing their last lines: Settings descriptions, the
       tag editor's error messages, the empty library message in a narrow window.
 - [ ] Hovering an album, artist or playlist card puts a fill behind it. Opening an
@@ -588,7 +605,7 @@ Use a library of copied files (`VCMP_HOME`, see CLAUDE.md): accepting writes tag
       them off and removes the new label.
 - [ ] Ask Claude Code to set up labels (Favourite, Chill, Focus, Sleep) without
       labelling any track. The review says the change only makes labels, names
-      them and has no table; Make 4 labels adds them to Settings → Labels with no
+      them and has no table; Make 4 labels adds them to Settings → Library with no
       tracks, and they can be put on tracks like any label. The list of changes
       shows it as "New labels"; Undo… there names the labels it deletes, and Undo
       deletes them except one put on a track meanwhile.

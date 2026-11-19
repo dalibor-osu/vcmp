@@ -1,7 +1,7 @@
 //! Appearance preferences kept in the library database's settings table: reduced
 //! motion, the zoom, whether the queue panel is open, which artists the Artists page
-//! lists, the column widths of the track lists and the songs table, and which of the
-//! songs table's columns show. Also hands the operating system's reduce-motion
+//! lists, the section Settings shows, the column widths of the track lists and the
+//! songs table, and which of the songs table's columns show. Also hands the operating system's reduce-motion
 //! setting to the theme. The theme itself is saved by `src/themes.rs`.
 
 use std::rc::Rc;
@@ -10,7 +10,10 @@ use slint::ComponentHandle;
 use vcmp_integrations::reduce_motion;
 use vcmp_library::Library;
 
-use crate::{AppWindow, ColumnWidths, ReduceMotion, SongColumn, SongColumns, Theme, zoom};
+use crate::{
+    AppWindow, ColumnWidths, ReduceMotion, SettingsNav, SongColumn, SongColumns, Theme,
+    settings_nav, zoom,
+};
 
 /// "system", "on" or "off"; see `parse_motion` for the older "true" and "false".
 pub const REDUCED_MOTION: &str = "ui.reduced_motion";
@@ -18,6 +21,8 @@ pub const REDUCED_MOTION: &str = "ui.reduced_motion";
 pub const ZOOM: &str = "ui.zoom";
 pub const QUEUE_OPEN: &str = "ui.queue_open";
 pub const ARTISTS_ALL: &str = "ui.artists_all";
+/// The section Settings shows, by its saved name (`settings_nav::saved_name`).
+pub const SETTINGS_SECTION: &str = "ui.settings_section";
 /// The track lists' column shares: title, then the column beside it.
 pub const TRACK_COLUMNS: &str = "ui.track_columns";
 /// The songs table's column shares: title, artist, album.
@@ -59,6 +64,13 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
     if library.setting(ARTISTS_ALL)?.as_deref() == Some("true") {
         window.set_artists_show_all(true);
         window.invoke_artists_filter_changed();
+    }
+    if let Some(saved) = library
+        .setting(SETTINGS_SECTION)?
+        .as_deref()
+        .and_then(settings_nav::parse_saved)
+    {
+        window.global::<SettingsNav>().set_section(saved);
     }
     let columns = window.global::<ColumnWidths>();
     if let Some([title, detail]) = library.setting(TRACK_COLUMNS)?.as_deref().and_then(shares) {
@@ -122,7 +134,11 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
             .set_setting(REDUCED_MOTION, motion_name(theme.get_motion_choice()))
             .and_then(|()| library.set_setting(ZOOM, &format!("{}", theme.get_zoom())))
             .and_then(|()| library.set_setting(QUEUE_OPEN, flag(window.get_queue_open())))
-            .and_then(|()| library.set_setting(ARTISTS_ALL, flag(window.get_artists_show_all())));
+            .and_then(|()| library.set_setting(ARTISTS_ALL, flag(window.get_artists_show_all())))
+            .and_then(|()| {
+                let shown = window.global::<SettingsNav>().get_section();
+                library.set_setting(SETTINGS_SECTION, settings_nav::saved_name(shown))
+            });
         if let Err(error) = saved {
             log::warn!("could not save appearance preferences: {error}");
         }

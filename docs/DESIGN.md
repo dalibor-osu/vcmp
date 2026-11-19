@@ -139,6 +139,20 @@ a plain placeholder (a "V" in Sora, the accent pink on the dark base,
   button that opens now playing on them; it stays in place, disabled, while the
   track has none. "Find lyrics online" is in Settings and in the setup wizard's
   Online services step.
+- 2026-11-19, Settings in sections (chosen from offered options, issue #108,
+  `docs/specs/2026-11-19-settings-sections.md`): Settings shows one section at a
+  time beside a list of the sections; in a page too narrow for both, a dropdown
+  above the section takes the list's place. The rows are regrouped into six
+  sections: General (Run setup again, Check for updates), Library (music folders,
+  Update automatically, Library check, Play history, Labels), Playback (Shuffle,
+  Output device), Appearance (theme, accent, theme files, zoom, reduce motion),
+  Online services (lyrics, Discord, Last.fm, the fanart.tv key) and AI agents.
+  Settings opens on the section last shown, even after a restart: an exception to
+  "choosing a section always goes to its full view" (2026-10-18). Each section is a
+  place in back and forward. The setup wizard's agents line and the photo picker's
+  refused-key message are links that open their section. A search across the
+  sections shows the rows it finds themselves, working; it matches row titles,
+  section names and a few keywords per row.
 
 ## Awaiting the owner's review
 
@@ -186,3 +200,12 @@ the owner's until reviewed; keep, change or drop each.
   So the new button fits at 720 px, the bar's buttons on the right sit 4 px apart
   instead of 8 px at every width, and at the narrowest the volume slider may shrink
   to 52 px and the playing track's title to 120 px with its cover.
+- 2026-11-19, the details of Settings' sections (issue #108): the list of sections
+  is 200 px wide and uses the sidebar's own entries (a surface fill and bold name on
+  the chosen one), with the search field above it; it becomes the dropdown when the
+  section would get less than 480 px beside it. The section has no heading of its
+  own, as the list names it; the music folders and the labels keep theirs inside
+  Library. Search results are grouped under their sections' names, no section is
+  marked in the list while searching, choosing a section ends the search, and a
+  search is not a place in back and forward. The links read "Open AI agents
+  settings" and "Open Online services settings".

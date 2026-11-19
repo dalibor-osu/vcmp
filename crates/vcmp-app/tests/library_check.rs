@@ -19,8 +19,8 @@ use tempfile::TempDir;
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::navigation::History;
 use vcmp_app::{
-    AppWindow, CheckList, CheckTab, CoverSearch, LibraryCheck, LibraryState, Page, SourceFolder,
-    TagEditorState,
+    AppWindow, CheckList, CheckTab, CoverSearch, LibraryCheck, LibraryState, Page, SettingsNav,
+    SettingsSection, SourceFolder, TagEditorState,
 };
 use vcmp_library::{Library, Track};
 
@@ -90,11 +90,14 @@ impl App {
             .unwrap_or_else(|| panic!("no button labelled {label:?}"))
     }
 
+    /// Settings, on its Library section.
     fn open_settings(&self) {
-        ElementHandle::find_by_accessible_label(&self.window, "Settings")
-            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
-            .unwrap()
-            .invoke_accessible_default_action();
+        for tab in ["Settings", "Library"] {
+            ElementHandle::find_by_accessible_label(&self.window, tab)
+                .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+                .unwrap()
+                .invoke_accessible_default_action();
+        }
         self.settle();
     }
 
@@ -147,6 +150,11 @@ fn settings_opens_the_page_and_back_returns() {
     app.settle();
     assert!(!app.state().get_open(), "Back goes to Settings");
     assert!(!app.page_shown());
+    assert_eq!(
+        app.window.global::<SettingsNav>().get_section(),
+        SettingsSection::Library,
+        "on the section the check is in"
+    );
     history.forward();
     app.settle();
     assert!(app.state().get_open(), "and Forward to the check again");
@@ -167,6 +175,28 @@ fn settings_opens_the_page_and_back_returns() {
     app.settle();
     app.open_settings();
     assert!(!app.state().get_open());
+}
+
+#[test]
+fn back_and_forward_move_between_settings_sections() {
+    let app = open();
+    let history = History::connect(&app.window, app.view.clone());
+    let nav = app.window.global::<SettingsNav>();
+    app.open_settings();
+    ElementHandle::find_by_accessible_label(&app.window, "Playback")
+        .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+        .unwrap()
+        .invoke_accessible_default_action();
+    app.settle();
+    assert_eq!(nav.get_section(), SettingsSection::Playback);
+
+    history.back();
+    app.settle();
+    assert_eq!(nav.get_section(), SettingsSection::Library);
+    assert_eq!(app.window.get_current_page(), Page::Settings);
+    history.forward();
+    app.settle();
+    assert_eq!(nav.get_section(), SettingsSection::Playback);
 }
 
 #[test]

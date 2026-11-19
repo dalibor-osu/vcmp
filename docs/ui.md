@@ -19,10 +19,12 @@ DESIGN.md).
 | `ui/setup.slint` | `Setup` global and `SetupWizard`: the first-run setup wizard (see "Setup wizard") |
 | `src/setup.rs` | Whether the wizard opens at the start, and its `ui.setup_done` flag |
 | `ui/setting-rows.slint` | `DiscordRow`, `LyricsOnlineRow`, `ZoomRow`, `MotionRow`: Settings rows the setup wizard shows too |
-| `ui/themes.slint` | `Themes` global, `ThemeWords` and `ThemeRows`: the theme tiles, the accent dots and the theme file buttons, notes and contrast warning (see "Themes") |
+| `ui/themes.slint` | `Themes` global, `ThemeWords`, and `ThemeRow`, `AccentRow`, `ThemeFilesRow` (Settings' rows) with `ThemeRows` (the wizard's theme and accent): the theme tiles, the accent dots and the theme file buttons, notes and contrast warning (see "Themes") |
+| `ui/settings-nav.slint` | `SettingsSection`, `SettingEntry` and the `SettingsNav` global: the section Settings shows, its search's query and results, and `open` for links into a section (see "Settings") |
+| `src/settings_nav.rs` | Settings' search (every typed word in a block's title, section name or keywords) and `open`, which shows Settings on a section from the wizard or the photo picker |
 | `ui/confirmation.slint` | `Confirmation` global and `ConfirmDialog`: the "are you sure?" before deleting a playlist, a label or the agents' backups |
 | `ui/icons.slint` | The `Glyph` names, the `IconArt` global and `Icon` |
-| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage`, `AboutPage` and their shared page frame |
+| `ui/pages.slint` | `SearchPage`, `AlbumsPage`, `ArtistsPage`, `PlaylistsPage`, `SongsPage`, `FoldersPage`, `SettingsPage` (its sections, list and search, and the list of entries the search reads), `AboutPage` and its page frame |
 | `ui/album-grid.slint` | `AlbumGrid` (cards created only for the rows in view; round for artists, track counts for playlists), `AlbumCard`, and `CardGrid` for a few cards inside a page |
 | `ui/playlist-page.slint` | `PlaylistView`: one playlist's picture, name, actions and tracks |
 | `ui/picture.slint` | `PictureFrame`, `PictureSlot`, the `MovingPictures` global and `MovingPicture`: a detail page's or the now playing view's picture, which plays an animation's frames while in sight |
@@ -48,7 +50,7 @@ DESIGN.md).
 | `src/albums.rs` | `CoverGrid`: a card grid's model with background picture loading, used by `AlbumBrowser` (the album grid), the artist and playlist grids, an artist's albums and search |
 | `src/library_view.rs` | Connects the library to the album and artist grids, search and the songs table, and opens album and artist pages; owns the folder and playlist browsers |
 | `ui/library-state.slint` | `LibraryState` global: music folders, scan progress and results |
-| `ui/library-settings.slint` | The Music folders section of Settings, shown in the setup wizard too |
+| `ui/library-settings.slint` | The music folders in Settings' Library section, shown in the setup wizard too |
 | `src/library_service.rs` | `LibraryService`: folders, background scans, automatic updates |
 | `ui/player-state.slint` | `PlayerState` global: the current track, position, volume, shuffle, repeat, lyrics |
 | `ui/player-bar.slint` | `PlayerBar`, its play button and the `Slider` |
@@ -64,11 +66,11 @@ DESIGN.md).
 | `ui/lastfm-settings.slint` | `LastfmRow`: the Last.fm setting and its Connect, Cancel or Disconnect button; `LastfmLoveRow` and `LastfmImportRow`, shown while an account is connected |
 | `src/lastfm_service.rs` | `LastfmService`: the Last.fm rows, the account, plays into the scrobble queue, hearts into the love queue, and the import's progress and result |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
-| `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note, `UpdateCheckRow` and the Updates section of Settings |
-| `ui/agents.slint` | `AgentState` global, `AgentsSwitchRow`, the AI agents section of Settings (switch, connection, the playback switch, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
+| `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note and `UpdateCheckRow`, in Settings' General section and the wizard |
+| `ui/agents.slint` | `AgentState` global, the rows of Settings' AI agents section (`AgentsSwitchRow`, `AgentsConnection`, `AgentsPlaybackRow`, `AgentsPortRow`, `AgentsChangesRow`, `AgentsBackupsRow`), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
 | `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread; `AppPlayback` (`src/player_service/agent_playback.rs`) brings their playback requests to `PlayerService` |
 | `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
-| `ui/labels.slint` | `Labels` global, `LabelEntry`, `LabelDot`, `LabelChip(s)`, `LabelFilter` (the Songs and Albums pages' label filter), `LabelEditor` (the dialog that makes or edits a label, with the palette and the custom colour picker) and the Labels section of Settings |
+| `ui/labels.slint` | `Labels` global, `LabelEntry`, `LabelDot`, `LabelChip(s)`, `LabelFilter` (the Songs and Albums pages' label filter), `LabelEditor` (the dialog that makes or edits a label, with the palette and the custom colour picker) and the labels list in Settings' Library section |
 | `ui/label-page.slint` | `LabelsPage`: the Labels section's list, and `LabelView`, one label's tracks with Play and Shuffle |
 | `src/labels.rs` | `LabelBrowser`: labels behind the `Labels` global: the menus' choices and toggles, the dialog, the filters, the label page, the chips rows show, the colour picker's images |
 | `ui/favourites.slint` | `Favourites` global (the fixed name, the menus' entry and the hearts' callbacks) and `FavouritesPicture`, the heart the Favourites playlist shows for a picture |
@@ -94,6 +96,8 @@ DESIGN.md).
 | Clicking, keyboard-only use, theme choice and reduced motion (the user's choice against the system's) behave as designed; nothing leaves a 720 px wide window | `tests/ui_behaviour.rs` |
 | No std-widgets `ScrollView`: every scrolling part is a `ScrollArea`, which draws no scroll bar; the queue and Settings show none, and the queue's rows and Clear end inside the panel | `tests/ui_invariants.rs`, `tests/player.rs` |
 | Every track or album menu (one with Play next or Add to playlist) has the favourites entry | `tests/ui_invariants.rs` |
+| Every block of Settings has one entry in the list its search reads, and every entry one block | `tests/ui_invariants.rs` |
+| Each section of Settings shows its own rows; the search shows what it finds across sections; a narrow page has the sections' dropdown; the wizard's link opens AI agents | `tests/settings.rs` |
 
 ## Palettes
 
@@ -212,7 +216,7 @@ border, so the dialog's text keeps base's contrast.
 | Spacing scale 4 / 8 / 12 / 16 / 24 / 40 px | Bigger gaps separate sections, small ones group a label with its description |
 | Radii 2 / 8 / 12 px; round (half the element's size) for icon-only buttons, the play button, progress and slider tracks, the slider knob and drop lines; the switch is a pill | Circles and round-ended tracks are what those controls are; everything else uses the three radii. `tests/ui_invariants.rs` refuses a radius written in bare pixels |
 | Content column capped at 720 px, except track lists and the songs table | Keeps a setting's label and its control within one glance on wide windows. Track lists span the page: the owner found half a wide window left empty beside them unfinished (2026-10-18) |
-| Settings and About in a column in the middle of the page, 60 % of its width, from 720 to 960 px (`Theme.column-max-width`) | The owner's request (2026-10-20): the column at the left of a wide window, with the right side blank, looked weird. 960 px still keeps a setting's label and its control within reach; About shares the frame, so the two pages next to each other in the sidebar look alike |
+| Settings and About in a column in the middle of the page, 60 % of its width, from 720 to 960 px (`Theme.column-max-width`); Settings adds its list of sections beside it | The owner's request (2026-10-20): the column at the left of a wide window, with the right side blank, looked weird. 960 px still keeps a setting's label and its control within reach; About shares the frame, so the two pages next to each other in the sidebar look alike |
 | Sidebar plus content area | Agreed in the spec; it holds only the pages that exist (Search, Albums, Artists, Playlists, Songs, Folders, Settings, About), then the playlists by name |
 | The sidebar's sections in three groups: Search; Albums to Folders; Settings and About | The owner's request (2026-10-18): Search and the app's own pages are not views of the library. A gap with a faint line sets the groups apart, the order stays; the page marker adds the gaps above its section |
 | A sidebar section always opens on its grid | The owner's request (2026-10-18): the album, artist or playlist last open is not where someone choosing Albums means to go |
@@ -263,6 +267,7 @@ border, so the dialog's text keeps base's contrast.
 | Writing tags is the filled button; deleting a playlist is not | Written tags can be undone for 30 days, so filling the button that writes them doesn't push a risk. A deleted playlist can't come back, so its button stays outlined, under the warning |
 | Deleting a playlist warns that it can't be undone, whoever asks | The owner's decision (2026-10-20): the playlist page's own Delete question says it too |
 | The changes by agents list newest first, with Review or Undo where they apply, in a dialog of their own opened from Settings (Show changes…) | The decision is about the latest change; older ones are history. An undo is itself a change, so it can be undone (it writes the agent's tags again). The owner's request (2026-10-28): a busy month of changes cluttered Settings, so the page keeps one row that counts them. A review opened from the dialog takes its place and gives it back when it closes; a click beside the dialog closes it, as it holds nothing to lose |
+| Settings in six sections (General, Library, Playback, Appearance, Online services, AI agents), one shown at a time beside a list of them, with a search across all of them | The owner's choices (issue #108, `docs/specs/2026-11-19-settings-sections.md`): there was too much on one page. The list stays put while the section scrolls; a page narrower than the list plus 480 px (`Theme.settings-section-min-width`) has a dropdown above the section instead. The section shown is remembered across restarts and is a place in back and forward. The search shows the rows it finds themselves, working, under their sections' names |
 | Zoom in Settings, from 80 to 200 %, with Ctrl+= and Ctrl+- (Ctrl+0 for 100 %) | The owner's request (2026-10-28): on a large 2K monitor VCMP looked small. It scales the whole window on top of the system's own scale, so every size in `theme.slint` grows together and the layout rules still hold. Buttons on either side of the value step it, as zooming goes a step at a time; the shortcuts are the ones browsers use |
 | Small marks after the playing track's artist: lossless (a waveform) and Last.fm (signal arcs, with a tick once the play counts) | The owner's request (2026-10-28). Muted and 14 px, so they inform without competing with the title; the scrobbled mark turns to text colour and changes shape, so the state never rests on colour. Their name shows above them under the pointer and is what a screen reader hears. The Last.fm mark shows only while an account is connected, and only for plays Last.fm would count (an artist, and longer than 30 s) |
 | The wheel over the volume slider changes the volume, 5 % a notch; over the position slider it scrolls the page | The owner's request (2026-10-28). Turning the wheel to set the volume is what people expect of a player; seeking by wheel would happen by accident while scrolling. The volume is saved once the wheel rests (`Theme.wheel-commit-delay`), not on every step |
@@ -424,8 +429,9 @@ the new view in too.
     Cancel or a click beside the dialog closes. Nothing is sent until the button is used, and the button is
     there only in builds with VCMP's fanart.tv project key (`VCMP_FANARTTV_API_KEY`).
     When fanart.tv refuses a key, the picker says so apart from an unreachable
-    service, and names the personal key when one was sent.
-  - **The user's own key:** Settings → Artist photos takes a fanart.tv personal
+    service, and names the personal key when one was sent, with a link that opens
+  Settings → Online services (closing the picker).
+  - **The user's own key:** Settings → Online services takes a fanart.tv personal
     API key (only in builds with the project key). It is optional: fanart.tv's
     terms ask apps to let users give their own, which goes with VCMP's key on each
     request (`client_key`) and gets them new photos sooner. Enter or Save keeps it
@@ -683,8 +689,8 @@ Ctrl+F, acts while a dialog is open (`dialog-open` in `ui/app-window.slint`): th
 would change the page behind the scrim.
 
 - **A place** is a section on its grid, or the album, artist (or an artist's
-  album) or playlist page open in it, or the Library check open in place of
-  Settings.
+  album) or playlist page open in it, a section of Settings, or the Library check
+  open in place of Settings. A search in Settings is not a place.
 - **Remembering:** the window calls `navigated` whenever the section or the page
   open in it changes, however that came about: the sidebar, a card, a back button,
   Escape, a link in the player bar. Moving somewhere new drops what was ahead, as a
@@ -693,6 +699,43 @@ would change the page behind the scrim.
   (`show-section`, `open_album_by_id`, ...). The `navigated` calls that follow find
   the window where the history already is. A page that is gone meanwhile (an album
   removed) leaves the window where it ended up.
+
+## Settings
+
+Settings is split into six sections ([spec](specs/2026-11-19-settings-sections.md)),
+shown one at a time:
+
+| Section | Rows |
+|---|---|
+| General | Setup (Run setup again), Check for updates |
+| Library | Music folders, Update automatically, Library check, Play history, Labels |
+| Playback | Shuffle, Output device |
+| Appearance | Theme, Accent, Theme files, Zoom, Reduce motion |
+| Online services | Find lyrics online, Show on Discord, Last.fm (connect, love, import), the fanart.tv personal key |
+| AI agents | The switch, how to connect, the playback switch, Port, Changes by agents, Backups for undo |
+
+- **Layout:** the title, then the search field and the list of sections (`NavItem`,
+  the sidebar's own entries) at the left, beside the section, which scrolls on its
+  own. When the page can't give the section `Theme.settings-section-min-width` beside
+  the list, the search field and a dropdown of the sections sit above it instead.
+- **The section shown** is `SettingsNav.section`: saved as `ui.settings_section`
+  (`src/preferences.rs`) and restored at start, so the sidebar's Settings entry
+  goes back to it; a name this VCMP doesn't know opens General. Each section is a
+  place in back and forward (`Place::Settings`). Changing section scrolls to the top.
+- **Search:** `SettingsPage` lists every block it shows as a `SettingEntry` (its
+  section, title, a few keywords, and whether it is shown at all, such as Last.fm
+  only in builds with the key), and each block shows through `root.shows(n)` with
+  its place in that list (`tests/ui_invariants.rs` checks they match). Rust
+  (`src/settings_nav.rs`) finds the blocks that hold every typed word in their
+  title, their section's name or their keywords, ignoring case, as the page filters
+  do. While the field holds text, the page shows the found blocks themselves,
+  working, under their sections' names, or says nothing matches; no section is
+  marked in the list. Choosing a section, Escape or the clear button ends the
+  search. It runs again when the query changes and when a block appears or goes.
+- **Links into a section:** `SettingsNav.open(section)` closes the setup wizard,
+  the photo picker and the Library check and shows Settings on that section. The
+  wizard's agents line opens AI agents, the photo picker's refused-key message opens
+  Online services, and the Library check's back button returns to Library.
 
 ## Mouse wheel
 
@@ -1001,7 +1044,7 @@ The Albums page tells apart why it is empty:
   panic in the libraries they call (`src/worker.rs`) and report it as their error,
   so a malformed file can't leave the window waiting for good.
 - **Discord Rich Presence** (`vcmp-integrations::discord`, on by default, switch
-  under Settings → Playback):
+  under Settings → Online services):
   - shows "Listening to VCMP" with the track, artist and a progress bar while a track
     plays, and clears on pause or stop;
   - after a seek the progress bar is refreshed;
@@ -1018,7 +1061,7 @@ The Albums page tells apart why it is empty:
     away; it tells `PlayerService` when Discord is reached or lost;
   - the application ID is built in (`APPLICATION_ID`) and can be replaced at build
     time with `VCMP_DISCORD_APPLICATION_ID`.
-- **Last.fm scrobbling** (`vcmp-integrations::lastfm`, under Settings → Playback,
+- **Last.fm scrobbling** (`vcmp-integrations::lastfm`, under Settings → Online services,
   only in builds made with VCMP's API key):
   - Connect… asks Last.fm for a token, opens Last.fm's page where the user allows
     VCMP, and asks every 3 s whether they have. Meanwhile the row says what to do
@@ -1132,7 +1175,7 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 
 ## Update check
 
-- When VCMP starts, unless "Check for updates" (Settings, Updates) is off, a worker
+- When VCMP starts, unless "Check for updates" (Settings, General) is off, a worker
   thread asks GitHub's REST API for the repository's ten newest releases
   (`vcmp_integrations::updates`). It takes the highest version among the published
   ones, skipping drafts, pre-releases (flagged as such, or with a version like
@@ -1166,14 +1209,15 @@ global. The player bar stays usable, as with the other dialogs.
   The flag is written as the wizard shows, so quitting halfway counts as seen. A
   library that has a music folder gets the flag silently. Without a database, or
   with `VCMP_SETUP=skip` (which writes nothing), it doesn't open. After that only
-  "Run setup again", the first row of Settings, opens it.
+  "Run setup again", the first row of Settings' General section, opens it.
 - **Steps:** Welcome, Music folders (`LibrarySection` without its heading), Look
   (the built-in themes and the accent, without theme files; zoom; reduce motion), Online services (Show on Discord, Find lyrics online, Last.fm, the
   update check, the fanart.tv key, each only in builds that have it, and the AI
   agents switch), Done (the scan's state and where everything is). The rows are
   Settings' own components on the same globals, so every choice applies and saves
   at once, leaving early keeps it, and a rerun shows the current values. With
-  agents on, a line points to Settings for the token and setup commands.
+  agents on, a line points to Settings for the token and setup commands, with a
+  link that closes the wizard and opens Settings → AI agents.
 - **One size:** the card is as tall as `Theme.dialog-setup-height` allows, less in
   a shorter window, so it doesn't jump between steps. A step that doesn't fit
   scrolls above the buttons, with a line over them while it does.
@@ -1284,7 +1328,7 @@ by `LibraryView`) keeps the `Labels` global current.
   the strip and the shades (`Labels.hue-strip`, `Labels.shades`). What is wrong
   (no name, too long, taken, not a colour) shows in the error colour. Made from a
   menu, the new label goes on the menu's tracks.
-- **Settings** lists every label with its dot and count, Edit… (the dialog) and
+- **Settings** (its Library section) lists every label with its dot and count, Edit… (the dialog) and
   Delete…, which asks first in the confirmation dialog, saying how many tracks lose
   it. Cancelled, the focus goes back to that Delete… button.
 
@@ -1328,11 +1372,11 @@ owned by `LibraryView`) answers the `Favourites` global.
 
 The finder for duplicates, missing tags and missing covers
 ([library check spec](specs/2026-11-07-library-check.md), the rules in
-[library.md](library.md#library-check)). Settings shows a "Library check" row under
-Music folders once there are folders; its "Check library…" button opens the page in
-place of Settings (`LibraryCheck.open`), a place of its own in the history, so Back
-returns to Settings. The page's back button and Escape do the same, and the
-sidebar's Settings entry shows Settings.
+[library.md](library.md#library-check)). Settings' Library section shows a "Library
+check" row under the music folders once there are folders; its "Check library…"
+button opens the page in place of Settings (`LibraryCheck.open`), a place of its own
+in the history, so Back returns to Settings' Library section. The page's back button
+and Escape do the same, and the sidebar's Settings entry shows Settings.
 
 - **Read when it opens.** `CheckPage` (owned by `LibraryView`) runs the three checks
   when the page opens and again on every library reload while it is open, so a tag
@@ -1376,7 +1420,7 @@ The agreed decisions are in the
   and the play is lost, never playback.
 - **Showing:** the Songs page's Plays, Last played and Added columns, hidden until
   turned on from the header menu (see [Songs page](#songs-page)).
-- **Clearing:** Settings, Playback, "Clear play history..." asks first
+- **Clearing:** Settings, Library, "Clear play history..." asks first
   (`Confirmation`) and then deletes every play; the scrobbles waiting for Last.fm
   and the added dates stay.
 

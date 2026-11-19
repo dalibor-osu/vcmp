@@ -190,11 +190,14 @@ impl App {
             .invoke_accessible_default_action();
     }
 
+    /// Settings, on its Online services section.
     fn open_settings(&self) {
-        ElementHandle::find_by_accessible_label(&self.window, "Settings")
-            .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
-            .expect("the Settings tab")
-            .invoke_accessible_default_action();
+        for tab in ["Settings", "Online services"] {
+            ElementHandle::find_by_accessible_label(&self.window, tab)
+                .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
+                .unwrap_or_else(|| panic!("the {tab} tab"))
+                .invoke_accessible_default_action();
+        }
     }
 
     fn user_setting(&self) -> Option<String> {

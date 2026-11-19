@@ -1,0 +1,72 @@
+// Which part of Settings shows: one of its sections, or what the search found. The
+// page lists every block of Settings as an entry (`SettingsPage`); Rust matches the
+// search against them (src/settings_nav.rs), saves the section shown
+// (src/preferences.rs), and opens Settings on a section from elsewhere.
+
+export enum SettingsSection { general, library, playback, appearance, online-services, agents }
+
+// One block of Settings, as the search sees it: a row, or a group shown whole such
+// as the music folders. `available` is false while the block isn't shown at all (a
+// build without Last.fm, agents switched off).
+export struct SettingEntry {
+    section: SettingsSection,
+    title: string,
+    keywords: string,
+    available: bool,
+}
+
+export global SettingsNav {
+    in-out property <SettingsSection> section: SettingsSection.general;
+    // What is typed in the search field; empty shows `section`. Settings searches
+    // whenever it changes.
+    in-out property <string> query;
+    // Per entry of the page, in its order: it matches `query` and is available.
+    in property <[bool]> found;
+    // Per section, in the enum's order: one of its entries is found.
+    in property <[bool]> found-sections;
+    in property <int> found-count;
+    out property <bool> searching: root.query != "";
+    // Matches `query` against the entries, setting `found`.
+    callback search(string, [SettingEntry]);
+    // Shows Settings on a section, closing what covers it (the setup wizard, the
+    // photo picker).
+    callback open(SettingsSection);
+
+    out property <[SettingsSection]> sections: [
+        SettingsSection.general,
+        SettingsSection.library,
+        SettingsSection.playback,
+        SettingsSection.appearance,
+        SettingsSection.online-services,
+        SettingsSection.agents,
+    ];
+
+    public pure function name(section: SettingsSection) -> string {
+        section == SettingsSection.general ? @tr("General")
+            : section == SettingsSection.library ? @tr("Library")
+            : section == SettingsSection.playback ? @tr("Playback")
+            : section == SettingsSection.appearance ? @tr("Appearance")
+            : section == SettingsSection.online-services ? @tr("Online services")
+            : @tr("AI agents")
+    }
+
+    public pure function index(section: SettingsSection) -> int {
+        section == SettingsSection.general ? 0
+            : section == SettingsSection.library ? 1
+            : section == SettingsSection.playback ? 2
+            : section == SettingsSection.appearance ? 3
+            : section == SettingsSection.online-services ? 4
+            : 5
+    }
+
+    // Shows a section; a search in progress ends.
+    public function show(section: SettingsSection) {
+        root.query = "";
+        root.section = section;
+    }
+
+    // A section has a found entry, while searching.
+    public pure function section-found(section: SettingsSection) -> bool {
+        root.searching && root.found-sections[root.index(section)]
+    }
+}

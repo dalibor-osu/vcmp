@@ -8,7 +8,9 @@ use i_slint_backend_testing::{AccessibleRole, ElementHandle, ElementRoot};
 use slint::platform::{Key, PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, SharedString};
 use vcmp_app::themes::Themes;
-use vcmp_app::{AppWindow, Page, ReduceMotion, Theme, WindowFrame, theme};
+use vcmp_app::{
+    AppWindow, Page, ReduceMotion, SettingsNav, SettingsSection, Theme, WindowFrame, theme,
+};
 
 fn open_window() -> AppWindow {
     i_slint_backend_testing::init_no_event_loop();
@@ -45,9 +47,16 @@ fn motion_option(window: &AppWindow, label: &str) -> ElementHandle {
         .expect("the Reduce motion option")
 }
 
-/// Opens a page through its sidebar entry.
+/// Opens a page through its sidebar entry, or a section of Settings through its
+/// entry in Settings' list.
 fn open_page(window: &AppWindow, label: &str) {
     find(window, AccessibleRole::Tab, label).invoke_accessible_default_action();
+}
+
+/// Opens Settings on one of its sections.
+fn open_settings(window: &AppWindow, section: &str) {
+    open_page(window, "Settings");
+    open_page(window, section);
 }
 
 fn marker_y(window: &AppWindow) -> f32 {
@@ -88,7 +97,7 @@ fn clicking_settings_controls_changes_them() {
     // Tall enough that the Appearance section clears the player bar without scrolling.
     window.window().set_size(LogicalSize::new(1100.0, 1400.0));
     let theme = window.global::<Theme>();
-    open_page(&window, "Settings");
+    open_settings(&window, "Appearance");
 
     find(&window, AccessibleRole::RadioButton, "Dark").mock_single_click(PointerEventButton::Left);
     assert!(theme.get_dark());
@@ -124,12 +133,21 @@ fn everything_works_from_the_keyboard() {
     press(&window, Key::Return);
     assert_eq!(window.get_current_page(), Page::Settings);
 
-    // From the Settings entry: About, Favourites below the sections, Run setup again,
-    // Add folder, Update automatically, the shuffle choice, the output device, Find
-    // lyrics online, Clear play history, then the theme choice. Without folders there
-    // is no Rescan button or Library check, without a player service no Discord
-    // switch, and without a themes folder no theme file buttons.
-    for _ in 0..10 {
+    // From the Settings entry: About, Favourites below the sections, the search
+    // field, then Settings' sections: General, Library, Playback and Appearance,
+    // which Enter opens.
+    for _ in 0..7 {
+        press(&window, Key::Tab);
+    }
+    press(&window, Key::Return);
+    assert_eq!(
+        window.global::<SettingsNav>().get_section(),
+        SettingsSection::Appearance
+    );
+
+    // Past Online services and AI agents to the section: the theme choice first.
+    // Without a themes folder there are no theme file buttons.
+    for _ in 0..3 {
         press(&window, Key::Tab);
     }
     press(&window, Key::RightArrow);
@@ -174,7 +192,7 @@ fn theme_choice_selects_the_palette() {
     // Tall enough for the Appearance section: the finder skips what is out of view.
     window.window().set_size(LogicalSize::new(1100.0, 1400.0));
     let theme = window.global::<Theme>();
-    open_page(&window, "Settings");
+    open_settings(&window, "Appearance");
 
     // The headless backend reports no system colour scheme: the first start's pick
     // waits, on the light theme.
@@ -238,7 +256,7 @@ fn transitions_animate_by_default() {
 #[test]
 fn the_queue_panel_slides_in_unless_motion_is_reduced() {
     let window = open_window();
-    // Tall enough for the whole Settings page, where motion is reduced below.
+    // Tall enough for the whole Appearance section, where motion is reduced below.
     window.window().set_size(LogicalSize::new(1100.0, 1600.0));
     let panel_x = |window: &AppWindow| {
         ElementHandle::find_by_element_type_name(window, "QueuePanel")
@@ -257,7 +275,7 @@ fn the_queue_panel_slides_in_unless_motion_is_reduced() {
     assert_eq!(panel_x(&window), 1100.0 - 320.0, "then sits at the edge");
 
     window.set_queue_open(false);
-    open_page(&window, "Settings");
+    open_settings(&window, "Appearance");
     motion_option(&window, "On").invoke_accessible_default_action();
     window.set_queue_open(true);
     assert_eq!(
@@ -367,7 +385,7 @@ fn reduced_motion_makes_transitions_instant() {
     // view can't be found.
     window.window().set_size(LogicalSize::new(1100.0, 1400.0));
     let albums_marker = marker_y(&window);
-    open_page(&window, "Settings");
+    open_settings(&window, "Appearance");
     motion_option(&window, "On").invoke_accessible_default_action();
 
     open_page(&window, "About");
@@ -445,10 +463,14 @@ fn smallest_window_keeps_everything_inside() {
     let width = 720.0;
     window.window().set_size(LogicalSize::new(width, 480.0));
     // Settings with the Last.fm row, as in a build with an API key, in its longest
-    // state: waiting, with the link back to the browser page.
+    // state: waiting, with the link back to the browser page. Settings is too narrow
+    // for its list here, so its sections are a dropdown.
     let lastfm = window.global::<vcmp_app::LastfmState>();
     lastfm.set_available(true);
     lastfm.set_status(vcmp_app::LastfmStatus::Waiting);
+    window
+        .global::<SettingsNav>()
+        .set_section(SettingsSection::OnlineServices);
 
     // Every page, with the queue panel closed and open, and the now playing view.
     for (page, queue_open, now_playing) in [0, 1, 2, 3, 4, 5, 6, 7, 8]
