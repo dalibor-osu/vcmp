@@ -9,19 +9,25 @@ publish = false
 
 [dependencies]
 discord-rich-presence = "1.1.0"
+flate2 = "1.1.11"
 # The Last.fm session key, in the Keychain, the Credential Manager or the Secret
 # Service (over zbus, so no libdbus to install).
 keyring = "4.2.0"
 log = "0.4.34"
 # Last.fm signs its requests with MD5.
 md5 = "0.8.1"
+minisign-verify = "0.3.0"
 playwire = "2.0.0"
+self-replace = "1.5.1"
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha2 = "0.11.1"
+tar = "0.4.46"
 unicode-normalization = "0.1.26"
 ureq = "3.4.2"
 url = "2.5.8"
+zip = { version = "9.7.3", default-features = false, features = ["deflate-flate2"] }
 
 # The operating system's reduce-motion setting and its changes (src/reduce_motion.rs).
 # All of these are already in the build through Slint and the OS media controls.
@@ -37,3 +43,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graph
 block2 = "0.6.2"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAccessibility", "NSWorkspace"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSNotification", "NSOperation", "NSString"] }
+
+[dev-dependencies]
+minisign = "0.10.0"
+tempfile = "3.27.0"
