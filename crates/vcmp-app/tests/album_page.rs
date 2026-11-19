@@ -189,7 +189,7 @@ fn the_grid_works_from_the_keyboard() {
 #[test]
 fn the_album_page_fits_the_smallest_window() {
     let (_dir, window, _browser) = open();
-    let width = 720.0;
+    let width = 780.0;
     window
         .window()
         .set_size(slint::LogicalSize::new(width, 480.0));
@@ -304,7 +304,7 @@ fn a_section_opens_on_its_grid_not_its_last_detail() {
 #[test]
 fn the_page_marker_sits_on_its_section_in_every_group() {
     let (_dir, window, _browser) = open();
-    for label in ["Search", "Albums", "Folders", "Settings", "About"] {
+    for label in ["Search", "Albums", "Folders", "Settings"] {
         let section = ElementHandle::find_by_accessible_label(&window, label)
             .find(|element| element.accessible_role() == Some(AccessibleRole::Tab))
             .unwrap_or_else(|| panic!("no tab {label:?}"));

@@ -142,30 +142,30 @@ impl History {
         };
         window.set_opened_from_search(false);
         match place {
-            Place::Section(page) => window.invoke_show_section(section(page)),
+            Place::Section(page) => window.invoke_show_section(page),
             Place::Album(album) => {
-                window.invoke_show_section(section(Page::Albums));
+                window.invoke_show_section(Page::Albums);
                 self.view.open_album_by_id(album);
             }
             Place::Artist(artist) => {
-                window.invoke_show_section(section(Page::Artists));
+                window.invoke_show_section(Page::Artists);
                 self.view.open_artist_by_id(artist);
             }
             Place::ArtistAlbum(artist, album) => {
-                window.invoke_show_section(section(Page::Artists));
+                window.invoke_show_section(Page::Artists);
                 self.view.open_artist_by_id(artist);
                 self.view.open_artist_album_by_id(album);
             }
             Place::Playlist(playlist) => {
-                window.invoke_show_section(section(Page::Playlists));
+                window.invoke_show_section(Page::Playlists);
                 self.view.playlists().open(playlist);
             }
             Place::Label(label) => {
-                window.invoke_show_section(section(Page::Labels));
+                window.invoke_show_section(Page::Labels);
                 self.view.labels().open(label);
             }
             Place::LibraryCheck => {
-                window.invoke_show_section(section(Page::Settings));
+                window.invoke_show_section(Page::Settings);
                 self.view.check().open();
             }
         }
@@ -174,20 +174,5 @@ impl History {
         if let Some(now) = self.here() {
             *self.here.borrow_mut() = now;
         }
-    }
-}
-
-/// The sidebar position of a section.
-fn section(page: Page) -> i32 {
-    match page {
-        Page::Search => 0,
-        Page::Albums => 1,
-        Page::Artists => 2,
-        Page::Playlists => 3,
-        Page::Labels => 4,
-        Page::Songs => 5,
-        Page::Folders => 6,
-        Page::Settings => 7,
-        Page::About => 8,
     }
 }

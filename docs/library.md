@@ -46,7 +46,7 @@ the CHECK on its kind, doesn't delete the rows that refer to it.
 
 | Table | Holds |
 |---|---|
-| `settings` | Key/value preferences: `library.auto_update`, `library.added_backfilled` (the one-time backfill of added dates ran; see [Play history](#play-history)), `ui.theme` (the theme and accent as JSON; [ui.md](ui.md#themes)), `ui.reduced_motion` (`system`, `on` or `off`), `ui.setup_done` (the setup wizard was shown, or the library had folders when it came; [ui.md](ui.md#setup-wizard)), `ui.lyrics_shown` and `integrations.lyrics_online` (see [Lyrics](#lyrics)) |
+| `settings` | Key/value preferences: `library.auto_update`, `library.added_backfilled` (the one-time backfill of added dates ran; see [Play history](#play-history)), `ui.theme` (the theme and accent as JSON; [ui.md](ui.md#themes)), `ui.reduced_motion` (`system`, `on` or `off`), `ui.setup_done` (the setup wizard was shown, or the library had folders when it came; [ui.md](ui.md#setup-wizard)), `ui.sidebar_hidden` (the library sections the sidebar hides, by name; [ui.md](ui.md#design-decisions)), `integrations.lyrics_online` (see [Lyrics](#lyrics)); an older VCMP's `ui.lyrics_shown` is left and ignored |
 | `source_dirs` | Source directories (canonical path) and their `recursive` flag |
 | `tracks` | One row per file ever seen: path, size, mtime, `available`, format, tags, duration, and `added_ms`, when VCMP first saw it (see [Play history](#play-history)) |
 | `albums` | Album groups, their artist, year and artwork state, and whether the album is an artist's Unknown album (`unknown`, version 9) |

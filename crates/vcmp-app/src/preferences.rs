@@ -1,8 +1,9 @@
 //! Appearance preferences kept in the library database's settings table: reduced
 //! motion, the zoom, whether the queue panel is open, which artists the Artists page
-//! lists, the column widths of the track lists and the songs table, and which of the
-//! songs table's columns show. Also hands the operating system's reduce-motion
-//! setting to the theme. The theme itself is saved by `src/themes.rs`.
+//! lists, the column widths of the track lists and the songs table, which of the
+//! songs table's columns show, and which library sections the sidebar shows. Also
+//! hands the operating system's reduce-motion setting to the theme. The theme itself
+//! is saved by `src/themes.rs`.
 
 use std::rc::Rc;
 
@@ -10,7 +11,10 @@ use slint::ComponentHandle;
 use vcmp_integrations::reduce_motion;
 use vcmp_library::Library;
 
-use crate::{AppWindow, ColumnWidths, ReduceMotion, SongColumn, SongColumns, Theme, zoom};
+use crate::{
+    AppWindow, ColumnWidths, Page, ReduceMotion, SidebarSections, SongColumn, SongColumns, Theme,
+    zoom,
+};
 
 /// "system", "on" or "off"; see `parse_motion` for the older "true" and "false".
 pub const REDUCED_MOTION: &str = "ui.reduced_motion";
@@ -25,6 +29,20 @@ pub const SONG_COLUMNS: &str = "ui.song_columns";
 /// The songs table's columns that show, by name, separated by spaces (see
 /// `HIDEABLE`); absent: all but plays, last played and added.
 pub const SONG_COLUMNS_SHOWN: &str = "ui.song_columns_shown";
+
+/// The library sections the sidebar hides, by name, separated by spaces (see
+/// `SECTIONS`); absent: none. A section not named, such as one added later, shows.
+pub const SIDEBAR_HIDDEN: &str = "ui.sidebar_hidden";
+
+/// The library sections the sidebar can hide, by their saved names, in its order.
+const SECTIONS: [(&str, Page); 6] = [
+    ("albums", Page::Albums),
+    ("artists", Page::Artists),
+    ("playlists", Page::Playlists),
+    ("labels", Page::Labels),
+    ("songs", Page::Songs),
+    ("folders", Page::Folders),
+];
 
 /// The songs table's columns that can be hidden, by their saved names, in the order
 /// of `shown_columns`.
@@ -128,6 +146,74 @@ pub fn connect(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result
         }
     });
     Ok(())
+}
+
+/// Applies the sidebar's saved sections and puts the window on the first section the
+/// sidebar shows, then saves the sections whenever a switch in Settings changes them.
+/// Call it before anything records where the window is, such as the back and forward
+/// history.
+pub fn connect_sidebar(window: &AppWindow, library: Rc<Library>) -> vcmp_library::Result<()> {
+    let sections = window.global::<SidebarSections>();
+    if let Some(saved) = library.setting(SIDEBAR_HIDDEN)? {
+        show_sections(&sections, parse_shown_sections(&saved));
+    }
+    window.set_section(start_page(shown_sections(&sections)));
+    let weak = window.as_weak();
+    sections.on_toggled(move || {
+        let Some(window) = weak.upgrade() else { return };
+        let hidden = format_hidden_sections(shown_sections(&window.global::<SidebarSections>()));
+        if let Err(error) = library.set_setting(SIDEBAR_HIDDEN, &hidden) {
+            log::warn!("could not save the sidebar's sections: {error}");
+        }
+    });
+    Ok(())
+}
+
+/// The section the window opens on: the first library section shown, Search when
+/// the sidebar shows none.
+pub fn start_page(shown: [bool; 6]) -> Page {
+    SECTIONS
+        .iter()
+        .zip(shown)
+        .find(|(_, shown)| *shown)
+        .map_or(Page::Search, |((_, page), _)| *page)
+}
+
+fn shown_sections(sections: &SidebarSections) -> [bool; 6] {
+    [
+        sections.get_albums(),
+        sections.get_artists(),
+        sections.get_playlists(),
+        sections.get_labels(),
+        sections.get_songs(),
+        sections.get_folders(),
+    ]
+}
+
+fn show_sections(sections: &SidebarSections, shown: [bool; 6]) {
+    let [albums, artists, playlists, labels, songs, folders] = shown;
+    sections.set_albums(albums);
+    sections.set_artists(artists);
+    sections.set_playlists(playlists);
+    sections.set_labels(labels);
+    sections.set_songs(songs);
+    sections.set_folders(folders);
+}
+
+/// The sections shown, from the saved names of the hidden ones; a name not known is
+/// left out.
+fn parse_shown_sections(saved: &str) -> [bool; 6] {
+    SECTIONS.map(|(name, _)| !saved.split_whitespace().any(|word| word == name))
+}
+
+fn format_hidden_sections(shown: [bool; 6]) -> String {
+    SECTIONS
+        .iter()
+        .zip(shown)
+        .filter(|(_, shown)| !*shown)
+        .map(|((name, _), _)| *name)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Hands the operating system's reduce-motion setting to the theme once it is known,
@@ -268,6 +354,29 @@ mod tests {
             parse_shown("album someday"),
             [false, true, false, false, false, false, false, false]
         );
+    }
+
+    #[test]
+    fn hidden_sidebar_sections_are_read_back() {
+        let shown = [false, true, true, false, true, false];
+        assert_eq!(format_hidden_sections(shown), "albums labels folders");
+        assert_eq!(parse_shown_sections(&format_hidden_sections(shown)), shown);
+        assert_eq!(parse_shown_sections(""), [true; 6], "nothing hidden");
+        assert_eq!(
+            parse_shown_sections("songs someday"),
+            [true, true, true, true, false, true],
+            "an unknown name hides nothing"
+        );
+    }
+
+    #[test]
+    fn the_window_opens_on_the_first_section_shown() {
+        assert_eq!(start_page([true; 6]), Page::Albums);
+        assert_eq!(
+            start_page([false, false, true, true, true, true]),
+            Page::Playlists
+        );
+        assert_eq!(start_page([false; 6]), Page::Search);
     }
 
     #[test]

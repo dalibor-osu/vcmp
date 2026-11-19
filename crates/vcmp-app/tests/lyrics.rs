@@ -1,7 +1,7 @@
-//! Lyrics in the now playing view: local lyrics shown as they arrive, the line
-//! playing following the engine's position and the clock, the player bar's lyrics
-//! button, and LRCLIB asked only when allowed and needed, with its answers kept.
-//! Recorders stand in for the engine, the file reader and LRCLIB.
+//! Lyrics: local lyrics shown as they arrive, the line playing following the
+//! engine's position and the clock, the lyrics view and the player bar's buttons,
+//! and LRCLIB asked only when allowed and needed, with its answers kept. Recorders
+//! stand in for the engine, the file reader and LRCLIB.
 
 mod common;
 
@@ -13,14 +13,14 @@ use std::time::{Duration, SystemTime};
 
 use common::{Song, add};
 use i_slint_backend_testing::{AccessibleRole, ElementHandle};
+use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, Model};
 use tempfile::TempDir;
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::player_service::{
     LyricsReader, LyricsSearch, PlayerControl, PlayerService, SETTING_LYRICS_ONLINE,
-    SETTING_LYRICS_SHOWN,
 };
-use vcmp_app::{AppWindow, PlayerState};
+use vcmp_app::{AppWindow, Overlay, PlayerState};
 use vcmp_integrations::lrclib::{self, Answer};
 use vcmp_library::{
     LYRICS_RETRY_NOT_FOUND, Library, LocalLyrics, LyricLine, LyricsKey, LyricsQuery, OnlineLyrics,
@@ -272,42 +272,102 @@ fn lyrics_of_a_track_no_longer_playing_are_dropped() {
 }
 
 #[test]
-fn the_lyrics_button_opens_now_playing_on_the_lyrics_and_is_remembered() {
-    let app = start(|_| {});
+fn the_lyrics_and_now_playing_buttons_each_open_their_own_view() {
+    let app = start(|library| {
+        // The lyrics mode the view once remembered is ignored.
+        library.set_setting("ui.lyrics_shown", "true").unwrap();
+    });
+    assert_eq!(app.state().get_overlay(), Overlay::None);
     assert_eq!(app.button("Lyrics").accessible_enabled(), Some(false));
     app.play("1.flac", plain());
     assert!(app.state().get_has_lyrics() && !app.state().get_lyrics_synced());
     assert_eq!(app.state().get_lyrics_text(), "Plain words");
     assert_eq!(app.button("Lyrics").accessible_enabled(), Some(true));
 
-    app.button("Lyrics").invoke_accessible_default_action();
-    assert!(app.state().get_now_playing_open() && app.state().get_lyrics_shown());
-    assert_eq!(app.button("Lyrics").accessible_checked(), Some(true));
+    app.button("Now playing").invoke_accessible_default_action();
     assert_eq!(
-        app.library
-            .setting(SETTING_LYRICS_SHOWN)
-            .unwrap()
-            .as_deref(),
-        Some("true")
+        app.state().get_overlay(),
+        Overlay::NowPlaying,
+        "now playing opens on the cover"
+    );
+    assert!(
+        ElementHandle::find_by_accessible_label(&app.window, "Show lyrics")
+            .next()
+            .is_none(),
+        "the view has no lyrics toggle of its own"
     );
 
-    app.button("Show lyrics").invoke_accessible_default_action();
-    assert!(
-        !app.state().get_lyrics_shown(),
-        "the view's toggle shows the cover"
-    );
     app.button("Lyrics").invoke_accessible_default_action();
-    assert!(app.state().get_now_playing_open() && app.state().get_lyrics_shown());
-    app.button("Lyrics").invoke_accessible_default_action();
-    assert!(
-        !app.state().get_now_playing_open(),
-        "pressed on the lyrics, it closes"
+    assert_eq!(app.state().get_overlay(), Overlay::Lyrics, "switches over");
+    assert_eq!(app.button("Lyrics").accessible_checked(), Some(true));
+    assert_eq!(app.button("Now playing").accessible_checked(), Some(false));
+
+    app.button("Now playing").invoke_accessible_default_action();
+    assert_eq!(app.state().get_overlay(), Overlay::NowPlaying, "and back");
+    app.button("Now playing").invoke_accessible_default_action();
+    assert_eq!(
+        app.state().get_overlay(),
+        Overlay::None,
+        "pressed again, it closes"
     );
 
-    let again = start(|library| {
-        library.set_setting(SETTING_LYRICS_SHOWN, "true").unwrap();
+    app.button("Lyrics").invoke_accessible_default_action();
+    assert_eq!(app.state().get_overlay(), Overlay::Lyrics);
+    app.button("Lyrics").invoke_accessible_default_action();
+    assert_eq!(
+        app.state().get_overlay(),
+        Overlay::None,
+        "pressed again, it closes"
+    );
+    assert_eq!(
+        app.library.setting("ui.lyrics_shown").unwrap().as_deref(),
+        Some("true"),
+        "the old setting is left as it was"
+    );
+}
+
+#[test]
+fn escape_closes_the_lyrics_view() {
+    let app = start(|_| {});
+    app.play("1.flac", synced());
+    app.button("Lyrics").invoke_accessible_default_action();
+    assert_eq!(app.state().get_overlay(), Overlay::Lyrics);
+    app.window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Escape.into(),
     });
-    assert!(again.state().get_lyrics_shown());
+    app.window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased {
+            text: Key::Escape.into(),
+        });
+    assert_eq!(app.state().get_overlay(), Overlay::None);
+}
+
+#[test]
+fn the_lyrics_view_stays_open_on_a_track_without_lyrics() {
+    let app = start(|_| {});
+    app.play("1.flac", synced());
+    app.button("Lyrics").invoke_accessible_default_action();
+    let says_none = || {
+        ElementHandle::find_by_accessible_label(&app.window, "No lyrics for this track")
+            .next()
+            .is_some()
+    };
+    assert!(!says_none());
+
+    app.play("2.flac", LocalLyrics::default());
+    assert!(!app.state().get_has_lyrics());
+    assert_eq!(app.state().get_overlay(), Overlay::Lyrics, "the view stays");
+    assert!(says_none(), "and says there are none");
+    assert_eq!(
+        app.button("Lyrics").accessible_enabled(),
+        Some(true),
+        "the button can still close it"
+    );
+
+    app.button("Lyrics").invoke_accessible_default_action();
+    assert_eq!(app.state().get_overlay(), Overlay::None);
+    assert_eq!(app.button("Lyrics").accessible_enabled(), Some(false));
 }
 
 #[test]

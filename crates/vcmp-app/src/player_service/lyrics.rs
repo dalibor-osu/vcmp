@@ -24,9 +24,6 @@ use crate::PlayerState;
 
 /// Setting key: ask LRCLIB for lyrics ("true" or "false"; absent: false).
 pub const SETTING_LYRICS_ONLINE: &str = "integrations.lyrics_online";
-/// Setting key: the now playing view shows lyrics instead of the cover when the
-/// track has some ("true" or "false"; absent: false).
-pub const SETTING_LYRICS_SHOWN: &str = "ui.lyrics_shown";
 
 /// Where a track's local lyrics are read: a thread per track, or a recorder in tests.
 /// The lyrics come back through `PlayerService::local_lyrics_read`.
@@ -134,15 +131,9 @@ impl PlayerService {
 
     pub(super) fn connect_lyrics(&self, state: &PlayerState) {
         state.set_lyrics_online(self.setting(SETTING_LYRICS_ONLINE).as_deref() == Some("true"));
-        state.set_lyrics_shown(self.setting(SETTING_LYRICS_SHOWN).as_deref() == Some("true"));
         state.on_set_lyrics_online(|enabled| {
             if let Some(service) = SERVICE.with(|current| current.borrow().upgrade()) {
                 service.set_lyrics_online(enabled);
-            }
-        });
-        state.on_set_lyrics_shown(|shown| {
-            if let Some(service) = SERVICE.with(|current| current.borrow().upgrade()) {
-                service.set_lyrics_shown(shown);
             }
         });
         state.on_seek_to_lyric(|index| {
@@ -420,12 +411,5 @@ impl PlayerService {
             if enabled { "true" } else { "false" },
         );
         self.resolve_lyrics();
-    }
-
-    fn set_lyrics_shown(&self, shown: bool) {
-        if let Some(window) = self.window.upgrade() {
-            window.global::<PlayerState>().set_lyrics_shown(shown);
-        }
-        self.save(SETTING_LYRICS_SHOWN, if shown { "true" } else { "false" });
     }
 }

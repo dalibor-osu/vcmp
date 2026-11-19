@@ -34,9 +34,9 @@ use vcmp_app::{
     AgentState, AlbumTile, AppWindow, ArtworkState, ChangeEntry, ChangeField, ChangeGroup,
     ChangeKind, ChangeProblem, ChangeRow, ChangeStatus, CheckTab, Confirmation,
     CoverSearch as CoverPicker, CoverSearchStatus, LastfmState, LastfmStatus, LibraryCheck,
-    PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, ReviewStatus, SelectionChange,
-    ServerStatus, Setup, SleepTimer, TagChange, TagEditorState, TagEditorStatus, TagField, Theme,
-    ThemeKind, Themes as ThemesState, TrackSelection, UpdateState,
+    Overlay, Page, PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, ReviewStatus,
+    SelectionChange, ServerStatus, Setup, SleepTimer, TagChange, TagEditorState, TagEditorStatus,
+    TagField, Theme, ThemeKind, Themes as ThemesState, TrackSelection, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -48,8 +48,8 @@ struct Shot {
     name: &'static str,
     // The built-in theme by its id, with the pink accent.
     theme: &'static str,
-    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Playlists, 4 Songs, 5 Folders,
-    // 6 Settings, 7 About.
+    // Sidebar position: 0 Search, 1 Albums, 2 Artists, 3 Playlists, 4 Labels, 5 Songs,
+    // 6 Folders, 7 Settings (see `section`).
     page: i32,
     // Grid position of the album (or, on the Artists and Playlists pages, the artist
     // or playlist) to open.
@@ -227,11 +227,13 @@ const fn lastfm(name: &'static str, theme: &'static str, status: LastfmStatus) -
     }
 }
 
-/// The About page, with the note that a newer VCMP is out there and in the sidebar.
+/// The whole Settings page, with the note that a newer VCMP is out in its About
+/// section and in the sidebar.
 const fn update(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         update: true,
-        ..shot(name, theme, 8, None, 0)
+        tall: true,
+        ..shot(name, theme, 7, None, 0)
     }
 }
 
@@ -339,8 +341,6 @@ const SHOTS: &[Shot] = &[
     lastfm("lastfm-dark", "dark", LastfmStatus::Connected),
     lastfm("lastfm-waiting-light", "light", LastfmStatus::Waiting),
     lastfm("lastfm-waiting-dark", "dark", LastfmStatus::Waiting),
-    shot("about-light", "light", 8, None, 0),
-    shot("about-dark", "dark", 8, None, 0),
     update("update-light", "light"),
     update("update-dark", "dark"),
     shot("focus-nav-light", "light", 7, None, 1),
@@ -404,6 +404,20 @@ fn press(window: &AppWindow, key: Key) {
         .dispatch_event(WindowEvent::KeyReleased { text });
 }
 
+/// The section at a sidebar position, all sections shown.
+fn section(page: i32) -> Page {
+    match page {
+        0 => Page::Search,
+        1 => Page::Albums,
+        2 => Page::Artists,
+        3 => Page::Playlists,
+        4 => Page::Labels,
+        5 => Page::Songs,
+        6 => Page::Folders,
+        _ => Page::Settings,
+    }
+}
+
 /// Stand-in synced lines for the lyrics shots.
 const LYRICS: &[&str] = &[
     "Morning comes in slow and grey",
@@ -422,12 +436,17 @@ fn prepare(window: &AppWindow, shot: &Shot) {
     window
         .global::<ThemesState>()
         .invoke_choose(shot.theme.into());
-    window.set_selected_index(shot.page);
+    window.set_section(section(shot.page));
     let player = window.global::<PlayerState>();
-    player.set_now_playing_open(shot.now_playing);
+    player.set_overlay(if shot.lyrics {
+        Overlay::Lyrics
+    } else if shot.now_playing {
+        Overlay::NowPlaying
+    } else {
+        Overlay::None
+    });
     // Set directly: the shots read no lyrics.
     player.set_has_lyrics(shot.lyrics);
-    player.set_lyrics_shown(shot.lyrics);
     player.set_lyrics_synced(shot.lyrics);
     player.set_lyrics_lines(ModelRc::new(VecModel::from(
         LYRICS

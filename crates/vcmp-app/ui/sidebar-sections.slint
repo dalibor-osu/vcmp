@@ -1,0 +1,81 @@
+import { SettingRow, Toggle } from "components.slint";
+
+// Which library sections the sidebar shows, chosen in Settings and saved by
+// src/preferences.rs. Search and Settings always show. A hidden Playlists or Labels
+// takes its list below the sections with it; its pages still open from links.
+export global SidebarSections {
+    in-out property <bool> albums: true;
+    in-out property <bool> artists: true;
+    in-out property <bool> playlists: true;
+    in-out property <bool> labels: true;
+    in-out property <bool> songs: true;
+    in-out property <bool> folders: true;
+    // A switch was flipped: save the choice.
+    callback toggled();
+}
+
+component SectionRow inherits SettingRow {
+    in property <bool> shown;
+    callback flipped(bool);
+    forward-focus: toggle;
+
+    toggle := Toggle {
+        label: @tr("Show {} in the sidebar", root.title);
+        checked: root.shown;
+        toggled(on) => {
+            root.flipped(on);
+            SidebarSections.toggled();
+        }
+    }
+}
+
+// The switches in Settings' Appearance, one per library section.
+export component SidebarRows inherits VerticalLayout {
+    SettingRow {
+        title: @tr("Sidebar");
+        description: @tr("The library sections the sidebar shows. Search and Settings always show, and a hidden section's pages still open from links.");
+    }
+
+    SectionRow {
+        title: @tr("Albums");
+        shown: SidebarSections.albums;
+        flipped(on) => {
+            SidebarSections.albums = on;
+        }
+    }
+    SectionRow {
+        title: @tr("Artists");
+        shown: SidebarSections.artists;
+        flipped(on) => {
+            SidebarSections.artists = on;
+        }
+    }
+    SectionRow {
+        title: @tr("Playlists");
+        shown: SidebarSections.playlists;
+        flipped(on) => {
+            SidebarSections.playlists = on;
+        }
+    }
+    SectionRow {
+        title: @tr("Labels");
+        shown: SidebarSections.labels;
+        flipped(on) => {
+            SidebarSections.labels = on;
+        }
+    }
+    SectionRow {
+        title: @tr("Songs");
+        shown: SidebarSections.songs;
+        flipped(on) => {
+            SidebarSections.songs = on;
+        }
+    }
+    SectionRow {
+        title: @tr("Folders");
+        shown: SidebarSections.folders;
+        flipped(on) => {
+            SidebarSections.folders = on;
+        }
+    }
+}

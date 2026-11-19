@@ -342,7 +342,7 @@ fn the_picker_works_from_the_keyboard() {
 #[test]
 fn the_picker_fits_the_smallest_window() {
     let app = open();
-    let width = 720.0;
+    let width = 780.0;
     app.window
         .window()
         .set_size(slint::LogicalSize::new(width, 480.0));

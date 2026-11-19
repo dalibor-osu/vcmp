@@ -24,10 +24,11 @@ import { PhotoKeyRow, PhotoSearch } from "photo-picker.slint";
 import { AgentsSection } from "agents.slint";
 import { LabelFilter, LabelFilterPage, Labels, LabelsSection } from "labels.slint";
 import { LibraryCheck } from "library-check.slint";
+import { SidebarRows } from "sidebar-sections.slint";
 
-// Shared frame of Settings and About: title plus content in a column in the middle of
-// the page, fading in when the page is opened. The column takes 60 % of a wide page,
-// from the reading width up to `column-max-width`, and all of a narrow one.
+// The frame of Settings: title plus content in a column in the middle of the page,
+// fading in when the page is opened. The column takes 60 % of a wide page, from the
+// reading width up to `column-max-width`, and all of a narrow one.
 component Page inherits HorizontalLayout {
     in property <string> title;
 
@@ -59,7 +60,141 @@ component Page inherits HorizontalLayout {
 }
 
 
+// What VCMP is, its licences and credits, and the Made with Slint badge: the last
+// section of Settings.
+component AboutSection inherits VerticalLayout {
+    in property <string> version;
+
+    spacing: Theme.space-xl;
+
+    VerticalLayout {
+        spacing: Theme.space-s;
+
+        SectionHeading {
+            text: @tr("About");
+        }
+
+        Text {
+            text: @tr("VCMP, version {}", root.version);
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+        }
+
+        // Strong, so it doesn't read as one more line of the description below.
+        if UpdateState.available: UpdateLink {
+            font-weight: Theme.weight-strong;
+        }
+
+        Text {
+            text: @tr("A cross-platform music player for locally stored music.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        Text {
+            text: @tr("Licensed under the MIT License or the Apache License 2.0, at your option.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        Text {
+            text: @tr("Typeface: Sora by the Sora Project Authors, licensed under the SIL Open Font License 1.1.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        // Where what VCMP finds online comes from; fanart.tv's terms ask apps to
+        // tell their users.
+        Text {
+            text: @tr("Found online: artist photos come from fanart.tv, album covers from the Cover Art Archive, and artist and album details from MusicBrainz.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-l;
+            alignment: start;
+
+            TextLink {
+                text: @tr("fanart.tv");
+                label: @tr("fanart.tv, opens the website");
+                clicked => {
+                    Platform.open-url("https://fanart.tv");
+                }
+            }
+            TextLink {
+                text: @tr("Cover Art Archive");
+                label: @tr("Cover Art Archive, opens the website");
+                clicked => {
+                    Platform.open-url("https://coverartarchive.org");
+                }
+            }
+            TextLink {
+                text: @tr("MusicBrainz");
+                label: @tr("MusicBrainz, opens the website");
+                clicked => {
+                    Platform.open-url("https://musicbrainz.org");
+                }
+            }
+        }
+    }
+
+    // The Slint royalty-free license requires showing this widget in the About
+    // section. Its logo follows the operating system's colour scheme rather than
+    // VCMP's theme, so it sits on the system palette's own background. The widget
+    // opens slint.dev on click only; the focus scope adds the keyboard path.
+    VerticalLayout {
+        alignment: start;
+
+        Rectangle {
+            border-radius: Theme.radius-l;
+            background: Palette.background;
+            min-height: about.min-height;
+            max-width: 320px;
+            accessible-role: button;
+            accessible-label: @tr("Made with Slint, opens slint.dev");
+            accessible-action-default => {
+                Platform.open-url("https://slint.dev");
+            }
+
+            about := AboutSlint { }
+
+            link-focus := FocusScope {
+                focus-on-click: false;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        Theme.keyboard-navigation = true;
+                    }
+                }
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        Platform.open-url("https://slint.dev");
+                        return accept;
+                    }
+                    reject
+                }
+            }
+
+            if link-focus.has-focus: FocusRing {
+                around-width: parent.width;
+                around-height: parent.height;
+                radius: Theme.radius-l;
+            }
+        }
+    }
+}
+
 export component SettingsPage inherits Page {
+    in property <string> version;
+
     title: @tr("Settings");
 
     // Devices come and go; list them each time the page opens.
@@ -221,6 +356,8 @@ export component SettingsPage inherits Page {
         ZoomRow { }
 
         MotionRow { }
+
+        SidebarRows { }
     }
 
     LabelsSection { }
@@ -228,135 +365,9 @@ export component SettingsPage inherits Page {
     AgentsSection { }
 
     UpdatesSection { }
-}
 
-export component AboutPage inherits Page {
-    in property <string> version;
-
-    title: @tr("About");
-
-    VerticalLayout {
-        spacing: Theme.space-s;
-
-        SectionHeading {
-            text: "VCMP";
-        }
-
-        Text {
-            text: @tr("Version {}", root.version);
-            color: Theme.colors.text-muted;
-            font-size: Theme.font-small;
-        }
-
-        // Strong, so it doesn't read as one more line of the description below.
-        if UpdateState.available: UpdateLink {
-            font-weight: Theme.weight-strong;
-        }
-
-        Text {
-            text: @tr("A cross-platform music player for locally stored music.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        Text {
-            text: @tr("Licensed under the MIT License or the Apache License 2.0, at your option.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        Text {
-            text: @tr("Typeface: Sora by the Sora Project Authors, licensed under the SIL Open Font License 1.1.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        // Where what VCMP finds online comes from; fanart.tv's terms ask apps to
-        // tell their users.
-        Text {
-            text: @tr("Found online: artist photos come from fanart.tv, album covers from the Cover Art Archive, and artist and album details from MusicBrainz.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        HorizontalLayout {
-            spacing: Theme.space-l;
-            alignment: start;
-
-            TextLink {
-                text: @tr("fanart.tv");
-                label: @tr("fanart.tv, opens the website");
-                clicked => {
-                    Platform.open-url("https://fanart.tv");
-                }
-            }
-            TextLink {
-                text: @tr("Cover Art Archive");
-                label: @tr("Cover Art Archive, opens the website");
-                clicked => {
-                    Platform.open-url("https://coverartarchive.org");
-                }
-            }
-            TextLink {
-                text: @tr("MusicBrainz");
-                label: @tr("MusicBrainz, opens the website");
-                clicked => {
-                    Platform.open-url("https://musicbrainz.org");
-                }
-            }
-        }
-    }
-
-    // The Slint royalty-free license requires showing this widget in the About
-    // screen. Its logo follows the operating system's colour scheme rather than
-    // VCMP's theme, so it sits on the system palette's own background. The widget
-    // opens slint.dev on click only; the focus scope adds the keyboard path.
-    VerticalLayout {
-        alignment: start;
-
-        Rectangle {
-            border-radius: Theme.radius-l;
-            background: Palette.background;
-            min-height: about.min-height;
-            max-width: 320px;
-            accessible-role: button;
-            accessible-label: @tr("Made with Slint, opens slint.dev");
-            accessible-action-default => {
-                Platform.open-url("https://slint.dev");
-            }
-
-            about := AboutSlint { }
-
-            link-focus := FocusScope {
-                focus-on-click: false;
-                focus-gained(reason) => {
-                    if reason == FocusReason.tab-navigation {
-                        Theme.keyboard-navigation = true;
-                    }
-                }
-                key-pressed(event) => {
-                    if event.text == Key.Space || event.text == Key.Return {
-                        Platform.open-url("https://slint.dev");
-                        return accept;
-                    }
-                    reject
-                }
-            }
-
-            if link-focus.has-focus: FocusRing {
-                around-width: parent.width;
-                around-height: parent.height;
-                radius: Theme.radius-l;
-            }
-        }
+    AboutSection {
+        version: root.version;
     }
 }
 
@@ -499,7 +510,7 @@ export component AlbumsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.album-open;
-        in-sight: root.shown && root.album-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.album-open && !PlayerState.overlay-open;
         playing-path: PlayerState.track-path;
         play(start, shuffle) => {
             root.play-album(start, shuffle);
@@ -692,7 +703,7 @@ export component ArtistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.artist-open && !root.album-open;
-        in-sight: root.shown && root.artist-open && !root.album-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.artist-open && !root.album-open && !PlayerState.overlay-open;
         artist: root.artist;
         albums: root.artist-albums;
         appearances: root.appearances;
@@ -723,7 +734,7 @@ export component ArtistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.album-open;
-        in-sight: root.shown && root.album-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.album-open && !PlayerState.overlay-open;
         picture-slot: PictureSlot.artist-album;
         back-label: root.artist.name;
         playing-path: PlayerState.track-path;
@@ -888,7 +899,7 @@ export component PlaylistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.playlist-open;
-        in-sight: root.shown && root.playlist-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.playlist-open && !PlayerState.overlay-open;
         playlist: root.playlist;
         tracks: root.tracks;
         playing-path: PlayerState.track-path;

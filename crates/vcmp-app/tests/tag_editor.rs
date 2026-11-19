@@ -409,7 +409,7 @@ fn a_chosen_cover_is_embedded_and_can_be_removed() {
 #[test]
 fn the_editor_fits_the_smallest_window() {
     let app = start();
-    app.window.window().set_size(LogicalSize::new(720.0, 480.0));
+    app.window.window().set_size(LogicalSize::new(780.0, 480.0));
     app.state()
         .invoke_edit_track(app.music.join("1.flac").to_string_lossy().as_ref().into());
     for role in [AccessibleRole::TextInput, AccessibleRole::Button] {
@@ -422,7 +422,7 @@ fn the_editor_fits_the_smallest_window() {
         {
             let right = element.absolute_position().x + element.size().width;
             assert!(
-                right <= 720.5,
+                right <= 780.5,
                 "{:?} {:?} ends at {right}",
                 role,
                 element.accessible_label()

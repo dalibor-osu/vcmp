@@ -41,6 +41,9 @@ fn main() -> Result<(), slint::PlatformError> {
         Ok((library, paths)) => {
             let library = Rc::new(library);
             Themes::connect(&window, Some(library.clone()), Some(themes_folder(&paths)));
+            if let Err(error) = vcmp_app::preferences::connect_sidebar(&window, library.clone()) {
+                log::warn!("could not load the sidebar's sections: {error}");
+            }
             let mut first_start = false;
             match LibraryView::connect(&window, library.clone()) {
                 Ok(view) => {

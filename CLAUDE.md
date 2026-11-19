@@ -26,7 +26,7 @@ Read it before changing anything structural.
 | Area | Choice |
 |---|---|
 | Language | Rust, edition 2024, minimum Rust 1.92 |
-| UI | Slint 1.18, royalty-free license (the `AboutSlint` widget must stay on the About page) |
+| UI | Slint 1.18, royalty-free license (the `AboutSlint` widget must stay in the About section of Settings) |
 | Audio | Own engine: symphonia 0.6 (decoding), cpal 0.18 (output; on Linux its pure-Rust PulseAudio backend, ALSA when no server answers), rubato 5 (resampling), rtrb (lock-free ring buffer) |
 | Storage | SQLite (bundled via rusqlite), FTS5 search; tags read and written with lofty; unicode-normalization to fold accents for the library check |
 | Local dates | chrono (its `clock` feature only), for the Songs page's Last played and Added days |
