@@ -6,26 +6,26 @@
 
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
-use crate::navigation::section;
 use crate::{
     AppWindow, LibraryCheck, Page, PhotoSearch, SettingEntry, SettingsNav, SettingsSection, Setup,
 };
 
 /// The sections in the order of `SettingsNav.sections`.
-pub const SECTIONS: [SettingsSection; 6] = [
+pub const SECTIONS: [SettingsSection; 7] = [
     SettingsSection::General,
     SettingsSection::Library,
     SettingsSection::Playback,
     SettingsSection::Appearance,
     SettingsSection::OnlineServices,
     SettingsSection::Agents,
+    SettingsSection::About,
 ];
 
 /// What a search found: per block, per section, and how many blocks.
 #[derive(Debug, PartialEq)]
 pub struct Found {
     pub blocks: Vec<bool>,
-    pub sections: [bool; 6],
+    pub sections: [bool; 7],
     pub count: usize,
 }
 
@@ -78,7 +78,7 @@ pub fn install(window: &AppWindow) {
         }
         window.global::<LibraryCheck>().set_open(false);
         window.global::<SettingsNav>().invoke_show(settings_section);
-        window.invoke_show_section(section(Page::Settings));
+        window.invoke_show_section(Page::Settings);
     });
 }
 
@@ -88,7 +88,7 @@ pub fn find(query: &str, blocks: &[Block]) -> Found {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
     let mut found = Found {
         blocks: Vec::with_capacity(blocks.len()),
-        sections: [false; 6],
+        sections: [false; 7],
         count: 0,
     };
     for block in blocks {
@@ -128,6 +128,7 @@ pub fn saved_name(settings_section: SettingsSection) -> &'static str {
         SettingsSection::Appearance => "appearance",
         SettingsSection::OnlineServices => "online_services",
         SettingsSection::Agents => "agents",
+        SettingsSection::About => "about",
     }
 }
 
@@ -181,7 +182,10 @@ mod tests {
         );
         let found = find("random", &blocks);
         assert_eq!(found.count, 1);
-        assert_eq!(found.sections, [false, false, true, false, false, false]);
+        assert_eq!(
+            found.sections,
+            [false, false, true, false, false, false, false]
+        );
     }
 
     #[test]

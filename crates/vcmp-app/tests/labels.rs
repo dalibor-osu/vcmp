@@ -437,7 +437,7 @@ fn the_sidebar_and_settings_list_the_labels() {
     let app = start();
     app.make("chill", 6);
     app.make("rainy", 8);
-    app.window.set_selected_index(4);
+    app.window.set_section(Page::Labels);
     assert_eq!(app.window.get_current_page(), Page::Labels);
     let entry = app
         .find(AccessibleRole::Button, "chill")
@@ -445,7 +445,7 @@ fn the_sidebar_and_settings_list_the_labels() {
     entry.invoke_accessible_default_action();
     assert!(app.window.get_label_open());
 
-    app.window.set_selected_index(7);
+    app.window.set_section(Page::Settings);
     app.window
         .global::<SettingsNav>()
         .invoke_show(SettingsSection::Library);
@@ -468,7 +468,7 @@ fn the_sidebar_and_settings_list_the_labels() {
 fn the_delete_question_is_a_dialog_that_keeps_the_keyboard() {
     let app = start();
     app.make("rainy", 8);
-    app.window.set_selected_index(7);
+    app.window.set_section(Page::Settings);
     app.window
         .global::<SettingsNav>()
         .invoke_show(SettingsSection::Library);
@@ -540,7 +540,7 @@ fn the_delete_question_is_a_dialog_that_keeps_the_keyboard() {
 #[test]
 fn the_labels_page_without_labels_keeps_its_title_at_the_top() {
     let app = start();
-    app.window.set_selected_index(4);
+    app.window.set_section(Page::Labels);
     let title = ElementHandle::find_by_accessible_label(&app.window, "Labels")
         .find(|element| element.accessible_role() == Some(AccessibleRole::Text))
         .expect("the page's title");

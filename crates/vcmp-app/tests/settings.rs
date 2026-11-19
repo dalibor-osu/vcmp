@@ -75,7 +75,7 @@ fn each_section_shows_its_own_rows() {
     assert!(find(&window, AccessibleRole::RadioGroup, "Shuffle").is_none());
 
     // The section stays while another page is shown.
-    find(&window, AccessibleRole::Tab, "About")
+    find(&window, AccessibleRole::Tab, "Albums")
         .unwrap()
         .invoke_accessible_default_action();
     find(&window, AccessibleRole::Tab, "Settings")

@@ -3,7 +3,7 @@
 // search against them (src/settings_nav.rs), saves the section shown
 // (src/preferences.rs), and opens Settings on a section from elsewhere.
 
-export enum SettingsSection { general, library, playback, appearance, online-services, agents }
+export enum SettingsSection { general, library, playback, appearance, online-services, agents, about }
 
 // One block of Settings, as the search sees it: a row, or a group shown whole such
 // as the music folders. `available` is false while the block isn't shown at all (a
@@ -39,6 +39,7 @@ export global SettingsNav {
         SettingsSection.appearance,
         SettingsSection.online-services,
         SettingsSection.agents,
+        SettingsSection.about,
     ];
 
     public pure function name(section: SettingsSection) -> string {
@@ -47,7 +48,8 @@ export global SettingsNav {
             : section == SettingsSection.playback ? @tr("Playback")
             : section == SettingsSection.appearance ? @tr("Appearance")
             : section == SettingsSection.online-services ? @tr("Online services")
-            : @tr("AI agents")
+            : section == SettingsSection.agents ? @tr("AI agents")
+            : @tr("About")
     }
 
     public pure function index(section: SettingsSection) -> int {
@@ -56,7 +58,8 @@ export global SettingsNav {
             : section == SettingsSection.playback ? 2
             : section == SettingsSection.appearance ? 3
             : section == SettingsSection.online-services ? 4
-            : 5
+            : section == SettingsSection.agents ? 5
+            : 6
     }
 
     // Shows a section; a search in progress ends.

@@ -25,40 +25,135 @@ import { AgentsBackupsRow, AgentsChangesRow, AgentsConnection, AgentsPlaybackRow
 import { LabelFilter, LabelFilterPage, Labels, LabelsSection } from "labels.slint";
 import { LibraryCheck } from "library-check.slint";
 import { SettingEntry, SettingsNav, SettingsSection } from "settings-nav.slint";
+import { SidebarRows } from "sidebar-sections.slint";
 
-// About's frame: title plus content in a column in the middle of the page, fading in
-// when the page is opened. The column takes 60 % of a wide page, from the reading
-// width up to `column-max-width`, and all of a narrow one. Settings shares its width.
-component Page inherits HorizontalLayout {
-    in property <string> title;
+// What VCMP is, its licences and credits, and the Made with Slint badge: the last
+// section of Settings.
+component AboutSection inherits VerticalLayout {
+    in property <string> version;
 
-    private property <length> room: root.width - 2 * Theme.space-xxl;
-
-    opacity: 0;
-    init => {
-        self.opacity = 1;
-    }
-    animate opacity { duration: Theme.duration-medium; easing: ease-out; }
-
-    padding: Theme.space-xxl;
-    alignment: center;
+    spacing: Theme.space-xl;
 
     VerticalLayout {
-        width: min(root.room, max(Theme.content-max-width, min(Theme.column-max-width, root.room * 0.6)));
-        spacing: Theme.space-xl;
-        alignment: start;
+        spacing: Theme.space-s;
 
         Text {
-            text: root.title;
-            color: Theme.colors.text;
-            font-size: Theme.font-title;
+            text: @tr("VCMP, version {}", root.version);
+            color: Theme.colors.text-muted;
+            font-size: Theme.font-small;
+        }
+
+        // Strong, so it doesn't read as one more line of the description below.
+        if UpdateState.available: UpdateLink {
             font-weight: Theme.weight-strong;
         }
 
-        @children
+        Text {
+            text: @tr("A cross-platform music player for locally stored music.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        Text {
+            text: @tr("Licensed under the MIT License or the Apache License 2.0, at your option.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        Text {
+            text: @tr("Typeface: Sora by the Sora Project Authors, licensed under the SIL Open Font License 1.1.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        // Where what VCMP finds online comes from; fanart.tv's terms ask apps to
+        // tell their users.
+        Text {
+            text: @tr("Found online: artist photos come from fanart.tv, album covers from the Cover Art Archive, and artist and album details from MusicBrainz.");
+            color: Theme.colors.text;
+            font-size: Theme.font-body;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-l;
+            alignment: start;
+
+            TextLink {
+                text: @tr("fanart.tv");
+                label: @tr("fanart.tv, opens the website");
+                clicked => {
+                    Platform.open-url("https://fanart.tv");
+                }
+            }
+            TextLink {
+                text: @tr("Cover Art Archive");
+                label: @tr("Cover Art Archive, opens the website");
+                clicked => {
+                    Platform.open-url("https://coverartarchive.org");
+                }
+            }
+            TextLink {
+                text: @tr("MusicBrainz");
+                label: @tr("MusicBrainz, opens the website");
+                clicked => {
+                    Platform.open-url("https://musicbrainz.org");
+                }
+            }
+        }
+    }
+
+    // The Slint royalty-free license requires showing this widget in the About
+    // section. Its logo follows the operating system's colour scheme rather than
+    // VCMP's theme, so it sits on the system palette's own background. The widget
+    // opens slint.dev on click only; the focus scope adds the keyboard path.
+    VerticalLayout {
+        alignment: start;
+
+        Rectangle {
+            border-radius: Theme.radius-l;
+            background: Palette.background;
+            min-height: about.min-height;
+            max-width: 320px;
+            accessible-role: button;
+            accessible-label: @tr("Made with Slint, opens slint.dev");
+            accessible-action-default => {
+                Platform.open-url("https://slint.dev");
+            }
+
+            about := AboutSlint { }
+
+            link-focus := FocusScope {
+                focus-on-click: false;
+                focus-gained(reason) => {
+                    if reason == FocusReason.tab-navigation {
+                        Theme.keyboard-navigation = true;
+                    }
+                }
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        Platform.open-url("https://slint.dev");
+                        return accept;
+                    }
+                    reject
+                }
+            }
+
+            if link-focus.has-focus: FocusRing {
+                around-width: parent.width;
+                around-height: parent.height;
+                radius: Theme.radius-l;
+            }
+        }
     }
 }
-
 
 // A section's name over what a search found in it.
 component ResultHeading inherits VerticalLayout {
@@ -77,6 +172,8 @@ component ResultHeading inherits VerticalLayout {
 // search field holds text, the page shows the blocks it found in every section,
 // under their sections' names, instead.
 export component SettingsPage inherits HorizontalLayout {
+    in property <string> version;
+
     // Every block of Settings, in the order the page shows them, for the search
     // (`SettingsNav.found` follows this order). Each block below shows through
     // `root.shows` with its place here; tests/ui_invariants.rs checks that each place
@@ -97,6 +194,7 @@ export component SettingsPage inherits HorizontalLayout {
         { section: SettingsSection.appearance, title: @tr("Theme files"), keywords: @tr("custom own folder reload save"), available: Themes.folder-available },
         { section: SettingsSection.appearance, title: @tr("Zoom"), keywords: @tr("scale size bigger smaller larger"), available: true },
         { section: SettingsSection.appearance, title: @tr("Reduce motion"), keywords: @tr("animation animations transitions"), available: true },
+        { section: SettingsSection.appearance, title: @tr("Sidebar"), keywords: @tr("sections albums artists playlists labels songs folders hide show"), available: true },
         { section: SettingsSection.online-services, title: @tr("Find lyrics online"), keywords: @tr("lyrics lrclib internet"), available: true },
         { section: SettingsSection.online-services, title: @tr("Show on Discord"), keywords: @tr("rich presence status"), available: PlayerState.discord-available },
         { section: SettingsSection.online-services, title: @tr("Last.fm"), keywords: @tr("scrobble scrobbling connect account lastfm"), available: LastfmState.available },
@@ -109,6 +207,7 @@ export component SettingsPage inherits HorizontalLayout {
         { section: SettingsSection.agents, title: @tr("Port"), keywords: @tr("network connection"), available: AgentState.enabled },
         { section: SettingsSection.agents, title: @tr("Changes by agents"), keywords: @tr("review undo history"), available: true },
         { section: SettingsSection.agents, title: @tr("Backups for undo"), keywords: @tr("delete covers"), available: true },
+        { section: SettingsSection.about, title: @tr("About"), keywords: @tr("version licence license credits slint fanart musicbrainz"), available: true },
     ];
     // What is typed changes what the search finds, and so does a row that appears
     // or goes (Last.fm connected, agents switched on).
@@ -193,6 +292,7 @@ export component SettingsPage inherits HorizontalLayout {
                         SettingsNav.name(SettingsSection.appearance),
                         SettingsNav.name(SettingsSection.online-services),
                         SettingsNav.name(SettingsSection.agents),
+                        SettingsNav.name(SettingsSection.about),
                     ];
                     current-index: SettingsNav.index(SettingsNav.section) - 1;
                     selected(index) => {
@@ -395,170 +495,51 @@ export component SettingsPage inherits HorizontalLayout {
 
                     if root.shows(14): MotionRow { }
 
+                    if root.shows(15): SidebarRows { }
+
                     // Online services
                     if SettingsNav.section-found(SettingsSection.online-services): ResultHeading {
                         section: SettingsSection.online-services;
                     }
 
-                    if root.shows(15): LyricsOnlineRow { }
+                    if root.shows(16): LyricsOnlineRow { }
 
-                    if root.shows(16): DiscordRow { }
+                    if root.shows(17): DiscordRow { }
 
-                    if root.shows(17): LastfmRow { }
+                    if root.shows(18): LastfmRow { }
 
-                    if root.shows(18): LastfmLoveRow { }
+                    if root.shows(19): LastfmLoveRow { }
 
-                    if root.shows(19): LastfmImportRow { }
+                    if root.shows(20): LastfmImportRow { }
 
-                    if root.shows(20): PhotoKeyRow { }
+                    if root.shows(21): PhotoKeyRow { }
 
                     // AI agents
                     if SettingsNav.section-found(SettingsSection.agents): ResultHeading {
                         section: SettingsSection.agents;
                     }
 
-                    if root.shows(21): AgentsSwitchRow { }
+                    if root.shows(22): AgentsSwitchRow { }
 
-                    if root.shows(22): AgentsConnection { }
+                    if root.shows(23): AgentsConnection { }
 
-                    if root.shows(23): AgentsPlaybackRow { }
+                    if root.shows(24): AgentsPlaybackRow { }
 
-                    if root.shows(24): AgentsPortRow { }
+                    if root.shows(25): AgentsPortRow { }
 
-                    if root.shows(25): AgentsChangesRow { }
+                    if root.shows(26): AgentsChangesRow { }
 
-                    if root.shows(26): AgentsBackupsRow { }
-                }
-            }
-        }
-    }
-}
+                    if root.shows(27): AgentsBackupsRow { }
 
-export component AboutPage inherits Page {
-    in property <string> version;
+                    // About
+                    if SettingsNav.section-found(SettingsSection.about): ResultHeading {
+                        section: SettingsSection.about;
+                    }
 
-    title: @tr("About");
-
-    VerticalLayout {
-        spacing: Theme.space-s;
-
-        SectionHeading {
-            text: "VCMP";
-        }
-
-        Text {
-            text: @tr("Version {}", root.version);
-            color: Theme.colors.text-muted;
-            font-size: Theme.font-small;
-        }
-
-        // Strong, so it doesn't read as one more line of the description below.
-        if UpdateState.available: UpdateLink {
-            font-weight: Theme.weight-strong;
-        }
-
-        Text {
-            text: @tr("A cross-platform music player for locally stored music.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        Text {
-            text: @tr("Licensed under the MIT License or the Apache License 2.0, at your option.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        Text {
-            text: @tr("Typeface: Sora by the Sora Project Authors, licensed under the SIL Open Font License 1.1.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        // Where what VCMP finds online comes from; fanart.tv's terms ask apps to
-        // tell their users.
-        Text {
-            text: @tr("Found online: artist photos come from fanart.tv, album covers from the Cover Art Archive, and artist and album details from MusicBrainz.");
-            color: Theme.colors.text;
-            font-size: Theme.font-body;
-            wrap: word-wrap;
-            min-height: self.preferred-height;
-        }
-
-        HorizontalLayout {
-            spacing: Theme.space-l;
-            alignment: start;
-
-            TextLink {
-                text: @tr("fanart.tv");
-                label: @tr("fanart.tv, opens the website");
-                clicked => {
-                    Platform.open-url("https://fanart.tv");
-                }
-            }
-            TextLink {
-                text: @tr("Cover Art Archive");
-                label: @tr("Cover Art Archive, opens the website");
-                clicked => {
-                    Platform.open-url("https://coverartarchive.org");
-                }
-            }
-            TextLink {
-                text: @tr("MusicBrainz");
-                label: @tr("MusicBrainz, opens the website");
-                clicked => {
-                    Platform.open-url("https://musicbrainz.org");
-                }
-            }
-        }
-    }
-
-    // The Slint royalty-free license requires showing this widget in the About
-    // screen. Its logo follows the operating system's colour scheme rather than
-    // VCMP's theme, so it sits on the system palette's own background. The widget
-    // opens slint.dev on click only; the focus scope adds the keyboard path.
-    VerticalLayout {
-        alignment: start;
-
-        Rectangle {
-            border-radius: Theme.radius-l;
-            background: Palette.background;
-            min-height: about.min-height;
-            max-width: 320px;
-            accessible-role: button;
-            accessible-label: @tr("Made with Slint, opens slint.dev");
-            accessible-action-default => {
-                Platform.open-url("https://slint.dev");
-            }
-
-            about := AboutSlint { }
-
-            link-focus := FocusScope {
-                focus-on-click: false;
-                focus-gained(reason) => {
-                    if reason == FocusReason.tab-navigation {
-                        Theme.keyboard-navigation = true;
+                    if root.shows(28): AboutSection {
+                        version: root.version;
                     }
                 }
-                key-pressed(event) => {
-                    if event.text == Key.Space || event.text == Key.Return {
-                        Platform.open-url("https://slint.dev");
-                        return accept;
-                    }
-                    reject
-                }
-            }
-
-            if link-focus.has-focus: FocusRing {
-                around-width: parent.width;
-                around-height: parent.height;
-                radius: Theme.radius-l;
             }
         }
     }
@@ -703,7 +684,7 @@ export component AlbumsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.album-open;
-        in-sight: root.shown && root.album-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.album-open && !PlayerState.overlay-open;
         playing-path: PlayerState.track-path;
         play(start, shuffle) => {
             root.play-album(start, shuffle);
@@ -896,7 +877,7 @@ export component ArtistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.artist-open && !root.album-open;
-        in-sight: root.shown && root.artist-open && !root.album-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.artist-open && !root.album-open && !PlayerState.overlay-open;
         artist: root.artist;
         albums: root.artist-albums;
         appearances: root.appearances;
@@ -927,7 +908,7 @@ export component ArtistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.album-open;
-        in-sight: root.shown && root.album-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.album-open && !PlayerState.overlay-open;
         picture-slot: PictureSlot.artist-album;
         back-label: root.artist.name;
         playing-path: PlayerState.track-path;
@@ -1092,7 +1073,7 @@ export component PlaylistsPage inherits Rectangle {
         width: parent.width;
         height: parent.height;
         visible: root.playlist-open;
-        in-sight: root.shown && root.playlist-open && !PlayerState.now-playing-open;
+        in-sight: root.shown && root.playlist-open && !PlayerState.overlay-open;
         playlist: root.playlist;
         tracks: root.tracks;
         playing-path: PlayerState.track-path;

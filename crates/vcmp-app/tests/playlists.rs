@@ -16,7 +16,7 @@ use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, LogicalSize, Model, SharedString};
 use vcmp_app::library_view::{LibraryView, SEARCH_DELAY};
 use vcmp_app::player_service::{PlayerControl, PlayerService};
-use vcmp_app::{AppWindow, Page, PlayerState, PlaylistImport, Playlists};
+use vcmp_app::{AppWindow, Overlay, Page, PlayerState, PlaylistImport, Playlists};
 use vcmp_library::{Library, PlaylistId};
 use vcmp_playback::{Command, Event, NowPlaying, QueueEntry, QueueView, TrackRef};
 
@@ -597,7 +597,7 @@ fn queued_and_playing_tracks_can_be_added_to_a_playlist() {
             duration: None,
             origin: None,
         })));
-    state.set_now_playing_open(true);
+    state.set_overlay(Overlay::NowPlaying);
     mock_elapsed_time(Duration::ZERO);
     find(&app.window, AccessibleRole::Button, "More for One");
     app.window

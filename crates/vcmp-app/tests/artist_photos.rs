@@ -16,7 +16,7 @@ use tempfile::TempDir;
 use vcmp_app::artist_photos::{ArtistPhotos, PhotoSource};
 use vcmp_app::library_view::LibraryView;
 use vcmp_app::{
-    AppWindow, ArtworkState, PhotoSearch, PhotoSearchStatus, SettingsNav, SettingsSection,
+    AppWindow, ArtworkState, Page, PhotoSearch, PhotoSearchStatus, SettingsNav, SettingsSection,
 };
 use vcmp_integrations::fanart::{ArtistQuery, Photo, PhotoEvent, SearchError};
 use vcmp_library::Library;
@@ -92,7 +92,7 @@ fn open(online: bool) -> App {
     window.window().set_size(LogicalSize::new(1100.0, 900.0));
     let band = library.artists().unwrap()[0].id;
     view.open_artist_by_id(band);
-    window.set_selected_index(2);
+    window.set_section(Page::Artists);
     mock_elapsed_time(Duration::ZERO);
     App {
         _dir: dir,
@@ -333,7 +333,7 @@ fn key_field_shown(app: &App) -> bool {
     app.window
         .window()
         .set_size(LogicalSize::new(1100.0, 2400.0));
-    app.window.set_selected_index(7);
+    app.window.set_section(Page::Settings);
     app.window
         .global::<SettingsNav>()
         .invoke_show(SettingsSection::OnlineServices);
@@ -344,10 +344,13 @@ fn key_field_shown(app: &App) -> bool {
 }
 
 #[test]
-fn settings_and_about_tell_where_photos_come_from() {
+fn settings_tells_where_photos_come_from() {
     let app = open(true);
     assert!(key_field_shown(&app), "Settings offers the personal key");
-    app.window.set_selected_index(8);
+    // Its About section names where the photos come from.
+    app.window
+        .global::<SettingsNav>()
+        .invoke_show(SettingsSection::About);
     app.frame();
     assert!(app.button("fanart.tv, opens the website").is_some());
     assert!(app.button("Cover Art Archive, opens the website").is_some());

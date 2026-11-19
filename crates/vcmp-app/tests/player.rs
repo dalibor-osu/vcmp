@@ -21,7 +21,7 @@ use vcmp_app::player_service::{
 };
 use vcmp_app::saved_queue;
 use vcmp_app::{
-    AppWindow, LastfmState, LastfmStatus, PlayState, PlayerProblem, PlayerState, Repeat,
+    AppWindow, LastfmState, LastfmStatus, Overlay, PlayState, PlayerProblem, PlayerState, Repeat,
     ScrobbleMark, Shuffle, ShuffleKind, SleepTimer,
 };
 use vcmp_integrations::discord::Listening;
@@ -1511,10 +1511,10 @@ fn the_now_playing_button_opens_the_view_and_escape_or_the_background_closes_it(
     );
 
     toggle().invoke_accessible_default_action();
-    assert!(app.state().get_now_playing_open());
+    assert!(app.state().get_overlay_open());
     assert_eq!(toggle().accessible_checked(), Some(true));
     app.key(Key::Escape);
-    assert!(!app.state().get_now_playing_open(), "Escape closes it");
+    assert!(!app.state().get_overlay_open(), "Escape closes it");
 
     toggle().invoke_accessible_default_action();
     // A click on the background, away from the cover and the text.
@@ -1532,10 +1532,7 @@ fn the_now_playing_button_opens_the_view_and_escape_or_the_background_closes_it(
             position,
             button: slint::platform::PointerEventButton::Left,
         });
-    assert!(
-        !app.state().get_now_playing_open(),
-        "the background closes it"
-    );
+    assert!(!app.state().get_overlay_open(), "the background closes it");
 }
 
 #[test]
@@ -1555,14 +1552,14 @@ fn the_playing_track_leads_to_its_album_and_artist() {
     assert_eq!(app.window.get_artist_detail().name, "Band");
 
     // The same from the now playing view, which closes on the way.
-    app.state().set_now_playing_open(true);
+    app.state().set_overlay(Overlay::NowPlaying);
     let links: Vec<_> =
         ElementHandle::find_by_accessible_label(&app.window, "Record, go to the album")
             .filter(|element| element.accessible_role() == Some(AccessibleRole::Button))
             .collect();
     assert_eq!(links.len(), 1, "the album name in the view");
     links[0].invoke_accessible_default_action();
-    assert!(!app.state().get_now_playing_open());
+    assert!(!app.state().get_overlay_open());
     assert_eq!(app.window.get_current_page(), vcmp_app::Page::Albums);
 }
 
@@ -1574,7 +1571,7 @@ fn the_next_track_in_the_view_plays_when_chosen() {
         upcoming: vec![app.entry("2.flac")],
         ..QueueView::default()
     }));
-    app.state().set_now_playing_open(true);
+    app.state().set_overlay(Overlay::NowPlaying);
     app.sent.take();
     app.press(AccessibleRole::Button, "Play the next track, Closing");
     assert_eq!(app.sent.take(), [Command::Next]);

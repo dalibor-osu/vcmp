@@ -1,5 +1,5 @@
 //! Updates in the window: the check's switches in Settings, saved in the library
-//! database's settings, its note in the sidebar and on the About page, and the
+//! database's settings, its note in the sidebar and in Settings' About section, and the
 //! update dialog, which installs a release and hands over to it. The check is
 //! `vcmp_integrations::updates`, the install and hand-over
 //! `vcmp_integrations::self_update`.

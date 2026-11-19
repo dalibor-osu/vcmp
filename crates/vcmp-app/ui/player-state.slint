@@ -28,6 +28,10 @@ export enum ScrobbleMark { none, counting, scrobbled }
 // tracks a search found, every song, or the favourites.
 export enum QueueSource { named, search, songs, favourites }
 
+// What covers the pages above the player bar: nothing, the now playing view or the
+// lyrics view, one at a time.
+export enum Overlay { none, now-playing, lyrics }
+
 // One track in the queue panel.
 export struct QueueRow {
     title: string,
@@ -62,9 +66,12 @@ export global PlayerState {
     in property <image> large-cover;
     // The frames of an animated cover, decoded with it; empty for a still one.
     in property <[PictureFrame]> large-cover-frames;
-    // The now playing view is open, so the full-size cover is wanted.
-    in-out property <bool> now-playing-open;
-    // The view opened: decode the full-size cover if it is not there yet.
+    // The view over the pages: the player bar's Now playing and Lyrics buttons choose
+    // it, Escape and its close button set it back to none.
+    in-out property <Overlay> overlay;
+    // Now playing or lyrics is open, so the full-size cover is wanted.
+    out property <bool> overlay-open: root.overlay != Overlay.none;
+    // A view opened: decode the full-size cover if it is not there yet.
     callback load-large-cover();
     // The playing track's lyrics (src/player_service/lyrics.rs): synced lines, the
     // one playing (-1 before the first), or plain text.
@@ -73,10 +80,6 @@ export global PlayerState {
     in property <[string]> lyrics-lines;
     in property <int> lyrics-current: -1;
     in property <string> lyrics-text;
-    // The now playing view shows lyrics instead of the cover when the track has some;
-    // remembered.
-    in property <bool> lyrics-shown;
-    callback set-lyrics-shown(bool);
     // Plays from the start of a synced line.
     callback seek-to-lyric(int);
     // "Find lyrics online": LRCLIB is asked when nothing synced is local.

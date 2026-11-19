@@ -331,7 +331,7 @@ fn several_playlist_entries_are_removed_at_once() {
         .collect();
     app.library.add_to_playlist(playlist, &ids).unwrap();
     app.view.reload();
-    app.window.set_selected_index(3);
+    app.window.set_section(Page::Playlists);
     assert_eq!(app.window.get_current_page(), Page::Playlists);
     app.window.invoke_playlist_activated(1);
     mock_elapsed_time(Duration::ZERO);

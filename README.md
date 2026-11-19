@@ -100,7 +100,7 @@ offer them unless "Include pre-releases" is on (Settings, General).
 ### Updating
 
 When VCMP finds a newer version it says "VCMP x is available" at the foot of the
-sidebar and on the About page. On Windows and Linux, choose it, then Install and
+sidebar and in the About section of Settings. On Windows and Linux, choose it, then Install and
 restart: VCMP downloads the new version from GitHub, checks that it carries VCMP's
 signature, puts it in place of the old program and starts it. The queue comes back
 paused. If the new version doesn't start, VCMP puts the old one back and says so.
