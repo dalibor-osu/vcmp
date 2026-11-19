@@ -397,6 +397,31 @@ fn the_now_playing_view_hides_the_controls_under_it() {
 }
 
 #[test]
+fn the_now_playing_view_leaves_the_queue_beside_it_its_room() {
+    let window = open_window();
+    window.window().set_size(LogicalSize::new(1200.0, 700.0));
+    window
+        .global::<vcmp_app::PlayerState>()
+        .set_overlay(Overlay::NowPlaying);
+    window.set_queue_open(true);
+    let _ = ElementHandle::find_by_element_type_name(&window, "NowPlayingView").count();
+    let _ = ElementHandle::find_by_element_type_name(&window, "QueuePanel").count();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_secs(1));
+    let view = ElementHandle::find_by_element_type_name(&window, "NowPlayingView")
+        .next()
+        .expect("the now playing view is open");
+    let panel = ElementHandle::find_by_element_type_name(&window, "QueuePanel")
+        .next()
+        .expect("the queue panel is open");
+    assert_eq!(
+        (view.absolute_position().x, view.size().width),
+        (0.0, 1200.0 - 320.0),
+        "from the window's left edge to the queue"
+    );
+    assert_eq!(panel.absolute_position().x, 1200.0 - 320.0);
+}
+
+#[test]
 fn every_library_page_offers_to_add_a_folder_when_empty() {
     let window = open_window();
     for section in ["Albums", "Artists", "Songs", "Folders"] {

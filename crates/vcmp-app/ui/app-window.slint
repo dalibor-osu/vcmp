@@ -958,6 +958,7 @@ export component AppWindow inherits Window {
                 if root.now-playing-shown > 0 || PlayerState.overlay-open: NowPlayingView {
                     opacity: root.now-playing-shown;
                     visible: !(root.queue-covers && root.queue-settled);
+                    x: 0;
                     width: parent.width - root.queue-room;
                     height: parent.height;
                     close => {
