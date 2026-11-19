@@ -64,10 +64,10 @@ DESIGN.md).
 | `ui/lastfm-settings.slint` | `LastfmRow`: the Last.fm setting and its Connect, Cancel or Disconnect button; `LastfmLoveRow` and `LastfmImportRow`, shown while an account is connected |
 | `src/lastfm_service.rs` | `LastfmService`: the Last.fm rows, the account, plays into the scrobble queue, hearts into the love queue, and the import's progress and result |
 | `ui/app-window.slint` | `AppWindow`: sidebar, current-page marker, content area |
-| `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note, `UpdateCheckRow` and the Updates section of Settings |
+| `ui/updates.slint` | `UpdateState` global, `UpdateLink`, the sidebar's update note, `UpdateDialog`, `UpdateCheckRow`, `PrereleaseRow` and the Updates section of Settings |
 | `ui/agents.slint` | `AgentState` global, `AgentsSwitchRow`, the AI agents section of Settings (switch, connection, the playback switch, backups), `ChangeHistory` (the dialog listing the changes by agents), the sidebar's review note and `ChangeReview`, the dialog that reviews a change, with `ChangeTable` for each file's changes |
 | `src/agents.rs` | `AgentService`: the switch and the MCP server (`vcmp-mcp`), the history, the review (accepting writes in the background like the tag editor), undo, the backups, and the upkeep at start and daily; `AppChanges` brings agents' requests from the server's thread; `AppPlayback` (`src/player_service/agent_playback.rs`) brings their playback requests to `PlayerService` |
-| `src/updates.rs` | The update check's switch, saved in the settings, and the newer release it found |
+| `src/updates.rs` | The update switches, saved in the settings, the newer release found, the update dialog's install, and the start-up arguments of a hand-over |
 | `ui/labels.slint` | `Labels` global, `LabelEntry`, `LabelDot`, `LabelChip(s)`, `LabelFilter` (the Songs and Albums pages' label filter), `LabelEditor` (the dialog that makes or edits a label, with the palette and the custom colour picker) and the Labels section of Settings |
 | `ui/label-page.slint` | `LabelsPage`: the Labels section's list, and `LabelView`, one label's tracks with Play and Shuffle |
 | `src/labels.rs` | `LabelBrowser`: labels behind the `Labels` global: the menus' choices and toggles, the dialog, the filters, the label page, the chips rows show, the colour picker's images |
@@ -1135,15 +1135,16 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - When VCMP starts, unless "Check for updates" (Settings, Updates) is off, a worker
   thread asks GitHub's REST API for the repository's ten newest releases
   (`vcmp_integrations::updates`). It takes the highest version among the published
-  ones, skipping drafts, pre-releases (flagged as such, or with a version like
-  `2.0.0-beta.1`) and tags that are no version, and compares it with the running
+  ones, skipping drafts, tags with a pre-release version like `2.0.0-beta.1`, tags
+  that are no version, and releases flagged as pre-releases unless "Include
+  pre-releases" is on, and compares it with the running
   version by semver precedence. The list is read rather than GitHub's "latest"
   release, because a fix for an older line published after a newer release would
   otherwise count as the newest.
 - A newer version fills `UpdateState`, and the note "VCMP 1.2.0 is available" shows
   at the foot of the sidebar and under the version on About. Activating it opens the
-  release page in the browser; VCMP downloads nothing. The page address is built
-  from the tag, not taken from the answer.
+  update dialog (below). The page address is built from the tag, not taken from the
+  answer.
 - The request carries VCMP's User-Agent (its name and version). GitHub sees the IP
   address and nothing about the library; the setting's description says so.
 - Network errors and answers other than 200 (offline, the rate limit, 404) are
@@ -1151,9 +1152,44 @@ ways of tinting inside Slint misdrew small glyphs with the GPU renderer:
 - The switch is saved as `integrations.update_check` ("false" when off; absent
   means on). Turning it on checks at once, at most once per run; turning it off
   hides a note already shown.
+- "Include pre-releases" (Settings only, not in the wizard) is saved as
+  `integrations.update_prereleases` ("true" when on; absent means off). Flipping it
+  forgets the release on show and checks again; a pre-release that arrives after it
+  was turned off is dropped. It is disabled while the check is off.
 - When the setup wizard opens at the start, the check waits until it closes
   (`updates::connect_held`), and runs then only if the switch is still on: nothing
   goes to GitHub before the user has seen the choice.
+
+## Self-update
+
+The spec: [2026-11-19-in-app-self-update.md](specs/2026-11-19-in-app-self-update.md).
+
+- `vcmp_integrations::self_update::plan` decides, when a release is shown, whether
+  this copy can install it. It can't on other systems than Windows and Linux on
+  x86-64, in debug builds, without a key in `packaging/update-signing.pub`, when the
+  release lacks this system's archive, `SHA256SUMS.txt` or its `.minisig`, or when
+  the program's folder can't be written to. `UpdateState.blocker` says which, and
+  the dialog explains it and offers the release page instead of the install.
+- `UpdateDialog` (a `Modal`, in `dialog-open`) shows the version, "A pre-release"
+  when it is one, what installing does or why it can't, a Release notes link, and
+  two buttons. The focus starts on the second one (Not now, Close, Cancel), as in
+  the confirmation dialog, so a stray Enter never restarts VCMP. While it downloads,
+  a progress bar shows and Cancel is the only way out; Escape and the scrim don't
+  close it then, nor while it restarts.
+- "Install and restart" downloads the signature, the checksums and the archive on a
+  worker thread, checks the signature, then the archive's SHA-256, unpacks the
+  program and the licence texts, copies the old program to `vcmp.old(.exe)` and has
+  the `self-replace` crate swap the new one in. A failure says whether the download,
+  the check or the swap failed, with the system's message, and offers Try again.
+- With the new program in place the event loop quits. `main` saves the queue as on
+  any exit, drops the services and the window (closing the library, the MCP port,
+  the media controls and Discord), and runs `HandOver::run`: it starts the new
+  program with `--update-started <marker>` and waits up to 60 s for the marker
+  file, which the new version writes once its event loop runs. Confirmed, the old
+  program deletes the backup and exits. Otherwise it ends the new process, moves the
+  backup back, and starts it with `--update-failed <version>`, which opens the
+  dialog saying that version didn't start.
+- The new version starts like any other: the queue comes back paused.
 
 ## Setup wizard
 
@@ -1504,7 +1540,11 @@ window's top left on Linux, so there is no shift to speak of.
 - Raising the window from the media widget only un-minimises it: Wayland compositors
   don't let an app take focus without an activation token.
 - The update check asks GitHub without signing in, so it finds nothing while the
-  repository is private (GitHub answers 404). It runs once per start: a VCMP left
+  repository is private (GitHub answers 404).
+- Self-update keeps no backup once the new version confirms its window: a version
+  that crashes later has to be replaced by hand. A second VCMP running from the same
+  folder keeps running the old program. The swap of an unsigned program can be
+  stopped by antivirus software; the hand-over then puts the old one back. It runs once per start: a VCMP left
   open for days learns of a release at its next start.
 - Last.fm's API was exercised through scripted answers; connecting a real account
   is still to be tried, and so are loving, unloving and the import. The page size

@@ -1,19 +1,75 @@
-// The update check: its switch in Settings, and the note that a newer VCMP is out,
-// in the sidebar and on the About page. Rust keeps `UpdateState` current and
-// implements its callback (src/updates.rs).
+// Updates: the check's switches in Settings, the note that a newer VCMP is out, in
+// the sidebar and on the About page, and the dialog the note opens, which installs
+// the update and restarts VCMP. Rust keeps `UpdateState` current and implements its
+// callbacks (src/updates.rs).
 
 import { Theme } from "theme.slint";
-import { SectionHeading, SettingRow, TextLink, Toggle } from "components.slint";
+import { Button, Modal, ProgressBar, SectionHeading, SettingRow, TextLink, Toggle } from "components.slint";
+
+// Where the update dialog is.
+export enum UpdatePhase {
+    // The release, and what installing it does or why VCMP can't.
+    offer,
+    // Downloading and checking it.
+    downloading,
+    // In place; VCMP closes and the new version starts.
+    restarting,
+    // Installing failed; `failure` says where.
+    failed,
+    // The new version didn't start, and this one was put back.
+    rolled-back,
+}
+
+// Why this copy links to the release instead of installing it.
+export enum UpdateBlocker {
+    none,
+    // Not Windows or Linux on x86-64.
+    platform,
+    // A development build.
+    debug-build,
+    // A build without the key that checks the signature.
+    no-key,
+    // The release has no signed download for this system.
+    not-signed,
+    // The folder VCMP runs from can't be written to.
+    read-only,
+}
+
+export enum UpdateFailure {
+    download,
+    verify,
+    install,
+}
 
 export global UpdateState {
     // Ask GitHub for the newest release when VCMP starts.
     in property <bool> check-enabled: true;
     callback set-check-enabled(bool);
+    // Releases flagged as pre-releases count too.
+    in property <bool> include-prereleases;
+    callback set-include-prereleases(bool);
 
+    // The running version ("1.1.0").
+    in property <string> current-version;
     // The newer release's version ("1.2.0") and its page on GitHub; empty while none
     // is known.
     in property <string> version;
     in property <string> release-url;
+    // The newer release is a pre-release.
+    in property <bool> prerelease;
+    in property <UpdateBlocker> blocker;
+
+    in-out property <bool> dialog-open;
+    in-out property <UpdatePhase> phase;
+    // The download, 0 to 1.
+    in property <float> progress;
+    in property <UpdateFailure> failure;
+    // What went wrong, as the system said it.
+    in property <string> error;
+    // The version that didn't start, after a roll-back.
+    in property <string> failed-version;
+    callback install();
+    callback cancel-install();
 
     // A newer release is known and the user still wants to hear about it.
     out property <bool> available: root.check-enabled && root.version != "";
@@ -21,15 +77,29 @@ export global UpdateState {
     public function open-release() {
         Platform.open-url(root.release-url);
     }
+
+    public function open-dialog() {
+        root.dialog-open = true;
+    }
+
+    // Closes the dialog, unless an install is under way.
+    public function close-dialog() {
+        if root.phase == UpdatePhase.downloading || root.phase == UpdatePhase.restarting {
+            return;
+        }
+        root.dialog-open = false;
+        if root.phase != UpdatePhase.offer {
+            root.phase = UpdatePhase.offer;
+        }
+    }
 }
 
-// "VCMP 1.2.0 is available", opening the release page in the browser. VCMP doesn't
-// download it; the page has the installers.
+// "VCMP 1.2.0 is available", opening the update dialog.
 export component UpdateLink inherits TextLink {
     text: @tr("VCMP {} is available", UpdateState.version);
-    label: @tr("VCMP {} is available, opens its page on GitHub", UpdateState.version);
+    label: @tr("VCMP {} is available, opens the update", UpdateState.version);
     clicked => {
-        UpdateState.open-release();
+        UpdateState.open-dialog();
     }
 }
 
@@ -45,10 +115,141 @@ export component SidebarUpdateNote inherits VerticalLayout {
     }
 }
 
+// The update: what it is, then its download, and the restart. The focus starts on
+// the second button (Not now, Close, or Cancel while it downloads), so an Enter
+// pressed by accident never restarts VCMP; Escape and a click beside the dialog
+// close it, except while the update installs.
+export component UpdateDialog inherits Modal {
+    private property <bool> installable: UpdateState.blocker == UpdateBlocker.none;
+    private property <bool> busy: UpdateState.phase == UpdatePhase.downloading || UpdateState.phase == UpdatePhase.restarting;
+    private property <bool> can-install: root.installable && (UpdateState.phase == UpdatePhase.offer || UpdateState.phase == UpdatePhase.failed);
+    private property <UpdatePhase> phase: UpdateState.phase;
+
+    label: root.title;
+    card-width: Theme.dialog-narrow-width;
+
+    private property <string> title: UpdateState.phase == UpdatePhase.rolled-back ? @tr("The update didn't start") : @tr("VCMP {} is available", UpdateState.version);
+
+    private property <string> detail: UpdateState.phase == UpdatePhase.rolled-back ? @tr("VCMP {} didn't start, so VCMP put version {} back. Its release page has the download.", UpdateState.failed-version, UpdateState.current-version) : UpdateState.phase == UpdatePhase.restarting ? @tr("VCMP {} is in place. VCMP closes and starts again; the queue comes back paused.", UpdateState.version) : UpdateState.phase == UpdatePhase.downloading ? @tr("Downloading VCMP {} from GitHub and checking its signature.", UpdateState.version) : UpdateState.phase == UpdatePhase.failed ? (UpdateState.failure == UpdateFailure.download ? @tr("The download failed. Check the connection and try again.") : UpdateState.failure == UpdateFailure.verify ? @tr("The download doesn't carry VCMP's signature, so VCMP didn't install it.") : @tr("VCMP couldn't replace itself and changed nothing.")) : UpdateState.blocker == UpdateBlocker.platform ? @tr("VCMP doesn't update itself on this system yet. Download the new version from its release page.") : UpdateState.blocker == UpdateBlocker.debug-build ? @tr("This is a development build, which doesn't update itself.") : UpdateState.blocker == UpdateBlocker.no-key ? @tr("This build can't check the signature of updates, so it doesn't install them. Download the new version from its release page.") : UpdateState.blocker == UpdateBlocker.not-signed ? @tr("This release has no signed download for this system. Download it from its release page.") : UpdateState.blocker == UpdateBlocker.read-only ? @tr("VCMP can't write to the folder it runs from, so it can't replace itself. Download the new version from its release page.") : @tr("You have VCMP {}. VCMP downloads the update from GitHub, checks its signature, and restarts; the queue comes back paused.", UpdateState.current-version);
+
+    init => {
+        secondary.focus();
+    }
+    changed phase => {
+        secondary.focus();
+    }
+    escape => {
+        UpdateState.close-dialog();
+    }
+    scrim-clicked => {
+        UpdateState.close-dialog();
+    }
+    focus-first => {
+        if primary.enabled {
+            primary.focus();
+        } else {
+            secondary.focus();
+        }
+    }
+    focus-last => {
+        secondary.focus();
+    }
+
+    VerticalLayout {
+        padding: Theme.space-xl;
+        spacing: Theme.space-xl;
+
+        VerticalLayout {
+            spacing: Theme.space-s;
+
+            Text {
+                text: root.title;
+                color: Theme.colors.text;
+                font-size: Theme.font-large;
+                font-weight: Theme.weight-strong;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            if UpdateState.prerelease && UpdateState.phase != UpdatePhase.rolled-back: Text {
+                text: @tr("A pre-release, published for testing.");
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            Text {
+                text: root.detail;
+                color: Theme.colors.text;
+                font-size: Theme.font-body;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            if UpdateState.phase == UpdatePhase.failed && UpdateState.error != "": Text {
+                text: UpdateState.error;
+                color: Theme.colors.text-muted;
+                font-size: Theme.font-small;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            if UpdateState.phase == UpdatePhase.downloading: VerticalLayout {
+                padding-top: Theme.space-s;
+
+                ProgressBar {
+                    progress: UpdateState.progress;
+                    label: @tr("Downloading VCMP {}", UpdateState.version);
+                }
+            }
+            if UpdateState.release-url != "": HorizontalLayout {
+                alignment: start;
+
+                TextLink {
+                    text: @tr("Release notes");
+                    label: @tr("Release notes, opens the release page on GitHub");
+                    clicked => {
+                        UpdateState.open-release();
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-m;
+            alignment: start;
+
+            primary := Button {
+                primary: true;
+                enabled: !root.busy;
+                text: root.busy ? @tr("Install and restart") : root.can-install ? (UpdateState.phase == UpdatePhase.failed ? @tr("Try again") : @tr("Install and restart")) : @tr("Open release page");
+                label: root.busy || root.can-install ? (UpdateState.phase == UpdatePhase.failed ? @tr("Try installing again") : @tr("Install VCMP {} and restart", UpdateState.version)) : @tr("Open the release page on GitHub");
+                clicked => {
+                    if root.can-install {
+                        UpdateState.install();
+                    } else {
+                        UpdateState.open-release();
+                        UpdateState.close-dialog();
+                    }
+                }
+            }
+            secondary := Button {
+                enabled: UpdateState.phase != UpdatePhase.restarting;
+                text: UpdateState.phase == UpdatePhase.downloading ? @tr("Cancel") : root.can-install && UpdateState.phase == UpdatePhase.offer ? @tr("Not now") : @tr("Close");
+                label: UpdateState.phase == UpdatePhase.downloading ? @tr("Cancel the update") : self.text;
+                clicked => {
+                    if UpdateState.phase == UpdatePhase.downloading {
+                        UpdateState.cancel-install();
+                    } else {
+                        UpdateState.close-dialog();
+                    }
+                }
+            }
+        }
+    }
+}
+
 // The update check's switch, in Settings and in the setup wizard.
 export component UpdateCheckRow inherits SettingRow {
     title: @tr("Check for updates");
-    description: @tr("When VCMP starts, it asks github.com whether a newer version is out and links to it in the sidebar. GitHub learns your IP address, nothing about your music.");
+    description: @tr("When VCMP starts, it asks github.com whether a newer version is out and offers to install it. GitHub learns your IP address, nothing about your music.");
     forward-focus: toggle;
 
     toggle := Toggle {
@@ -56,6 +257,22 @@ export component UpdateCheckRow inherits SettingRow {
         checked: UpdateState.check-enabled;
         toggled(on) => {
             UpdateState.set-check-enabled(on);
+        }
+    }
+}
+
+// Whether pre-releases count, in Settings only.
+export component PrereleaseRow inherits SettingRow {
+    title: @tr("Include pre-releases");
+    description: @tr("Also offer versions published for testing. Going back to the regular releases takes a download by hand.");
+    forward-focus: toggle;
+
+    toggle := Toggle {
+        label: @tr("Include pre-releases");
+        checked: UpdateState.include-prereleases;
+        enabled: UpdateState.check-enabled;
+        toggled(on) => {
+            UpdateState.set-include-prereleases(on);
         }
     }
 }
@@ -69,4 +286,5 @@ export component UpdatesSection inherits VerticalLayout {
     }
 
     UpdateCheckRow { }
+    PrereleaseRow { }
 }
