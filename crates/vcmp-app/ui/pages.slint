@@ -15,7 +15,7 @@ import { AlbumDetail, AlbumView, TrackList, TrackRow } from "album-page.slint";
 import { ArtistDetail, ArtistView } from "artist-page.slint";
 import { SongColumn, SongRow, SongTable } from "songs-page.slint";
 import { FolderBrowser, FolderRow } from "folders-page.slint";
-import { UpdateCheckRow, UpdateLink, UpdateState } from "updates.slint";
+import { PrereleaseRow, UpdateCheckRow, UpdateLink, UpdateState } from "updates.slint";
 import { PictureSlot } from "picture.slint";
 import { PlaylistDetail, PlaylistView } from "playlist-page.slint";
 import { Playlists } from "playlist-state.slint";
@@ -84,6 +84,7 @@ export component SettingsPage inherits HorizontalLayout {
     private property <[SettingEntry]> entries: [
         { section: SettingsSection.general, title: @tr("Setup"), keywords: @tr("run setup again wizard first start"), available: true },
         { section: SettingsSection.general, title: @tr("Check for updates"), keywords: @tr("updates new version release github"), available: true },
+        { section: SettingsSection.general, title: @tr("Include pre-releases"), keywords: @tr("updates testing beta version"), available: true },
         { section: SettingsSection.library, title: @tr("Music folders"), keywords: @tr("folders add remove rescan scan subfolders"), available: true },
         { section: SettingsSection.library, title: @tr("Update automatically"), keywords: @tr("scan watch changes automatic"), available: true },
         { section: SettingsSection.library, title: @tr("Library check"), keywords: @tr("duplicates missing tags covers"), available: LibraryState.folders.length > 0 },
@@ -274,14 +275,16 @@ export component SettingsPage inherits HorizontalLayout {
 
                     if root.shows(1): UpdateCheckRow { }
 
+                    if root.shows(2): PrereleaseRow { }
+
                     // Library
                     if SettingsNav.section-found(SettingsSection.library): ResultHeading {
                         section: SettingsSection.library;
                     }
 
-                    if root.shows(2): LibrarySection { }
+                    if root.shows(3): LibrarySection { }
 
-                    if root.shows(3): SettingRow {
+                    if root.shows(4): SettingRow {
                         title: @tr("Update automatically");
                         description: @tr("Scan the music folders when VCMP starts, and whenever their contents change.");
 
@@ -295,7 +298,7 @@ export component SettingsPage inherits HorizontalLayout {
                     }
 
                     // The Library check opens in place of Settings, as a page of its own.
-                    if root.shows(4): SettingRow {
+                    if root.shows(5): SettingRow {
                         title: @tr("Library check");
                         description: @tr("Finds duplicate tracks, tracks with missing tags and albums without a cover. It changes nothing by itself.");
 
@@ -307,7 +310,7 @@ export component SettingsPage inherits HorizontalLayout {
                         }
                     }
 
-                    if root.shows(5): SettingRow {
+                    if root.shows(6): SettingRow {
                         title: @tr("Play history");
                         description: @tr("The play counts and last played dates in Songs come from every play VCMP has counted.");
 
@@ -332,7 +335,7 @@ export component SettingsPage inherits HorizontalLayout {
                         }
                     }
 
-                    if root.shows(6): VerticalLayout {
+                    if root.shows(7): VerticalLayout {
                         padding-top: Theme.space-l;
 
                         LabelsSection { }
@@ -343,7 +346,7 @@ export component SettingsPage inherits HorizontalLayout {
                         section: SettingsSection.playback;
                     }
 
-                    if root.shows(7): SettingRow {
+                    if root.shows(8): SettingRow {
                         title: @tr("Shuffle");
                         description: @tr("Fewer repeats plays every track once before any comes back, and keeps the same artist apart. Fully random may play a track again soon.");
 
@@ -358,7 +361,7 @@ export component SettingsPage inherits HorizontalLayout {
                         }
                     }
 
-                    if root.shows(8): SettingRow {
+                    if root.shows(9): SettingRow {
                         title: @tr("Output device");
                         description: PlayerState.output-fallback != "" ? @tr("The chosen device isn't connected, so sound plays through {} until it is.", PlayerState.output-fallback)
                             : @tr("Where VCMP plays its sound. The system default follows your operating system's choice.");
@@ -382,49 +385,49 @@ export component SettingsPage inherits HorizontalLayout {
                         section: SettingsSection.appearance;
                     }
 
-                    if root.shows(9): ThemeRow { }
+                    if root.shows(10): ThemeRow { }
 
-                    if root.shows(10): AccentRow { }
+                    if root.shows(11): AccentRow { }
 
-                    if root.shows(11): ThemeFilesRow { }
+                    if root.shows(12): ThemeFilesRow { }
 
-                    if root.shows(12): ZoomRow { }
+                    if root.shows(13): ZoomRow { }
 
-                    if root.shows(13): MotionRow { }
+                    if root.shows(14): MotionRow { }
 
                     // Online services
                     if SettingsNav.section-found(SettingsSection.online-services): ResultHeading {
                         section: SettingsSection.online-services;
                     }
 
-                    if root.shows(14): LyricsOnlineRow { }
+                    if root.shows(15): LyricsOnlineRow { }
 
-                    if root.shows(15): DiscordRow { }
+                    if root.shows(16): DiscordRow { }
 
-                    if root.shows(16): LastfmRow { }
+                    if root.shows(17): LastfmRow { }
 
-                    if root.shows(17): LastfmLoveRow { }
+                    if root.shows(18): LastfmLoveRow { }
 
-                    if root.shows(18): LastfmImportRow { }
+                    if root.shows(19): LastfmImportRow { }
 
-                    if root.shows(19): PhotoKeyRow { }
+                    if root.shows(20): PhotoKeyRow { }
 
                     // AI agents
                     if SettingsNav.section-found(SettingsSection.agents): ResultHeading {
                         section: SettingsSection.agents;
                     }
 
-                    if root.shows(20): AgentsSwitchRow { }
+                    if root.shows(21): AgentsSwitchRow { }
 
-                    if root.shows(21): AgentsConnection { }
+                    if root.shows(22): AgentsConnection { }
 
-                    if root.shows(22): AgentsPlaybackRow { }
+                    if root.shows(23): AgentsPlaybackRow { }
 
-                    if root.shows(23): AgentsPortRow { }
+                    if root.shows(24): AgentsPortRow { }
 
-                    if root.shows(24): AgentsChangesRow { }
+                    if root.shows(25): AgentsChangesRow { }
 
-                    if root.shows(25): AgentsBackupsRow { }
+                    if root.shows(26): AgentsBackupsRow { }
                 }
             }
         }

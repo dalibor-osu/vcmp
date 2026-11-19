@@ -208,4 +208,5 @@ the owner's until reviewed; keep, change or drop each.
   Library. Search results are grouped under their sections' names, no section is
   marked in the list while searching, choosing a section ends the search, and a
   search is not a place in back and forward. The links read "Open AI agents
-  settings" and "Open Online services settings".
+  settings" and "Open Online services settings". "Include pre-releases", added with
+  self-update meanwhile, sits in General under "Check for updates".

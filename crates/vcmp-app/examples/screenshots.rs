@@ -37,7 +37,7 @@ use vcmp_app::{
     PhotoSearch, PhotoSearchStatus, PlayerState, ReduceMotion, ReviewStatus, SelectionChange,
     ServerStatus, SettingsNav, SettingsSection, Setup, SleepTimer, TagChange, TagEditorState,
     TagEditorStatus, TagField, Theme, ThemeKind, Themes as ThemesState, TrackSelection,
-    UpdateState,
+    UpdateBlocker, UpdatePhase, UpdateState,
 };
 use vcmp_integrations::discord::Listening;
 use vcmp_integrations::musicbrainz::AlbumQuery;
@@ -66,6 +66,8 @@ struct Shot {
     lastfm: Option<LastfmStatus>,
     // A newer VCMP is reported, so its note shows.
     update: bool,
+    // The update dialog is open over it, at this point of the install.
+    update_dialog: Option<UpdatePhase>,
     // The cover picker is open, with stand-in covers.
     cover_picker: bool,
     // The tag editor is open for the album (a library is needed).
@@ -127,6 +129,7 @@ const fn shot(
         lyrics: false,
         lastfm: None,
         update: false,
+        update_dialog: None,
         cover_picker: false,
         tags: false,
         tags_waiting: false,
@@ -272,6 +275,14 @@ const fn update(name: &'static str, theme: &'static str) -> Shot {
     }
 }
 
+/// The update dialog, at `phase`, as in a release build that can install it.
+const fn update_dialog(name: &'static str, theme: &'static str, phase: UpdatePhase) -> Shot {
+    Shot {
+        update_dialog: Some(phase),
+        ..update(name, theme)
+    }
+}
+
 const fn confirm(name: &'static str, theme: &'static str) -> Shot {
     Shot {
         confirm: true,
@@ -403,6 +414,9 @@ const SHOTS: &[Shot] = &[
     shot("about-dark", "dark", 8, None, 0),
     update("update-light", "light"),
     update("update-dark", "dark"),
+    update_dialog("update-dialog-light", "light", UpdatePhase::Offer),
+    update_dialog("update-dialog-dark", "dark", UpdatePhase::Offer),
+    update_dialog("update-downloading-dark", "dark", UpdatePhase::Downloading),
     shot("focus-nav-light", "light", 7, None, 1),
     Shot {
         section: SettingsSection::Appearance,
@@ -526,10 +540,25 @@ fn prepare(window: &AppWindow, shot: &Shot) {
             &Release {
                 version: "1.2.0".into(),
                 url: "https://github.com/dalibor-osu/vcmp/releases".into(),
+                ..Release::default()
             },
         );
     } else {
         window.global::<UpdateState>().set_version("".into());
+    }
+    let update_state = window.global::<UpdateState>();
+    match shot.update_dialog {
+        Some(phase) => {
+            update_state.set_current_version("1.1.0".into());
+            update_state.set_blocker(UpdateBlocker::None);
+            update_state.set_progress(0.4);
+            update_state.set_phase(phase);
+            update_state.set_dialog_open(true);
+        }
+        None => {
+            update_state.set_phase(UpdatePhase::Offer);
+            update_state.set_dialog_open(false);
+        }
     }
     let library_check = window.global::<LibraryCheck>();
     match shot.check {

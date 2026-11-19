@@ -3,7 +3,8 @@ name: Release
 # A pushed tag vYY.MM.PATCH on main (a calendar version, docs/development.md,
 # "Versions") builds VCMP for each platform and attaches an archive of each to a
 # draft GitHub Release: a zip of vcmp.exe on Windows, a zip of VCMP.app on macOS, a
-# tar.gz of vcmp on Linux, each with the licence texts. Running the workflow by hand
+# tar.gz of vcmp on Linux, each with the licence texts, and SHA256SUMS.txt with its
+# update signature (SHA256SUMS.txt.minisig). Running the workflow by hand
 # (workflow_dispatch) builds the same archives as downloadable workflow artifacts
 # and creates no release. Installers (the cargo-packager configuration in
 # crates/vcmp-app/Cargo.toml) are left for later; the builds are unsigned.
@@ -174,6 +175,29 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      # Copies of VCMP install an update only when SHA256SUMS.txt is signed with the
+      # key they carry (docs/development.md, "Signing updates"). Without the secret
+      # the release stays unsigned and they only link to it.
+      - uses: actions/checkout@v4
+        with:
+          path: src
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Sign the checksums
+        env:
+          VCMP_UPDATE_SIGNING_KEY: ${{ secrets.VCMP_UPDATE_SIGNING_KEY }}
+          VCMP_UPDATE_SIGNING_PASSWORD: ${{ secrets.VCMP_UPDATE_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$VCMP_UPDATE_SIGNING_KEY" ]; then
+            echo "::warning::VCMP_UPDATE_SIGNING_KEY is not set: the release is not signed, so VCMP only links to it"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/update-signing.key"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$VCMP_UPDATE_SIGNING_KEY" > "$key"
+          cargo run --locked --manifest-path src/Cargo.toml -p vcmp-integrations --example update_signing -- sign "$key" "$PWD/dist/SHA256SUMS.txt"
 
       - name: Create the draft release
         env:

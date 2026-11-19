@@ -16,7 +16,8 @@ Area: vcmp-app (Settings page, navigation, preferences, setup wizard, photo pick
   `AgentsSection` became `AgentsConnection`, `AgentsPlaybackRow`, `AgentsPortRow`,
   `AgentsChangesRow`, `AgentsBackupsRow`; `ThemeRows` became `ThemeRow`,
   `AccentRow`, `ThemeFilesRow` (with `ThemeRows` kept as the wizard's form);
-  `UpdatesSection` is gone (`UpdateCheckRow` sits in General).
+  `UpdatesSection` is gone (`UpdateCheckRow` and self-update's `PrereleaseRow`,
+  merged from main, sit in General).
 - The search (`src/settings_nav.rs`) matches every typed word against a block's
   title, its section's name and its keywords, as the page filters do; the page
   shows the found blocks themselves under their sections' names.
