@@ -1,12 +1,12 @@
 //! The update check: asks GitHub Releases for VCMP's newest published version and
-//! reports it when it is newer than the one running. VCMP doesn't download anything;
-//! the release page opens in the browser.
+//! reports it, with its downloads, when it is newer than the one running. Installing
+//! it is `crate::self_update`.
 //!
 //! The check asks for the list of releases rather than GitHub's "latest" one, and
 //! picks the highest version itself: a fix for an older line published after a newer
-//! major would otherwise count as the newest. Drafts, pre-releases (flagged as such,
-//! or with a pre-release version like `2.0.0-beta.1`) and tags that are no version
-//! are skipped.
+//! major would otherwise count as the newest. Drafts, tags with a pre-release version
+//! like `2.0.0-beta.1` and tags that are no version are skipped, and so are releases
+//! flagged as pre-releases unless the user asked for them.
 
 use std::cmp::Ordering;
 use std::thread;
@@ -23,22 +23,44 @@ pub const RELEASES_URL: &str = "https://api.github.com/repos/dalibor-osu/vcmp/re
 const RELEASE_PAGE: &str = "https://github.com/dalibor-osu/vcmp/releases/tag/";
 
 /// A published release newer than the running version.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Release {
     /// The version, without the tag's "v": "1.2.0".
     pub version: String,
-    /// The release's page on GitHub, with its notes and installers.
+    /// The release's page on GitHub, with its notes and downloads.
     pub url: String,
+    /// Flagged as a pre-release on GitHub.
+    pub prerelease: bool,
+    /// The files attached to the release.
+    pub assets: Vec<Asset>,
+}
+
+impl Release {
+    /// The attached file called `name`.
+    pub fn asset(&self, name: &str) -> Option<&Asset> {
+        self.assets.iter().find(|asset| asset.name == name)
+    }
+}
+
+/// A file attached to a release.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Asset {
+    pub name: String,
+    #[serde(rename = "browser_download_url")]
+    pub url: String,
+    #[serde(default)]
+    pub size: u64,
 }
 
 /// Asks GitHub on a worker thread and hands a release newer than `current` to
-/// `on_newer`, on that thread. Finding none, or failing to ask (offline, GitHub's
-/// rate limit), is only logged.
-pub fn start(current: &str, on_newer: impl FnOnce(Release) + Send + 'static) {
+/// `on_newer`, on that thread; with `prereleases`, releases flagged as pre-releases
+/// count too. Finding none, or failing to ask (offline, GitHub's rate limit), is only
+/// logged.
+pub fn start(current: &str, prereleases: bool, on_newer: impl FnOnce(Release) + Send + 'static) {
     let current = current.to_owned();
     thread::Builder::new()
         .name("vcmp-update-check".into())
-        .spawn(move || match check(&current, fetch) {
+        .spawn(move || match check(&current, prereleases, fetch) {
             Ok(Some(release)) => {
                 log::info!("VCMP {} is available", release.version);
                 on_newer(release);
@@ -53,31 +75,38 @@ pub fn start(current: &str, on_newer: impl FnOnce(Release) + Send + 'static) {
 /// picks the release newer than `current`, if there is one.
 pub fn check(
     current: &str,
+    prereleases: bool,
     get: impl FnOnce(&str) -> Result<(u16, String), String>,
 ) -> Result<Option<Release>, String> {
     let current = Version::parse(current)
         .map_err(|error| format!("the running version {current:?} is no version: {error}"))?;
     match get(RELEASES_URL)? {
-        (200, body) => newer_release(&body, &current),
+        (200, body) => newer_release(&body, &current, prereleases),
         (status, _) => Err(format!("GitHub answered {status}")),
     }
 }
 
 /// The newest published release in GitHub's list of releases, if it is newer than
-/// `current`.
-pub fn newer_release(body: &str, current: &Version) -> Result<Option<Release>, String> {
+/// `current`. Releases flagged as pre-releases count only with `prereleases`.
+pub fn newer_release(
+    body: &str,
+    current: &Version,
+    prereleases: bool,
+) -> Result<Option<Release>, String> {
     let releases: Vec<GitHubRelease> = serde_json::from_str(body)
         .map_err(|error| format!("unexpected answer from GitHub: {error}"))?;
     let newest = releases
         .into_iter()
-        .filter(|release| !release.draft && !release.prerelease)
-        .filter_map(|release| Some((tag_version(&release.tag_name)?, release.tag_name)))
+        .filter(|release| !release.draft && (prereleases || !release.prerelease))
+        .filter_map(|release| Some((tag_version(&release.tag_name)?, release)))
         .max_by(|(a, _), (b, _)| a.cmp_precedence(b));
     Ok(newest
         .filter(|(version, _)| is_newer(version, current))
-        .map(|(version, tag)| Release {
+        .map(|(version, release)| Release {
             version: version.to_string(),
-            url: format!("{RELEASE_PAGE}{tag}"),
+            url: format!("{RELEASE_PAGE}{}", release.tag_name),
+            prerelease: release.prerelease,
+            assets: release.assets,
         }))
 }
 
@@ -125,6 +154,8 @@ struct GitHubRelease {
     draft: bool,
     #[serde(default)]
     prerelease: bool,
+    #[serde(default)]
+    assets: Vec<Asset>,
 }
 
 #[cfg(test)]
@@ -186,36 +217,83 @@ mod tests {
 
     #[test]
     fn the_newest_published_release_is_picked() {
+        let release = newer_release(RELEASES, &version("0.1.0"), false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(release.version, "1.3.0");
         assert_eq!(
-            newer_release(RELEASES, &version("0.1.0")).unwrap(),
-            Some(Release {
-                version: "1.3.0".into(),
-                url: "https://github.com/dalibor-osu/vcmp/releases/tag/v1.3.0".into(),
-            })
+            release.url,
+            "https://github.com/dalibor-osu/vcmp/releases/tag/v1.3.0"
+        );
+        assert!(!release.prerelease);
+    }
+
+    #[test]
+    fn the_release_brings_its_downloads() {
+        let release = newer_release(RELEASES, &version("0.1.0"), false)
+            .unwrap()
+            .unwrap();
+        let names: Vec<&str> = release
+            .assets
+            .iter()
+            .map(|asset| asset.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "vcmp-1.3.0-linux-x64.tar.gz",
+                "vcmp-1.3.0-windows-x64.zip",
+                "SHA256SUMS.txt",
+                "SHA256SUMS.txt.minisig"
+            ]
+        );
+        let archive = release.asset("vcmp-1.3.0-windows-x64.zip").unwrap();
+        assert_eq!(
+            archive.url,
+            "https://github.com/dalibor-osu/vcmp/releases/download/v1.3.0/vcmp-1.3.0-windows-x64.zip"
+        );
+        assert_eq!(archive.size, 8388608);
+        assert_eq!(release.asset("vcmp-1.3.0-macos-arm64.zip"), None);
+    }
+
+    #[test]
+    fn pre_releases_count_only_when_asked_for() {
+        let release = newer_release(RELEASES, &version("1.3.0"), true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(release.version, "1.4.0");
+        assert!(release.prerelease);
+        assert_eq!(
+            newer_release(RELEASES, &version("1.4.0"), true).unwrap(),
+            None,
+            "a tag with a pre-release version still doesn't count, nor does a draft"
         );
     }
 
     #[test]
     fn nothing_is_reported_when_up_to_date() {
-        assert_eq!(newer_release(RELEASES, &version("1.3.0")).unwrap(), None);
         assert_eq!(
-            newer_release(RELEASES, &version("1.4.0")).unwrap(),
+            newer_release(RELEASES, &version("1.3.0"), false).unwrap(),
+            None
+        );
+        assert_eq!(
+            newer_release(RELEASES, &version("1.4.0"), false).unwrap(),
             None,
             "a draft or pre-release of a later version doesn't count"
         );
-        assert_eq!(newer_release("[]", &version("0.1.0")).unwrap(), None);
+        assert_eq!(newer_release("[]", &version("0.1.0"), false).unwrap(), None);
     }
 
     #[test]
     fn an_unexpected_answer_is_an_error() {
-        assert!(newer_release(r#"{"message":"Not Found"}"#, &version("0.1.0")).is_err());
-        assert!(newer_release("<html>", &version("0.1.0")).is_err());
+        assert!(newer_release(r#"{"message":"Not Found"}"#, &version("0.1.0"), false).is_err());
+        assert!(newer_release("<html>", &version("0.1.0"), false).is_err());
     }
 
     #[test]
     fn the_check_asks_github_for_its_releases() {
         let mut asked = None;
-        let found = check("1.2.0", |url| {
+        let found = check("1.2.0", false, |url| {
             asked = Some(url.to_owned());
             Ok((200, RELEASES.to_owned()))
         });
@@ -226,13 +304,13 @@ mod tests {
     #[test]
     fn errors_and_other_answers_fail_the_check() {
         assert_eq!(
-            check("0.1.0", |_| Err("offline".into())),
+            check("0.1.0", false, |_| Err("offline".into())),
             Err("offline".into())
         );
         assert_eq!(
-            check("0.1.0", |_| Ok((403, "rate limit exceeded".into()))),
+            check("0.1.0", false, |_| Ok((403, "rate limit exceeded".into()))),
             Err("GitHub answered 403".into())
         );
-        assert!(check("not a version", |_| Ok((200, "[]".into()))).is_err());
+        assert!(check("not a version", false, |_| Ok((200, "[]".into()))).is_err());
     }
 }

@@ -542,9 +542,24 @@ animated WebP and an APNG. For album covers, edit copies only.
       **(never seen working with a real account; checks that 200 a page is
       accepted)**
 - [ ] Update check: once the repository is public and has a release newer than the
-      build, the sidebar and About show "VCMP x.y.z is available" and open its
-      page; turning the setting off hides it. While the repository is private the
-      check gets 404 and shows nothing.
+      build, the sidebar and About show "VCMP x.y.z is available" and open the
+      update dialog; turning the setting off hides it. While the repository is
+      private the check gets 404 and shows nothing.
+- [ ] Self-update, Windows and Linux: unpack a signed release older than the newest
+      signed one into a folder you can write to and start it. Open the note, Install
+      and restart: the progress bar fills, the window closes, the new version opens
+      within seconds with the queue paused, and only `vcmp(.exe)` and the licence
+      texts are left in the folder (no `vcmp.old`).
+- [ ] Self-update roll-back: as above, but with a broken archive in a test release
+      signed with a test key (a build made with that key's public half), such as a
+      `vcmp.exe` that exits at once: after up to a minute the old version opens
+      again with "The update didn't start", and its program is back in place.
+- [ ] Self-update blocked: the same release in a read-only folder (Program Files,
+      or `chmod a-w`) shows why it can't install and opens the release page.
+- [ ] Include pre-releases: with a newer release flagged as a pre-release on GitHub,
+      the note shows it only while the switch is on, marked "A pre-release".
+- [ ] Windows Defender and SmartScreen: an installed update starts without a
+      warning, or note what they say.
 
 ### AI agents (copies of your music, or a VCMP_HOME library)
 

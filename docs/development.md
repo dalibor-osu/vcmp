@@ -74,8 +74,9 @@ in; `VCMP_DISCORD_APPLICATION_ID` overrides it.
 ## Releases
 
 Each release on GitHub has an archive per platform, built by the
-[Release workflow](../.github/workflows/release.yml), and a `SHA256SUMS.txt` to check
-them against. An archive holds the program and the licence texts (in `VCMP.app`'s
+[Release workflow](../.github/workflows/release.yml), a `SHA256SUMS.txt` to check
+them against, and that file's signature, `SHA256SUMS.txt.minisig`, which VCMP checks
+before it installs an update ([Signing updates](#signing-updates)). An archive holds the program and the licence texts (in `VCMP.app`'s
 Resources on macOS); the Sora font and the UI icons are compiled into the program.
 The app icon is a placeholder ([packaging/icons/](../packaging/icons/)) until VCMP
 has a logo.
@@ -95,7 +96,7 @@ two numbers at 255, which a two-digit year stays under until 2255.
 
 Pre-releases carry no suffix. A version to try is published with GitHub's "Set as a
 pre-release" box ticked and unticked once it holds up; the update check skips
-pre-releases. A suffix would break the installers planned for later: the MSI takes
+pre-releases unless the user turned on "Include pre-releases". A suffix would break the installers planned for later: the MSI takes
 only a numeric one, and Debian would sort it after the release itself. A pre-release
 that needs a fix makes way for the next patch number.
 
@@ -114,11 +115,12 @@ that needs a fix makes way for the next patch number.
 
 3. The workflow checks that the tag is on `main` and matches the version, builds
    VCMP on Windows, macOS and Linux, and creates a draft GitHub Release with the
-   archives, the checksums and generated notes. Review the notes and publish it,
+   archives, the checksums, their update signature and generated notes. Review the notes and publish it,
    ticking "Set as a pre-release" for a version to try first.
 
-Copies of VCMP with the update check on link to a published release at their next
-start. The check takes the highest `vYY.MM.PATCH` tag among the published releases,
+Copies of VCMP with the update check on offer a published release at their next
+start, and on Windows and Linux install it when the user agrees, if the checksums are
+signed. The check takes the highest `vYY.MM.PATCH` tag among the published releases,
 skipping drafts and pre-releases. It asks GitHub without signing in, so it finds
 nothing while the repository is private.
 
@@ -145,16 +147,51 @@ would need the host's glibc. Windows is cross-built there with MinGW-w64 (the
 run downloads Ubuntu, Rust and the crates; later runs rebuild only what changed.
 
 Set the [integration keys](#integration-keys) in the shell first: the script passes
-the ones that are set into the container. Then create a draft release, check it on
+the ones that are set into the container. Set `VCMP_UPDATE_SIGNING_KEY_FILE` to the
+update signing key too: after the build, the script signs `SHA256SUMS.txt` on this
+machine and asks for the key's password ([Signing updates](#signing-updates)). Then create a draft release, check it on
 GitHub and publish it, which creates the tag on `main`. Add `--prerelease` for a
 pre-release.
 
 ```bash
-gh release create v26.10.0 dist/vcmp-26.10.0-* dist/SHA256SUMS.txt --draft --target main --title "VCMP 26.10.0" --generate-notes
+gh release create v26.10.0 dist/vcmp-26.10.0-* dist/SHA256SUMS.txt dist/SHA256SUMS.txt.minisig --draft --target main --title "VCMP 26.10.0" --generate-notes
 ```
 
 The new tag also starts the Release workflow, which fails to start while Actions
 can't run.
+
+### Signing updates
+
+VCMP installs an update only when the release's `SHA256SUMS.txt` carries a minisign
+signature from the key whose public half is compiled in from
+[packaging/update-signing.pub](../packaging/update-signing.pub), and the archive
+matches its line there. A release without the signature, or a build whose key file
+holds no key, only links to the release page.
+
+Make the key once, on a machine you trust, and keep the secret key and its password
+out of the repository:
+
+```bash
+cargo run -p vcmp-integrations --example update_signing -- generate ~/.minisign/vcmp-update.key
+```
+
+It asks for a password, writes the secret key to the given file and the public key
+to `packaging/update-signing.pub`; commit that file. Back up the secret key and its
+password offline: without them no later release can be installed by the copies
+already out there, and their users have to download one version by hand.
+
+- The Release workflow signs with the repository secrets
+  `VCMP_UPDATE_SIGNING_KEY` (the secret key file's contents) and
+  `VCMP_UPDATE_SIGNING_PASSWORD`. Without them it warns and leaves the release
+  unsigned.
+- `packaging/release-local.sh` signs with the file in
+  `VCMP_UPDATE_SIGNING_KEY_FILE`.
+- By hand: `cargo run -p vcmp-integrations --example update_signing -- sign <key>
+  dist/SHA256SUMS.txt` writes `dist/SHA256SUMS.txt.minisig`. It refuses a key that
+  doesn't match `packaging/update-signing.pub`.
+
+A new key only reaches copies through a release they can install: sign that release
+with the old key, or tell users to download it by hand.
 
 ### Installers
 
